@@ -1,0 +1,10 @@
+vendor/occt-src/
+vendor/occt-build/
+vendor/OCCT.xcframework/
+*.xcodeproj/
+DerivedData/
+.build/
+build/
+.DS_Store
+xcuserdata/
+vendor/occt-include/

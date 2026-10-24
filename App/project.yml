@@ -1,0 +1,81 @@
+name: Fillet
+options:
+  bundleIdPrefix: app.fillet
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+  createIntermediateGroups: true
+packages:
+  FilletKit:
+    path: ..
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Fillet:
+    type: application
+    supportedDestinations: [iOS, macOS]
+    sources:
+      - path: Sources
+      - path: Resources
+    dependencies:
+      - package: FilletKit
+        product: FilletKit
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Fillet
+        LSApplicationCategoryType: public.app-category.graphics-design
+        UISupportsDocumentBrowser: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Fillet Design
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes: [app.fillet.document]
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: app.fillet.document
+            UTTypeDescription: Fillet Design
+            UTTypeConformsTo: [public.json, public.data, public.content]
+            UTTypeTagSpecification:
+              public.filename-extension: [fillet]
+        UTImportedTypeDeclarations:
+          - UTTypeIdentifier: public.standard-tesselated-geometry-format
+            UTTypeDescription: STL Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [stl]
+          - UTTypeIdentifier: com.microsoft.3mf
+            UTTypeDescription: 3MF Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [3mf]
+          - UTTypeIdentifier: org.iso.step
+            UTTypeDescription: STEP Model
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [step, stp]
+    entitlements:
+      path: Fillet.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.files.user-selected.read-write: true
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.fillet.Fillet
+        TARGETED_DEVICE_FAMILY: "2"
+        CODE_SIGN_STYLE: Automatic
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: true
+        SUPPORTS_MACCATALYST: false
+        SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD: false
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
