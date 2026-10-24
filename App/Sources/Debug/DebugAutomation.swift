@@ -70,6 +70,7 @@ enum DebugAutomation {
         await settle(session)
         await snap(session, "02-sketch")
         check(session.model.sketches.values.first?.regions?.count == 2, "sketch has 2 regions")
+        await typeIntoDimensionField(session)
 
         // Extrude the plate (not the hole).
         session.startExtrude()
@@ -223,6 +224,40 @@ enum DebugAutomation {
         let size = session.viewSize
         guard let screen = session.camera.project(sketch.plane.point(p), viewSize: size) else { return }
         session.viewportToolHover(ViewportToolEvent(ray: session.camera.ray(at: screen, viewSize: size), location: screen, pointer: .mouse))
+    }
+
+    /// Typing into a focused dimension field must reach the field, not the bare-letter
+    /// sketch tool shortcuts ("l" = line, "." = point), and Backspace must not delete the shape.
+    private static func typeIntoDimensionField(_ session: DesignSession) async {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }), let content = window.contentView else { return }
+        func field(_ v: NSView) -> NSTextField? {
+            if let f = v as? NSTextField, f.isEditable, f.stringValue == "14" { return f }
+            for s in v.subviews { if let f = field(s) { return f } }
+            return nil
+        }
+        guard let diameter = field(content) else { check(false, "diameter field found"); return }
+        let toolBefore = session.sketchEditor?.tool
+        let shapesBefore = session.model.sketches.values.first?.source.shapes.count
+        window.makeFirstResponder(diameter)
+        try? await Task.sleep(for: .milliseconds(100))
+        for (chars, code) in [("l", UInt16(37)), (".", UInt16(47)), (".", UInt16(47)), ("\u{7F}", UInt16(51))] {
+            if let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                        windowNumber: window.windowNumber, context: nil, characters: chars,
+                                        charactersIgnoringModifiers: chars, isARepeat: false, keyCode: code) {
+                NSApp.sendEvent(e)
+            }
+        }
+        try? await Task.sleep(for: .milliseconds(150))
+        let typed = (window.firstResponder as? NSTextView)?.string ?? diameter.stringValue
+        check(session.sketchEditor?.tool == toolBefore, "typing in a field keeps the sketch tool (\(String(describing: session.sketchEditor?.tool)))")
+        check(typed == "l.", "typed keys reach the field (\(typed))")
+        await settle(session)
+        check(session.model.sketches.values.first?.source.shapes.count == shapesBefore, "Backspace in a field doesn't delete the shape")
+        window.makeFirstResponder(nil)
+        // The field editor's undo registration marks the untitled document edited, which
+        // would make terminate wait on a save prompt; this check changed nothing in the model.
+        NSDocumentController.shared.document(for: window)?.updateChangeCount(.changeCleared)
+        await settle(session)
     }
 
     private static func snap(_ session: DesignSession, _ name: String) async {

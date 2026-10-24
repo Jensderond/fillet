@@ -62,7 +62,7 @@ struct TimelineView: View {
     }
 
     private var emptyState: some View {
-        Label("Steps appear here as you design. Tap one later to change it.", systemImage: "ruler")
+        Label("Steps appear here as you design. \(Theme.Copy.pick) one later to change it.", systemImage: "ruler")
             .font(Theme.body)
             .foregroundStyle(Theme.inkSecondary)
             .padding(.horizontal, Theme.Space.s)
@@ -113,7 +113,7 @@ struct TimelineView: View {
                 dropTarget: dropTarget == index)
         }
         .buttonStyle(PressableStyle())
-        .help(failed.map { "\(feature.name): \($0)" } ?? "\(feature.name) — tap to edit")
+        .help(failed.map { "\(feature.name): \($0)" } ?? "\(feature.name). \(Theme.Copy.pick) to edit.")
         .accessibilityLabel("Step \(index + 1), \(feature.name)\(failed != nil ? ", failed" : "")")
         .draggable("feature:\(feature.id.uuidString)") {
             IconChip(symbol: feature.kind.symbol, tint: Theme.filletInk, size: 34)
@@ -178,7 +178,7 @@ struct TimelineView: View {
         let target = from < index ? index - 1 : index
         guard target != from else { return false }
         if !session.moveFeature(id, to: target) {
-            session.message = "\(doc.feature(id)?.name ?? "That step") can't move there: it uses an earlier step"
+            session.message = .error("\(doc.feature(id)?.name ?? "That step") can't move there: it uses an earlier step")
             return false
         }
         return true

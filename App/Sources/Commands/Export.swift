@@ -89,10 +89,17 @@ extension DesignSession {
                 workspace.open(url)
             }
         } catch {
-            message = "Export failed: \(error)"
+            message = .error("Couldn't export: \(error.userMessage)")
         }
     }
     #endif
+}
+
+extension Error {
+    /// A sentence for the user: the kernel's own message, or the system's description, never a type dump.
+    var userMessage: String {
+        (self as? KernelError)?.message ?? localizedDescription
+    }
 }
 
 struct ExportMenu: View {
@@ -121,7 +128,7 @@ struct ExportMenu: View {
             document: exporting, contentType: format.contentType,
             defaultFilename: "\(session.exportName).\(format.fileExtension)"
         ) { result in
-            if case .failure(let error) = result { session.message = "Export failed: \(error.localizedDescription)" }
+            if case .failure(let error) = result { session.message = .error("Couldn't export: \(error.userMessage)") }
         }
     }
 
@@ -133,7 +140,7 @@ struct ExportMenu: View {
             do {
                 exporting = ExportedFile(data: try await session.exportData(f))
             } catch {
-                session.message = "Export failed: \(error)"
+                session.message = .error("Couldn't export: \(error.userMessage)")
             }
         }
     }

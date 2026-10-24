@@ -48,8 +48,8 @@ struct BrowserView: View {
                     }
                     VStack(spacing: 2) {
                         ForEach(sketches) { f in
-                            BrowserRow(symbol: "pencil.and.outline", title: f.name,
-                                       selected: session.sketchEditor?.sketch == f.id,
+                            BrowserRow(symbol: "pencil.and.outline", title: f.name, selected: false,
+                                       isActive: session.sketchEditor?.sketch == f.id,
                                        dimmed: false, trailing: { EmptyView() }) {
                                 session.editSketch(f.id)
                             }
@@ -64,11 +64,12 @@ struct BrowserView: View {
     }
 }
 
-/// A sidebar row with hover and selected states.
+/// A sidebar row with hover, selected (picked, blue) and active (being edited, orange) states.
 struct BrowserRow<Trailing: View>: View {
     let symbol: String
     let title: String
     let selected: Bool
+    var isActive = false
     let dimmed: Bool
     @ViewBuilder var trailing: Trailing
     let action: () -> Void
@@ -81,10 +82,11 @@ struct BrowserRow<Trailing: View>: View {
                 HStack(spacing: Theme.Space.s) {
                     Image(systemName: symbol)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(selected ? Theme.select : Theme.inkSecondary)
+                        .foregroundStyle(isActive ? Theme.filletInk : selected ? Theme.select : Theme.inkSecondary)
                         .frame(width: 18)
+                        .accessibilityHidden(true)
                     Text(title)
-                        .font(Theme.body.weight(selected ? .semibold : .regular))
+                        .font(Theme.body.weight(selected || isActive ? .semibold : .regular))
                         .foregroundStyle(Theme.ink)
                         .lineLimit(1)
                     Spacer(minLength: 0)
@@ -98,7 +100,7 @@ struct BrowserRow<Trailing: View>: View {
         .padding(.trailing, Theme.Space.xs)
         .frame(minHeight: 32)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-            .fill(selected ? Theme.selectSoft : hovering ? Theme.hairline : .clear))
+            .fill(isActive ? Theme.filletSoft : selected ? Theme.selectSoft : hovering ? Theme.hairline : .clear))
         .opacity(dimmed ? 0.5 : 1)
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: hovering)
@@ -157,6 +159,7 @@ struct ParameterRow: View {
                     .textInputAutocapitalization(.never)
                     #endif
                     .focused($nameFocused)
+                    .focusedValue(\.isEditingText, nameFocused ? true : nil)
                     .onSubmit(commitName)
                     .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
                 Spacer(minLength: 0)

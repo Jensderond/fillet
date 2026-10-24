@@ -13,7 +13,7 @@ struct SelectionInspector: View {
             } else {
                 InspectorHeader(
                     symbol: "cursorarrow.rays", title: session.selection.count == 1 ? "Selection" : "\(session.selection.count) selected",
-                    subtitle: session.selection.count == 2 ? nil : "Pick two items to measure between them")
+                    subtitle: session.selection.count == 2 ? nil : "Pick two items to measure between them", tint: Theme.select)
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     ForEach(Array(session.selection.prefix(4).enumerated()), id: \.offset) { _, item in
                         describe(item)
@@ -26,7 +26,8 @@ struct SelectionInspector: View {
     }
 
     @ViewBuilder private var summary: some View {
-        InspectorHeader(symbol: "printer", title: "Print check", subtitle: session.document.printerPreset.name)
+        // Nothing is active here, so the chip is ink, not orange.
+        InspectorHeader(symbol: "printer", title: "Print check", subtitle: session.document.printerPreset.name, tint: Theme.inkSecondary)
         if session.model.bodies.isEmpty {
             Hint("Start with Sketch in the toolbar, draw a profile on the bed, then Extrude it.", symbol: "pencil.and.outline")
         } else if let a = session.printAnalysis {
@@ -186,6 +187,7 @@ private struct CheckRow: View {
             Image(systemName: state == .ok ? "checkmark.circle.fill" : state == .warn ? "exclamationmark.triangle.fill" : "xmark.octagon.fill")
                 .font(.system(size: 15))
                 .foregroundStyle(state == .ok ? Theme.ok : state == .warn ? Theme.warn : Theme.danger)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
                 Text(detail).font(Theme.caption.monospacedDigit()).foregroundStyle(Theme.inkSecondary)
@@ -229,10 +231,11 @@ private struct ActionRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: Theme.Space.m) {
-                Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.filletInk).frame(width: 20)
+                Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.ink).frame(width: 20)
                 Text(title).font(Theme.body.weight(.medium)).foregroundStyle(Theme.ink)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.inkTertiary)
+                    .accessibilityHidden(true)
             }
             .padding(.horizontal, Theme.Space.m)
             .frame(minHeight: max(38, Theme.Metrics.target(touch: touch)))

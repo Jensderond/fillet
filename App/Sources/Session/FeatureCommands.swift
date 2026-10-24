@@ -195,7 +195,7 @@ extension DesignSession {
                 _ = doc.addFeature(Feature(name: name, .importedSTEP(ImportedSTEP(name: name, brep: shape.brepString()))))
             }
         } catch {
-            message = "Couldn't import \(url.lastPathComponent): \(error)"
+            message = .error("Couldn't import \(url.lastPathComponent): \(error.userMessage)")
         }
     }
 

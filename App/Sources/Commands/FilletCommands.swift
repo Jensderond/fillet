@@ -1,19 +1,33 @@
 import FilletCore
+import FilletViewport
 import SwiftUI
 import UniformTypeIdentifiers
 
 extension FocusedValues {
     @Entry var session: DesignSession?
+    @Entry var viewport: ViewportController?
+    /// True while a text field has focus, so bare-letter tool shortcuts stay out of its way.
+    @Entry var isEditingText: Bool?
 }
 
 /// Menu bar commands (Mac) and hardware-keyboard shortcuts (iPad).
 struct FilletCommands: Commands {
     @FocusedValue(\.session) private var session
+    @FocusedValue(\.viewport) private var viewport
+    @FocusedValue(\.isEditingText) private var isEditingText
 
     var body: some Commands {
+        CommandGroup(before: .toolbar) {
+            Button("Zoom to Fit") { viewport?.fitAll() }
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(viewport == nil)
+            Divider()
+        }
+
         CommandMenu("Design") {
+            // ⇧⌘S is File > Duplicate in document apps, so New Sketch is ⇧⌘K (sKetch).
             Button("New Sketch") { session?.startSketch() }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
+                .keyboardShortcut("k", modifiers: [.command, .shift])
             Button("Extrude") { session?.startExtrude() }
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             Button("Revolve") { session?.startRevolve() }
@@ -39,14 +53,19 @@ struct FilletCommands: Commands {
         CommandMenu("Sketch") {
             ForEach(SketchTool.allCases, id: \.self) { tool in
                 Button(tool.title) { session?.sketchEditor?.engine.setTool(tool) }
-                    .keyboardShortcut(tool.shortcut, modifiers: [])
+                    .keyboardShortcut(bare(tool.shortcut))
             }
             Divider()
             Button("Toggle Construction") { session?.toggleConstructionOfSelection() }
-                .keyboardShortcut("x", modifiers: [])
+                .keyboardShortcut(bare("x"))
             Button("Finish Sketch") { session?.finishSketch() }
                 .keyboardShortcut(.return, modifiers: [.command])
         }
+    }
+
+    /// A single-key shortcut, withdrawn while typing so it can never take a keystroke from a field.
+    private func bare(_ key: KeyEquivalent) -> KeyboardShortcut? {
+        isEditingText == true ? nil : KeyboardShortcut(key, modifiers: [])
     }
 }
 

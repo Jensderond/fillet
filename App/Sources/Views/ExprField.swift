@@ -57,6 +57,8 @@ struct ExprField: View {
                 .keyboardType(.numbersAndPunctuation)
                 #endif
                 .focused($focused)
+                .focusedValue(\.isEditingText, focused ? true : nil)
+                .accessibilityLabel(unitName.isEmpty ? label : "\(label), \(unitName)")
                 .onSubmit(apply)
             if !unit.isEmpty {
                 Text(unit)
@@ -88,6 +90,14 @@ struct ExprField: View {
         switch kind {
         case .length: "mm"
         case .angle: "°"
+        case .scalar: ""
+        }
+    }
+
+    private var unitName: String {
+        switch kind {
+        case .length: "millimetres"
+        case .angle: "degrees"
         case .scalar: ""
         }
     }

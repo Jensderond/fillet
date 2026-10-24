@@ -52,7 +52,7 @@ struct EditorContent: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolStrip(session: session, controller: controller, showBrowser: $showBrowser)
+            ToolStrip(session: session, showBrowser: $showBrowser)
             HStack(spacing: 0) {
                 if showBrowser {
                     BrowserView(session: session)
@@ -92,6 +92,7 @@ struct EditorContent: View {
         }
         #endif
         .focusedSceneValue(\.session, session)
+        .focusedSceneValue(\.viewport, controller)
         .fileImporter(isPresented: $session.importRequested, allowedContentTypes: [.step]) { result in
             if case .success(let url) = result { session.importSTEP(from: url) }
         }
@@ -136,10 +137,10 @@ struct EditorContent: View {
                 }
                 Spacer(minLength: 0)
                 if let message = session.message {
-                    Toast(text: message) { session.message = nil }
+                    Toast(message: message) { session.message = nil }
                         .transition(.panel(from: .bottom, reduceMotion: reduceMotion))
                         .task(id: message) {
-                            try? await Task.sleep(for: .seconds(4))
+                            try? await Task.sleep(for: .seconds(message.duration))
                             if session.message == message { session.message = nil }
                         }
                 }
@@ -149,15 +150,18 @@ struct EditorContent: View {
             .animation(Theme.Motion.enter, value: session.message)
 
             if showUpdating {
-                Label("Updating", systemImage: "arrow.triangle.2.circlepath")
-                    .font(Theme.caption.weight(.medium))
-                    .foregroundStyle(Theme.inkSecondary)
-                    .padding(.horizontal, Theme.Space.m).padding(.vertical, Theme.Space.xs)
-                    .background(Capsule().fill(Theme.raised))
-                    .overlay(Capsule().strokeBorder(Theme.hairline))
-                    .padding(Theme.Space.m)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                    .transition(.opacity.animation(Theme.Motion.exit))
+                HStack(spacing: Theme.Space.s) {
+                    ProgressView().controlSize(.mini)
+                    Text("Updating")
+                }
+                .font(Theme.caption.weight(.medium))
+                .foregroundStyle(Theme.inkSecondary)
+                .padding(.horizontal, Theme.Space.m).padding(.vertical, Theme.Space.xs)
+                .background(Capsule().fill(Theme.raised))
+                .overlay(Capsule().strokeBorder(Theme.hairline))
+                .padding(Theme.Space.m)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                .transition(.opacity.animation(Theme.Motion.exit))
             }
         }
         .clipped()
@@ -167,12 +171,13 @@ struct EditorContent: View {
         if let editor = session.sketchEditor {
             return (editor.engine.hint, editor.tool == .select ? "cursorarrow" : "pencil.tip")
         }
+        let pick = Theme.Copy.pick
         switch session.pickMode {
-        case .regions: return ("Tap the profiles to use", "hand.tap")
-        case .edges: return ("Tap edges to add or remove them", "hand.tap")
-        case .faces: return ("Tap faces to remove them", "hand.tap")
-        case .singleFace: return ("Tap the face that should touch the bed", "hand.tap")
-        case .bodies: return ("Tap bodies to add or remove them", "hand.tap")
+        case .regions: return ("\(pick) the profiles to use", "hand.tap")
+        case .edges: return ("\(pick) edges to add or remove them", "hand.tap")
+        case .faces: return ("\(pick) faces to remove them", "hand.tap")
+        case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap")
+        case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap")
         default: return nil
         }
     }
@@ -209,14 +214,17 @@ struct HintPill: View {
     }
 }
 
+/// Status in ink, errors in red with a warning glyph; announced to VoiceOver when it appears.
 struct Toast: View {
-    let text: String
+    let message: ToastMessage
     let dismiss: () -> Void
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
-            Image(systemName: "info.circle.fill").foregroundStyle(Theme.inkSecondary)
-            Text(text).font(Theme.body).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
+            Image(systemName: message.kind == .error ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                .foregroundStyle(message.kind == .error ? Theme.dangerInk : Theme.inkSecondary)
+                .accessibilityHidden(true)
+            Text(message.text).font(Theme.body).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
             Button(action: dismiss) {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.inkTertiary)
                     .frame(width: 22, height: 22)
@@ -228,67 +236,83 @@ struct Toast: View {
         .padding(.leading, Theme.Space.l).padding(.trailing, Theme.Space.xs).padding(.vertical, Theme.Space.s)
         .floatingElevation()
         .frame(maxWidth: 460)
+        .onAppear { AccessibilityNotification.Announcement(message.text).post() }
     }
 }
 
 // MARK: - Tool strip
 
 /// Main tools, grouped into clusters by job: sketch, create, modify, print.
+/// (Fit lives under the view cube and in the View menu, ⌘0.)
 struct ToolStrip: View {
     @Bindable var session: DesignSession
-    let controller: ViewportController
     @Binding var showBrowser: Bool
 
     var body: some View {
+        let busy = session.isBusyEditing
         HStack(spacing: Theme.Space.s) {
             ToolButton("Browser", "sidebar.left", active: showBrowser, toggle: true) { showBrowser.toggle() }
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: Theme.Space.s) {
                     ToolCluster {
+                        // Menus aren't `.disabled` as a whole (the system dims their labels a second
+                        // time); their items are, and the label draws the same disabled colour as buttons.
                         Menu {
-                            Button("On XY (bed)") { session.startSketch(on: .xy) }
-                            Button("On XZ (front)") { session.startSketch(on: .xz) }
-                            Button("On YZ (side)") { session.startSketch(on: .yz) }
+                            Group {
+                                Button("On XY (bed)") { session.startSketch(on: .xy) }
+                                Button("On XZ (front)") { session.startSketch(on: .xz) }
+                                Button("On YZ (side)") { session.startSketch(on: .yz) }
+                            }
+                            .disabled(busy)
                         } label: {
-                            ToolLabel("Sketch", "pencil.and.outline", active: session.sketchEditor != nil)
+                            ToolLabel("Sketch", "pencil.and.outline", active: session.sketchEditor != nil, disabled: busy)
                         } primaryAction: {
-                            session.startSketch()
+                            if !busy { session.startSketch() }
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-                        .help("New sketch on the selected face, or on the bed")
+                        .help("New sketch on the selected face, or on the bed (⇧⌘K)")
                     }
                     ToolCluster {
-                        ToolButton("Extrude", "square.stack.3d.up", active: session.editingKind == "extrude") { session.startExtrude() }
-                        ToolButton("Revolve", "arrow.triangle.2.circlepath", active: session.editingKind == "revolve") { session.startRevolve() }
+                        Group {
+                            ToolButton("Extrude", "square.stack.3d.up", active: session.editingKind == "extrude") { session.startExtrude() }
+                            ToolButton("Revolve", "arrow.triangle.2.circlepath", active: session.editingKind == "revolve") { session.startRevolve() }
+                        }
+                        .disabled(busy)
                         Menu {
                             ForEach(PrimitiveKind.allCases, id: \.self) { kind in
                                 Button(kind.rawValue.capitalized) { session.startPrimitive(kind) }
+                                    .disabled(busy)
                             }
                         } label: {
-                            ToolLabel("Primitive", "cube", active: session.editingKind == "primitive")
+                            ToolLabel("Primitive", "cube", active: session.editingKind == "primitive", disabled: busy)
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-                    }
-                    ToolCluster {
-                        ToolButton("Fillet", "rectangle.roundedtop", active: session.editingKind == "fillet") { session.startEdgeFeature(fillet: true) }
-                        ToolButton("Chamfer", "skew", active: session.editingKind == "chamfer") { session.startEdgeFeature(fillet: false) }
-                        ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell") { session.startShell() }
-                        ToolButton("Combine", "square.on.square", active: session.editingKind == "combine") { session.startCombine() }
-                        ToolButton("Move", "move.3d", active: session.editingKind == "move") { session.startMove() }
-                        ToolButton("Mirror", "arrow.left.and.right.righttriangle.left.righttriangle.right", active: session.editingKind == "mirror") { session.startMirror() }
-                        ToolButton("Pattern", "square.grid.3x1.below.line.grid.1x2", active: session.editingKind == "pattern") { session.startPattern() }
-                    }
-                    ToolCluster {
                         ToolButton("Import", "square.and.arrow.down") { session.importRequested = true }
-                        ToolButton("Lay Flat", "arrow.down.to.line", active: session.editingKind == "layFlat") { session.startLayFlat() }
-                        ToolButton("Overhangs", "exclamationmark.triangle", active: session.showOverhangs, toggle: true) { session.showOverhangs.toggle() }
+                            .disabled(busy)
+                    }
+                    ToolCluster {
+                        Group {
+                            ToolButton("Fillet", "rectangle.roundedtop", active: session.editingKind == "fillet") { session.startEdgeFeature(fillet: true) }
+                            ToolButton("Chamfer", "skew", active: session.editingKind == "chamfer") { session.startEdgeFeature(fillet: false) }
+                            ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell") { session.startShell() }
+                            ToolButton("Combine", "square.on.square", active: session.editingKind == "combine") { session.startCombine() }
+                            ToolButton("Move", "move.3d", active: session.editingKind == "move") { session.startMove() }
+                            ToolButton("Mirror", "arrow.left.and.right.righttriangle.left.righttriangle.right", active: session.editingKind == "mirror") { session.startMirror() }
+                            ToolButton("Pattern", "square.grid.3x1.below.line.grid.1x2", active: session.editingKind == "pattern") { session.startPattern() }
+                        }
+                        .disabled(busy)
+                    }
+                    ToolCluster {
+                        Group {
+                            ToolButton("Lay flat", "arrow.down.to.line", active: session.editingKind == "layFlat") { session.startLayFlat() }
+                            ToolButton("Overhangs", "angle", active: session.showOverhangs, toggle: true) { session.showOverhangs.toggle() }
+                        }
+                        .disabled(busy)
                     }
                 }
                 .padding(.vertical, 1)
             }
-            .disabled(session.isBusyEditing)
             Spacer(minLength: 0)
-            ToolButton("Fit", "arrow.up.left.and.arrow.down.right") { controller.fitAll() }
         }
         .padding(.horizontal, Theme.Space.s)
         .padding(.vertical, Theme.Space.s)
@@ -324,26 +348,33 @@ struct ToolLabel: View {
     var pressed = false
     /// View toggles (browser, overhangs) show "on" in ink; orange stays reserved for the tool in progress.
     var isToggle = false
+    /// Disabled without `.disabled` (menu labels, see `ToolStrip`).
+    var disabled = false
 
     @State private var hovering = false
     @Environment(\.isEnabled) private var isEnabled
 
-    init(_ title: String, _ symbol: String, active: Bool = false, pressed: Bool = false, isToggle: Bool = false) {
+    init(_ title: String, _ symbol: String, active: Bool = false, pressed: Bool = false, isToggle: Bool = false, disabled: Bool = false) {
         self.title = title; self.symbol = symbol; self.active = active; self.pressed = pressed; self.isToggle = isToggle
+        self.disabled = disabled
     }
 
     private var accent: Color { isToggle ? Theme.ink : Theme.filletInk }
     private var activeFill: Color { isToggle ? Theme.hairlineStrong : Theme.filletSoft }
+    /// Disabled is shown with colour, not opacity, so it can't stack with the system Menu
+    /// dimming, and the active tool keeps its accent ("you are here") while others are off.
+    private var dimmed: Bool { (!isEnabled || disabled) && !active }
+    private var dimmedInk: Color { Theme.inkTertiary.opacity(0.6) }
 
     var body: some View {
         VStack(spacing: Theme.Space.xs) {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .medium))
                 .frame(height: 20)
-                .foregroundStyle(active ? accent : Theme.ink)
+                .foregroundStyle(dimmed ? dimmedInk : active ? accent : Theme.ink)
             Text(title)
                 .font(active ? Theme.label.weight(.semibold) : Theme.label)
-                .foregroundStyle(active ? Theme.ink : Theme.inkSecondary)
+                .foregroundStyle(dimmed ? dimmedInk : active ? Theme.ink : Theme.inkSecondary)
                 .lineLimit(1)
         }
         .frame(minWidth: 54, minHeight: 44)
@@ -356,9 +387,10 @@ struct ToolLabel: View {
                 Capsule().fill(Theme.fillet).frame(width: 18, height: 2.5).offset(y: -1)
             }
         }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(title)
         .accessibilityAddTraits(active ? .isSelected : [])
         .scaleEffect(pressed ? 0.97 : 1)
-        .opacity(isEnabled ? 1 : 0.35)
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: hovering)
@@ -441,12 +473,20 @@ struct SketchToolbar: View {
                 .help("End the line chain or spline")
             }
             #if os(iOS)
-            Toggle(isOn: $fingerDraws) {
-                Image(systemName: "hand.draw").frame(width: 30, height: 30)
+            // A mode toggle, so "on" is ink on a grey plate like the other view toggles, not orange.
+            Button { fingerDraws.toggle() } label: {
+                Image(systemName: "hand.draw")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundStyle(Theme.ink)
+                    .frame(width: 38, height: 34)
+                    .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                        .fill(fingerDraws ? Theme.hairlineStrong : .clear))
+                    .contentShape(Rectangle())
             }
-            .toggleStyle(.button)
-            .tint(Theme.fillet)
+            .buttonStyle(PressableStyle())
             .help("Draw with finger instead of Apple Pencil")
+            .accessibilityLabel("Draw with finger")
+            .accessibilityAddTraits(fingerDraws ? .isSelected : [])
             #endif
             Button {
                 session.finishSketch()

@@ -31,25 +31,30 @@ struct InspectorView: View {
 }
 
 /// Icon chip, editable title and status line at the top of the inspector.
+/// The chip is orange for something being edited, blue for the selection and ink otherwise.
 struct InspectorHeader: View {
     let symbol: String
     let title: String
     var subtitle: String?
+    var tint: Color = Theme.filletInk
     var error: String?
     var onRename: ((String) -> Void)?
 
     @State private var text = ""
+    @FocusState private var renaming: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             HStack(spacing: Theme.Space.m) {
-                IconChip(symbol: symbol, tint: error == nil ? Theme.filletInk : Theme.dangerInk, size: 34)
+                IconChip(symbol: symbol, tint: error == nil ? tint : Theme.dangerInk, size: 34)
                 VStack(alignment: .leading, spacing: 1) {
                     if let onRename {
                         TextField("Name", text: $text)
                             .textFieldStyle(.plain)
                             .font(Theme.title)
                             .foregroundStyle(Theme.ink)
+                            .focused($renaming)
+                            .focusedValue(\.isEditingText, renaming ? true : nil)
                             .onSubmit { onRename(text) }
                             .onAppear { text = title }
                             .onChange(of: title) { _, t in text = t }
@@ -133,7 +138,7 @@ struct FeatureInspector: View {
         case .mirror(let m): mirror(m)
         case .pattern(let p): pattern(p)
         case .layFlat:
-            Hint("Tap another flat face to change which side touches the bed.")
+            Hint("\(Theme.Copy.pick) another flat face to change which side touches the bed.")
         case .importedSTEP(let s):
             Hint("Imported from \(s.name). Add sketches and features on top of it.", symbol: "square.and.arrow.down")
         case .sketch, .unknown:
@@ -144,7 +149,7 @@ struct FeatureInspector: View {
     // MARK: Extrude / revolve
 
     @ViewBuilder private func extrude(_ e: Extrude) -> some View {
-        SelectionCount(count: e.regions.count, noun: "profile", hint: "Tap profiles in the sketch") {
+        SelectionCount(count: e.regions.count, noun: "profile", plural: "profiles", hint: "\(Theme.Copy.pick) profiles in the sketch") {
             var x = e; x.regions = []; set(.extrude(x))
         }
         OperationPicker(operation: e.operation) { var x = e; x.operation = $0; set(.extrude(x)) }
@@ -163,6 +168,7 @@ struct FeatureInspector: View {
                 Text("Two sides").tag(2)
             }
             .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity)
         }
         if let back = e.back, !e.symmetric {
             ExprField(label: "Back", value: back, evaluator: ev) { var x = e; x.back = $0; set(.extrude(x)) }
@@ -179,7 +185,7 @@ struct FeatureInspector: View {
     }
 
     @ViewBuilder private func revolve(_ r: Revolve) -> some View {
-        SelectionCount(count: r.regions.count, noun: "profile", hint: "Tap profiles in the sketch") {
+        SelectionCount(count: r.regions.count, noun: "profile", plural: "profiles", hint: "\(Theme.Copy.pick) profiles in the sketch") {
             var x = r; x.regions = []; set(.revolve(x))
         }
         OperationPicker(operation: r.operation) { var x = r; x.operation = $0; set(.revolve(x)) }
@@ -205,7 +211,7 @@ struct FeatureInspector: View {
     // MARK: Modify
 
     @ViewBuilder private func edgeFeature(_ f: EdgeFeature, fillet: Bool) -> some View {
-        SelectionCount(count: f.edges.count, noun: "edge", hint: "Tap edges in the viewport") {
+        SelectionCount(count: f.edges.count, noun: "edge", plural: "edges", hint: "\(Theme.Copy.pick) edges in the viewport") {
             var x = f; x.edges = []
             set(fillet ? .fillet(x) : .chamfer(x))
         }
@@ -218,7 +224,8 @@ struct FeatureInspector: View {
     }
 
     @ViewBuilder private func shell(_ s: Shell) -> some View {
-        SelectionCount(count: s.removeFaces.count, noun: "open face", hint: "Tap faces to remove (leave none for a closed hollow)") {
+        SelectionCount(count: s.removeFaces.count, noun: "open face", plural: "open faces",
+                       hint: "\(Theme.Copy.pick) faces to remove (leave none for a closed hollow)") {
             var x = s; x.removeFaces = []; set(.shell(x))
         }
         ExprField(label: "Thickness", value: s.thickness, evaluator: ev) { var x = s; x.thickness = $0; set(.shell(x)) }
@@ -259,7 +266,7 @@ struct FeatureInspector: View {
                 ForEach(session.model.bodies) { Text($0.name).tag($0.ref) }
             }
         }
-        SelectionCount(count: c.tools.count, noun: "tool body", hint: "Tap the bodies to combine with the target") {
+        SelectionCount(count: c.tools.count, noun: "tool body", plural: "tool bodies", hint: "\(Theme.Copy.pick) the bodies to combine with the target") {
             var x = c; x.tools = []; set(.combine(x))
         }
         Labeled("Operation") {
@@ -271,25 +278,26 @@ struct FeatureInspector: View {
                 Text("Intersect").tag(Operation.intersect)
             }
             .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity)
         }
         Toggle("Keep tool bodies", isOn: Binding(get: { c.keepTools }, set: { var x = c; x.keepTools = $0; set(.combine(x)) }))
     }
 
     @ViewBuilder private func move(_ m: Move) -> some View {
-        SelectionCount(count: m.bodies.count, noun: "body", hint: "Tap bodies to move") {
+        SelectionCount(count: m.bodies.count, noun: "body", plural: "bodies", hint: "\(Theme.Copy.pick) bodies to move") {
             var x = m; x.bodies = []; set(.move(x))
         }
         Text("Translate").font(Theme.sectionTitle).foregroundStyle(Theme.ink)
         ExprField(label: "X", value: m.translation.x, evaluator: ev) { var x = m; x.translation.x = $0; set(.move(x)) }
         ExprField(label: "Y", value: m.translation.y, evaluator: ev) { var x = m; x.translation.y = $0; set(.move(x)) }
         ExprField(label: "Z", value: m.translation.z, evaluator: ev) { var x = m; x.translation.z = $0; set(.move(x)) }
-        Text("Rotate").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, 4)
+        Text("Rotate").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, Theme.Space.xs)
         AxisPicker(axis: m.rotationAxis) { var x = m; x.rotationAxis = $0; set(.move(x)) }
         ExprField(label: "Angle", value: m.rotationAngle, kind: .angle, evaluator: ev) { var x = m; x.rotationAngle = $0; set(.move(x)) }
     }
 
     @ViewBuilder private func mirror(_ m: Mirror) -> some View {
-        SelectionCount(count: m.bodies.count, noun: "body", hint: "Tap bodies to mirror") {
+        SelectionCount(count: m.bodies.count, noun: "body", plural: "bodies", hint: "\(Theme.Copy.pick) bodies to mirror") {
             var x = m; x.bodies = []; set(.mirror(x))
         }
         StandardPlanePicker(plane: m.plane) { var x = m; x.plane = $0; set(.mirror(x)) }
@@ -297,7 +305,7 @@ struct FeatureInspector: View {
     }
 
     @ViewBuilder private func pattern(_ p: Pattern) -> some View {
-        SelectionCount(count: p.bodies.count, noun: "body", hint: "Tap bodies to pattern") {
+        SelectionCount(count: p.bodies.count, noun: "body", plural: "bodies", hint: "\(Theme.Copy.pick) bodies to pattern") {
             var x = p; x.bodies = []; set(.pattern(x))
         }
         Labeled("Type") {
@@ -312,6 +320,7 @@ struct FeatureInspector: View {
                 Text("Circular").tag(1)
             }
             .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity)
         }
         switch p.layout {
         case .linear(let dir, let count, let spacing):
@@ -337,7 +346,7 @@ struct Labeled<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
             Text(label).font(Theme.caption.weight(.semibold)).foregroundStyle(Theme.inkSecondary)
-            content.labelsHidden()
+            content.labelsHidden().frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 }
@@ -350,7 +359,7 @@ struct Hint: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
-            Image(systemName: symbol).foregroundStyle(Theme.inkTertiary)
+            Image(systemName: symbol).foregroundStyle(Theme.inkTertiary).accessibilityHidden(true)
             Text(text).fixedSize(horizontal: false, vertical: true)
         }
         .font(Theme.caption)
@@ -363,21 +372,26 @@ struct Hint: View {
 struct SelectionCount: View {
     let count: Int
     let noun: String
+    let plural: String
     let hint: String
     let clear: () -> Void
 
     var body: some View {
         HStack(spacing: Theme.Space.m) {
-            Image(systemName: count > 0 ? "checkmark.circle.fill" : "hand.tap")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundStyle(count > 0 ? Theme.select : Theme.inkTertiary)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(count == 0 ? "Pick \(noun)s" : "\(count) \(noun)\(count == 1 ? "" : "s") picked")
-                    .font(Theme.body.weight(.semibold))
-                    .foregroundStyle(Theme.ink)
-                    .contentTransition(.numericText())
-                Text(hint).font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: count > 0 ? "checkmark.circle.fill" : "hand.tap")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(count > 0 ? Theme.select : Theme.inkTertiary)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(count == 0 ? "Pick \(plural)" : "\(count) \(count == 1 ? noun : plural) picked")
+                        .font(Theme.body.weight(.semibold))
+                        .foregroundStyle(Theme.ink)
+                        .contentTransition(.numericText())
+                    Text(hint).font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+                }
             }
+            .accessibilityElement(children: .combine)
             Spacer(minLength: 0)
             if count > 0 {
                 Button("Clear", action: clear).buttonStyle(InlineButtonStyle(tint: Theme.selectInk))
@@ -398,13 +412,15 @@ struct OperationPicker: View {
     let onChange: (Operation) -> Void
     var body: some View {
         Labeled("Operation") {
+            // Text only: segmented controls on iPad show just the image for Label items.
             Picker("Operation", selection: Binding(get: { operation }, set: { onChange($0) })) {
-                Label("New", systemImage: "cube").tag(Operation.newBody)
-                Label("Join", systemImage: "plus.square").tag(Operation.join)
-                Label("Cut", systemImage: "minus.square").tag(Operation.cut)
-                Label("Intersect", systemImage: "square.on.square.intersection.dashed").tag(Operation.intersect)
+                Text("New").tag(Operation.newBody)
+                Text("Join").tag(Operation.join)
+                Text("Cut").tag(Operation.cut)
+                Text("Intersect").tag(Operation.intersect)
             }
             .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity)
         }
     }
 }
@@ -439,6 +455,7 @@ struct AxisPicker: View {
                 if case .edge = axis { Text("Edge").tag(3) }
             }
             .pickerStyle(.segmented)
+            .frame(maxWidth: .infinity)
         }
     }
 }

@@ -22,6 +22,23 @@ struct FeatureEdit: Equatable {
     var snapshot: Document
 }
 
+/// A transient banner. Errors get their own icon and colour, and longer text stays up longer.
+struct ToastMessage: Equatable, ExpressibleByStringInterpolation {
+    enum Kind { case info, error }
+    var text: String
+    var kind: Kind = .info
+    /// Each post is distinct, so the same text shown twice restarts its timer.
+    let id = UUID()
+
+    init(_ text: String, kind: Kind = .info) { self.text = text; self.kind = kind }
+    init(stringLiteral value: String) { self.init(value) }
+
+    static func error(_ text: String) -> ToastMessage { ToastMessage(text, kind: .error) }
+
+    /// Seconds on screen: at least 4, longer for long text (about 15 characters a second).
+    var duration: Double { max(4, Double(text.count) / 15) }
+}
+
 /// All editing state of one open document window.
 @MainActor @Observable
 final class DesignSession {
@@ -44,7 +61,7 @@ final class DesignSession {
     /// Set by the menu command; the editor presents the file importer.
     var importRequested = false
     /// Shown as a transient banner (e.g. export finished / failed).
-    var message: String?
+    var message: ToastMessage?
 
     @ObservationIgnored var undoManager: UndoManager?
     /// Writes changes back to the file document (marks it dirty, triggers autosave).

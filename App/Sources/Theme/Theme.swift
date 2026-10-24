@@ -111,6 +111,17 @@ enum Theme {
     static let label = Font.system(size: 11, weight: .medium).width(.condensed)
     /// Smallest condensed label: ruler numbers, view-cube faces.
     static let micro = Font.system(size: 10, weight: .semibold).width(.condensed)
+
+    // MARK: Copy
+
+    enum Copy {
+        /// The pointing verb: "Click" with a pointer, "Tap" on iPad.
+        #if os(iOS)
+        static let pick = "Tap"
+        #else
+        static let pick = "Click"
+        #endif
+    }
 }
 
 // MARK: - Colour helpers
@@ -190,9 +201,10 @@ struct SecondaryButtonStyle: ButtonStyle {
     }
 }
 
-/// Text-only action inside cards ("Clear", "Add parameter").
+/// Text-only action inside cards ("Clear", "Add parameter"). Ink by default; pass
+/// `selectInk` for actions on picked things and `filletInk` only for a real primary action.
 struct InlineButtonStyle: ButtonStyle {
-    var tint: Color = Theme.filletInk
+    var tint: Color = Theme.ink
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(Theme.body.weight(.semibold))
@@ -255,6 +267,7 @@ struct IconChip: View {
             .foregroundStyle(tint)
             .frame(width: size, height: size)
             .background(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).fill(tint.opacity(0.14)))
+            .accessibilityHidden(true)
     }
 }
 

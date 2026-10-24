@@ -26,6 +26,12 @@ struct SketchInspector: View {
         }
     }
 
+    #if os(iOS)
+    static let drawingHint = "Draw with Apple Pencil. Turn on finger drawing in the toolbar to draw with a finger. Use the Select tool and tap a shape to type exact dimensions."
+    #else
+    static let drawingHint = "Click and drag to draw. Use the Select tool and click a shape to type exact dimensions."
+    #endif
+
     /// One selected shape titles itself ("Circle"); otherwise the section needs a name.
     private func selectedTitle(_ editor: SketchEditor) -> String? {
         switch editor.selectedShapes.count {
@@ -58,7 +64,7 @@ struct SketchInspector: View {
     @ViewBuilder private func selectedShapes(_ editor: SketchEditor) -> some View {
         let shapes = sketch?.shapes.filter { editor.selectedShapes.contains($0.id) } ?? []
         if shapes.isEmpty {
-            Hint("Draw with Apple Pencil, or click and drag with the mouse. Use the Select tool and pick a shape to type exact dimensions.", symbol: "pencil.tip")
+            Hint(Self.drawingHint, symbol: "pencil.tip")
         } else if shapes.count == 1, let shape = shapes.first {
             ShapeDimensions(shape: shape, evaluator: ev) { updated in
                 session.updateSketch("Edit \(updated.kind.typeName.capitalized)") { sketch in
@@ -75,7 +81,9 @@ struct SketchInspector: View {
                 Spacer(minLength: 0)
                 Button(role: .destructive) { session.deleteSelectedSketchShapes() } label: { Label("Delete", systemImage: "trash") }
                     .buttonStyle(SecondaryButtonStyle(role: .destructive))
-                    .keyboardShortcut(.delete, modifiers: [])
+                    // ⌘⌫, the platform "delete object" chord: a bare ⌫ key equivalent could
+                    // compete with a focused field. Plain ⌫ still works on Mac via onDeleteCommand.
+                    .keyboardShortcut(.delete, modifiers: .command)
             }
         }
     }
