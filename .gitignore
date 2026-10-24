@@ -9,3 +9,4 @@ build/
 xcuserdata/
 vendor/occt-include/
 .claude/worktrees/
+__pycache__/
