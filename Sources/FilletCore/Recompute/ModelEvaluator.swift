@@ -18,6 +18,7 @@ public actor ModelEvaluator {
         var bodies: [EvaluatedBody] = []
         var sketches: [UUID: EvaluatedSketch] = [:]
         var status: [UUID: FeatureStatus] = [:]
+        var resolvedEdges: [UUID: [EdgeInfo]] = [:]
         var bodyCounter = 0
     }
 
@@ -68,6 +69,7 @@ public actor ModelEvaluator {
         model.bodies = state.bodies
         model.sketches = state.sketches
         model.status = state.status
+        model.resolvedEdges = state.resolvedEdges
         model.meshes = displayMeshes(for: state.bodies)
         model.bodiesBefore = bodiesBefore
         for f in document.features where model.status[f.id] == nil {
@@ -244,6 +246,8 @@ public actor ModelEvaluator {
                 missing += 1
             }
         }
+        // What the kernel is asked to round, recorded before it runs so a failed step shows it too.
+        state.resolvedEdges[feature.id] = indices.map { infos[$0] }
         if missing > 0 {
             throw FeatureError(missing == 1 ? "1 edge can no longer be found — reselect it" : "\(missing) edges can no longer be found — reselect them")
         }

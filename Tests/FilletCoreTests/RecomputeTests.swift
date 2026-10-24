@@ -70,6 +70,46 @@ struct RecomputeTests {
         #expect(abs(try #require(wider.bodies.first).shape.volume - (wideBase - removed)) < 1e-3)
     }
 
+    /// The edges a fillet reports as resolved are the pre-fillet edges the kernel rounds: after the
+    /// plate widens they move with it, they match resolving against the body before the fillet,
+    /// and a fillet that then fails still reports them.
+    @Test func filletRecordsResolvedEdges() async throws {
+        var doc = plateDocument()
+        let evaluator = ModelEvaluator()
+        let first = await evaluator.evaluate(doc)
+        let body = try #require(first.bodies.first)
+        // The two vertical edges on the right-hand side, at x = 40.
+        let picked = body.shape.edgeInfos.indices.filter { i in
+            let e = body.shape.edgeInfos[i]
+            return e.curve == .line && abs(e.mid.x - 40) < 1e-6 && abs(e.tangentAtMid.z) > 0.99
+        }
+        #expect(picked.count == 2)
+        let refs = try picked.map { try #require(first.edgeRef(body: body.ref, edge: $0)) }
+        let filletID = UUID()
+        doc.features.append(Feature(id: filletID, name: "Fillet 1", .fillet(EdgeFeature(body: body.ref, edges: refs, size: 3))))
+
+        doc.parameters[0].expression = "50"
+        let wider = await evaluator.evaluate(doc, before: filletID)
+        #expect(wider.status[filletID] == .ok)
+        let resolved = try #require(wider.resolvedEdges[filletID])
+        #expect(resolved.count == 2)
+        #expect(resolved.allSatisfy { abs($0.mid.x - 50) < 1e-6 && abs($0.tangentAtMid.z) > 0.99 && abs($0.length - 10) < 1e-6 })
+        #expect(Set(resolved.map { $0.mid.y.rounded() }) == [0, 20])
+        // Same edges as resolving against the body before the fillet.
+        let before = try #require(wider.bodiesBefore?.first?.shape)
+        let direct = refs.compactMap { ReferenceResolver.resolve($0.signature, in: before.edgeInfos) }.map { before.edgeInfos[$0] }
+        #expect(Set(direct) == Set(resolved))
+
+        // A radius the plate can't take: the step fails, but still reports what it tried to round.
+        if case .fillet(var f) = doc.features[2].kind {
+            f.size = 40
+            doc.features[2].kind = .fillet(f)
+        }
+        let failed = await evaluator.evaluate(doc)
+        #expect(failed.error(for: filletID) != nil)
+        #expect(Set(try #require(failed.resolvedEdges[filletID])) == Set(resolved))
+    }
+
     @Test func sketchOnFaceAndCut() async throws {
         var doc = plateDocument()
         let evaluator = ModelEvaluator()

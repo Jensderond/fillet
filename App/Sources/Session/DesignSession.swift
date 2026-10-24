@@ -172,6 +172,9 @@ final class DesignSession {
         commitEdit()
         editing = FeatureEdit(feature: id, isNew: false, snapshot: document)
         if case .sketch = document.feature(id)?.kind { enterSketch(id) }
+        // Picks map onto the bodies just before this step; the evaluator returns those for the
+        // step being edited (cached, so nothing is recomputed).
+        recompute()
     }
 
     /// Live update of the feature being edited (no undo step until commit).

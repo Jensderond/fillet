@@ -212,6 +212,7 @@ enum DebugAutomation {
             checkCentred(session, "widened body framed")
             await snap(session, "09-widened")
             check(session.model.status.values.allSatisfy { if case .failed = $0 { false } else { true } }, "all features ok after widening")
+            await widenedFilletHighlights(session)
         }
 
         await failedStepBanner(session)
@@ -326,6 +327,34 @@ enum DebugAutomation {
         setRadius(5)
         await settle(session)
         check(session.message == nil && session.failedFeatures.isEmpty, "r = 5 again clears the banner and the failure")
+    }
+
+    /// After the widening, opening Fillet 1 draws its picked edges where the fillet rounds them:
+    /// each dashed highlight is an edge its references resolve to on the body before it (the
+    /// evaluator's own resolution), and a vertical edge at a corner of the wider plate.
+    private static func widenedFilletHighlights(_ session: DesignSession) async {
+        guard let fillet = session.document.features.first(where: { if case .fillet = $0.kind { true } else { false } }),
+            case .fillet(let f) = fillet.kind
+        else { check(false, "a fillet to open"); return }
+        session.beginEdit(fillet.id)
+        await settle(session)
+        await snap(session, "09a-fillet-widened")
+        let dashed = session.edgeHighlights().filter(\.dashed)
+        guard let before = session.model.bodiesBefore?.first(where: { $0.ref == f.body })?.shape, let box = before.bounds else {
+            check(false, "body before Fillet 1"); return
+        }
+        let resolved = f.edges.compactMap { ReferenceResolver.resolve($0.signature, in: before.edgeInfos) }.map { before.edgeInfos[$0].polyline }
+        func same(_ a: [Vec3], _ b: [Vec3]) -> Bool { a.count == b.count && zip(a, b).allSatisfy { $0.distance(to: $1) < 1e-6 } }
+        func near(_ v: Double, _ a: Double, _ b: Double) -> Bool { abs(v - a) < 1e-3 || abs(v - b) < 1e-3 }
+        let matching = dashed.filter { h in resolved.contains { same($0, h.points) } }.count
+        let corners = dashed.filter { h in
+            guard let a = h.points.first, let b = h.points.last else { return false }
+            return abs(a.x - b.x) < 1e-6 && abs(a.y - b.y) < 1e-6 && near(a.x, box.min.x, box.max.x) && near(a.y, box.min.y, box.max.y)
+        }.count
+        check(dashed.count == 4 && matching == 4 && corners == 4,
+              "Fillet 1 after widening: \(dashed.count) picked edges drawn, \(matching) match the resolved edges, \(corners) at plate corners (x \(Int(box.min.x))…\(Int(box.max.x)))")
+        session.cancelEdit()
+        await settle(session)
     }
 
     /// The bodies' projected bounds sit centred in the unobstructed part of the viewport.

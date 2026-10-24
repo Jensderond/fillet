@@ -50,6 +50,10 @@ public struct EvaluatedModel: Sendable {
     /// Bodies as they were just before the feature passed as `before:` to
     /// `ModelEvaluator.evaluate` (the geometry a feature being edited picks from).
     public var bodiesBefore: [EvaluatedBody]?
+    /// Per fillet or chamfer: the edges of the body before it that its references resolved to,
+    /// i.e. exactly the edges the kernel was asked to round or bevel. Recorded before the kernel
+    /// runs, so a step that failed has them too; references that no longer resolve are absent.
+    public var resolvedEdges: [UUID: [EdgeInfo]] = [:]
 
     /// The pre-feature version of a body (falls back to the current one).
     public func bodyBefore(_ ref: BodyRef) -> EvaluatedBody? {

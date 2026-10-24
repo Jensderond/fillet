@@ -6,6 +6,8 @@ import Foundation
 extension DesignSession {
     /// Picked edges, drawn thick and haloed over the model: the selection, plus, while a
     /// fillet or chamfer is open, the sharp edges it replaces (dashed, from the body before it).
+    /// Those are the edges the evaluator resolved the feature's references to, not a second
+    /// resolution here, so after a parametric change they are exactly the edges it rounds.
     func edgeHighlights() -> [EdgeHighlight] {
         var result: [EdgeHighlight] = []
         for case .edge(let body, let index) in selection {
@@ -13,12 +15,10 @@ extension DesignSession {
             result.append(EdgeHighlight(points: edges[index].map { Vec3(Double($0.x), Double($0.y), Double($0.z)) }))
         }
         switch editingFeature?.kind {
-        case .fillet(let f), .chamfer(let f):
-            guard let before = model.bodyBefore(f.body)?.shape else { break }
-            let infos = before.edgeInfos
-            for ref in f.edges {
-                guard let i = ReferenceResolver.resolve(ref.signature, in: infos) else { continue }
-                result.append(EdgeHighlight(points: infos[i].polyline, dashed: true))
+        case .fillet, .chamfer:
+            guard let id = editing?.feature else { break }
+            for edge in model.resolvedEdges[id] ?? [] {
+                result.append(EdgeHighlight(points: edge.polyline, dashed: true))
             }
         default:
             break

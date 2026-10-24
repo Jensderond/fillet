@@ -82,9 +82,9 @@ extension DesignSession {
         guard let feature = editingFeature else { return [] }
         var targets: Set<PickTarget> = []
         switch feature.kind {
-        case .fillet(let f), .chamfer(let f):
-            // The edges themselves are replaced by the fillet; highlight what still matches.
-            for ref in f.edges { if let i = model.resolve(ref) { targets.insert(.edge(body: ref.body.feature, index: i)) } }
+        // A fillet's or chamfer's edges are gone from its result, so resolving them there lands on
+        // whatever edge is nearest (after a widening, one inside a pocket). They are drawn dashed
+        // from the edges the evaluator resolved instead (`edgeHighlights`).
         case .shell(let s):
             for ref in s.removeFaces { if let i = model.resolve(ref) { targets.insert(.face(body: ref.body.feature, index: i)) } }
         case .layFlat(let l):
