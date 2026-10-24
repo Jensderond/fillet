@@ -33,6 +33,7 @@ struct InspectorView: View {
             }
         }
         .background(Theme.panel)
+        .dynamicTypeSize(...Theme.TypeLimit.panel)
     }
 }
 

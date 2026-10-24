@@ -192,6 +192,10 @@ enum DebugAutomation {
             check(session.model.status.values.allSatisfy { if case .failed = $0 { false } else { true } }, "all features ok after widening")
         }
 
+        // A named parameter, so the browser's parameter row shows in the next capture.
+        session.perform("Add Parameter") { $0.parameters.append(Parameter(name: "wall", expression: 2)) }
+        check(session.model.parameters.errors.isEmpty, "parameter evaluates")
+
         // Roll back to after the first extrude (the later steps hatch), then play to the end again.
         session.moveRollbackMarker(to: 2)
         await settle(session)

@@ -79,6 +79,7 @@ struct EditorContent: View {
     var body: some View {
         VStack(spacing: 0) {
             ToolStrip(session: session, showBrowser: browserVisible)
+                .dynamicTypeSize(...Theme.TypeLimit.chrome)
             HStack(spacing: 0) {
                 if layout == .regular, showBrowser {
                     BrowserView(session: session)
@@ -114,6 +115,7 @@ struct EditorContent: View {
             .animation(Theme.Motion.enter, value: browserOverlay)
             .animation(Theme.Motion.enter, value: layout)
             TimelineView(session: session)
+                .dynamicTypeSize(...Theme.TypeLimit.chrome)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // A floating browser gives way to the inspector rather than covering the viewport twice.
@@ -175,11 +177,13 @@ struct EditorContent: View {
                 if session.sketchEditor != nil {
                     // Centred, and kept clear of the view cube (84 pt + margins) on both sides.
                     SketchToolbar(session: session, fingerDraws: $fingerDraws)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
                         .frame(maxWidth: max(viewportWidth - 2 * 112, 300))
                         .transition(.panel(from: .top, reduceMotion: reduceMotion))
                 }
                 if let hint = currentHint {
                     HintPill(text: hint.text, symbol: hint.symbol)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
                         .blurCrossfade(hint.text)
                 }
                 Spacer(minLength: 0)

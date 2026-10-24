@@ -26,6 +26,8 @@ enum Theme {
     static let raised = Color(light: 0xFFFFFF, dark: 0x212836)
     static let hairline = Color(light: 0x1D2B45, dark: 0xFFFFFF, opacity: 0.11, highContrastOpacity: 0.30)
     static let hairlineStrong = Color(light: 0x1D2B45, dark: 0xFFFFFF, opacity: 0.2, highContrastOpacity: 0.45)
+    /// Text-field outline: 3:1 against the panel, so the field reads as a field (WCAG 1.4.11).
+    static let fieldBorder = Color(light: 0x868FA2, dark: 0x5E687C, highContrastLight: 0x5E687E, highContrastDark: 0x8C96AA)
 
     /// The fillet orange, for marks: caliper, active underline, focus ring, drop bar.
     static let fillet = Color(hex: 0xF26B1D)
@@ -101,7 +103,20 @@ enum Theme {
         .system(size: size, weight: weight).width(.condensed)
     }
 
-    /// Seven sizes in total: title, section title, body, value, caption, and the two condensed labels.
+    // Seven styles: title, section title, body, value, caption, and the two condensed labels.
+    // iPad uses text styles, so they follow Dynamic Type and read at arm's length
+    // (body 15 pt); the Mac keeps its denser point sizes (body 13 pt).
+    #if os(iOS)
+    static let title = Font.system(.headline)
+    static let sectionTitle = Font.system(.subheadline, weight: .semibold)
+    static let body = Font.system(.subheadline)
+    static let caption = Font.system(.footnote)
+    static let value = Font.system(.subheadline, weight: .medium).monospacedDigit()
+    /// Condensed technical label: tool names, timeline steps.
+    static let label = Font.system(.caption, weight: .medium).width(.condensed)
+    /// Smallest condensed label: ruler numbers, view-cube faces.
+    static let micro = Font.system(.caption2, weight: .semibold).width(.condensed)
+    #else
     static let title = Font.system(size: 17, weight: .semibold)
     static let sectionTitle = Font.system(size: 13, weight: .semibold)
     static let body = Font.system(size: 13)
@@ -111,6 +126,14 @@ enum Theme {
     static let label = Font.system(size: 11, weight: .medium).width(.condensed)
     /// Smallest condensed label: ruler numbers, view-cube faces.
     static let micro = Font.system(size: 10, weight: .semibold).width(.condensed)
+    #endif
+
+    /// Dynamic Type ceilings. Fixed-geometry chrome (tool strip, sketch bar, timeline) stops
+    /// at xLarge; the scrolling panels go up to accessibility2.
+    enum TypeLimit {
+        static let chrome = DynamicTypeSize.xLarge
+        static let panel = DynamicTypeSize.accessibility2
+    }
 
     // MARK: Copy
 
@@ -237,25 +260,8 @@ struct PanelSection<Content: View>: View {
     }
 }
 
-/// Raised card with a hairline border.
-struct Card<Content: View>: View {
-    var tint: Color?
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-            .padding(Theme.Space.m)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                    .fill(tint.map { AnyShapeStyle($0.opacity(0.1)) } ?? AnyShapeStyle(Theme.raised)))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
-                    .strokeBorder(tint.map { AnyShapeStyle($0.opacity(0.35)) } ?? AnyShapeStyle(Theme.hairline), lineWidth: 1))
-    }
-}
-
-/// Small rounded-square icon badge used for features and tools.
+/// A glyph in a small raised square with a drafting-stamp outline, for features and selections.
+/// The tint goes on the glyph only (orange editing, blue picked, ink otherwise).
 struct IconChip: View {
     let symbol: String
     var tint: Color = Theme.filletInk
@@ -266,7 +272,8 @@ struct IconChip: View {
             .font(.system(size: size * 0.5, weight: .semibold))
             .foregroundStyle(tint)
             .frame(width: size, height: size)
-            .background(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).fill(tint.opacity(0.14)))
+            .background(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).fill(Theme.raised))
+            .overlay(RoundedRectangle(cornerRadius: size * 0.28, style: .continuous).strokeBorder(Theme.hairlineStrong, lineWidth: 1))
             .accessibilityHidden(true)
     }
 }

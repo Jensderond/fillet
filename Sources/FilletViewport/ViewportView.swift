@@ -124,9 +124,11 @@ struct ViewportLabels: View {
                 if let p = cam.project((m.from + m.to) * 0.5, viewSize: size) {
                     Text(m.label)
                         .font(.caption.monospacedDigit().weight(.medium))
+                        .foregroundStyle(appearance.chipInk)
                         .padding(.horizontal, 6)
                         .padding(.vertical, 2)
-                        .background(.regularMaterial, in: Capsule())
+                        .background(appearance.chipFill, in: Capsule())
+                        .overlay(Capsule().strokeBorder(appearance.chipEdge))
                         .position(x: p.x + 8, y: p.y)
                         .fixedSize()
                 }
@@ -152,6 +154,17 @@ extension ViewportColor {
     var color: Color { Color(.sRGB, red: Double(r), green: Double(g), blue: Double(b), opacity: Double(a)) }
 }
 
+extension ViewportAppearance {
+    // Solid chips (measure labels, cube buttons) matching the app's raised surfaces and ink,
+    // rather than material, so they read the same over any geometry.
+    var chipFill: Color { self == .dark ? Color(.sRGB, red: 0x21 / 255, green: 0x28 / 255, blue: 0x36 / 255) : .white }
+    var chipInk: Color {
+        self == .dark ? Color(.sRGB, red: 0xE4 / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
+            : Color(.sRGB, red: 0x1D / 255, green: 0x2B / 255, blue: 0x45 / 255)
+    }
+    var chipEdge: Color { self == .dark ? .white.opacity(0.11) : Color(.sRGB, red: 0x1D / 255, green: 0x2B / 255, blue: 0x45 / 255).opacity(0.11) }
+}
+
 struct ViewCubeOverlay: View {
     let controller: ViewportController
     let appearance: ViewportAppearance
@@ -162,9 +175,9 @@ struct ViewCubeOverlay: View {
                      onFace: { controller.show($0) },
                      onCorner: { controller.show(yaw: $0, pitch: $1) })
             HStack(spacing: 6) {
-                CubeButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Fit all") { controller.fitAll() }
+                CubeButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Fit all", appearance: appearance) { controller.fitAll() }
                 CubeButton(systemName: controller.liveCamera.projection == .perspective ? "cube" : "square.grid.3x3",
-                           help: "Perspective / orthographic") { controller.toggleProjection() }
+                           help: "Perspective / orthographic", appearance: appearance) { controller.toggleProjection() }
             }
         }
     }
@@ -173,6 +186,7 @@ struct ViewCubeOverlay: View {
 private struct CubeButton: View {
     let systemName: String
     let help: String
+    let appearance: ViewportAppearance
     let action: () -> Void
 
     /// 44 pt touch targets on iPad.
@@ -190,7 +204,9 @@ private struct CubeButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .foregroundStyle(appearance.chipInk)
+        .background(appearance.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(appearance.chipEdge))
         #if os(iOS) || os(visionOS)
         .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 8, style: .continuous))
         .hoverEffect(.highlight)

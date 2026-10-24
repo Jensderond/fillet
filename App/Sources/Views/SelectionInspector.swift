@@ -12,7 +12,7 @@ struct SelectionInspector: View {
                 summary
             } else {
                 InspectorHeader(
-                    symbol: "cursorarrow.rays", title: session.selection.count == 1 ? "Selection" : "\(session.selection.count) selected",
+                    symbol: "cursorarrow.rays", title: session.selection.count == 1 ? name(of: session.selection[0]) : "\(session.selection.count) selected",
                     subtitle: session.selection.count == 2 ? nil : "Pick two items to measure between them", tint: Theme.select)
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     ForEach(Array(session.selection.prefix(4).enumerated()), id: \.offset) { _, item in
@@ -66,6 +66,16 @@ struct SelectionInspector: View {
         GridRow {
             Text(k).font(Theme.body).foregroundStyle(Theme.inkSecondary)
             Text(v).font(Theme.value).foregroundStyle(Theme.ink)
+        }
+    }
+
+    /// One picked item names the inspector ("Flat face", "Body 1") instead of a generic "Selection".
+    private func name(of s: Selection) -> String {
+        switch s {
+        case .face(let b, let i): session.model.body(b)?.shape.faceInfoIfValid(i).map { "\($0.surface.title) face" } ?? "Face"
+        case .edge(let b, let i): session.model.body(b)?.shape.edgeInfoIfValid(i).map { "\($0.curve.title) edge" } ?? "Edge"
+        case .body(let b): session.model.body(b)?.name ?? "Body"
+        default: "Selection"
         }
     }
 

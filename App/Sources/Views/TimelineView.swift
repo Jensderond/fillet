@@ -20,7 +20,8 @@ struct TimelineView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.touchTargets) private var touch
 
-    static let stationWidth: CGFloat = 70
+    /// Station pitch on the ruler; grows with the station labels under Dynamic Type.
+    @ScaledMetric(relativeTo: .caption) private var stationWidth: CGFloat = 70
 
     private var doc: Document { session.document }
     private var markerIndex: Int { doc.activeFeatureCount }
@@ -31,7 +32,7 @@ struct TimelineView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     ZStack(alignment: .bottomLeading) {
-                        RulerTicks(count: doc.features.count, stationWidth: Self.stationWidth, minWidth: visibleWidth - 8)
+                        RulerTicks(count: doc.features.count, stationWidth: stationWidth, minWidth: visibleWidth - 8)
                         HStack(spacing: 0) {
                             if doc.features.isEmpty {
                                 emptyState
@@ -115,7 +116,7 @@ struct TimelineView: View {
             open(feature)
         } label: {
             StationLabel(
-                feature: feature, number: index + 1, rolledBack: index >= markerIndex,
+                feature: feature, number: index + 1, width: stationWidth, rolledBack: index >= markerIndex,
                 editing: session.editing?.feature == feature.id, failure: failed,
                 dropTarget: dropTarget == index)
         }
@@ -170,11 +171,11 @@ struct TimelineView: View {
             .frame(width: 0, height: 64)
             .overlay {
                 RollbackCaliper(hitWidth: touch ? 44 : 28)
-                    .offset(x: CGFloat((markerDrag ?? markerIndex) - markerIndex) * Self.stationWidth)
+                    .offset(x: CGFloat((markerDrag ?? markerIndex) - markerIndex) * stationWidth)
                     .highPriorityGesture(
                         DragGesture(minimumDistance: 2, coordinateSpace: .named("ruler"))
                             .onChanged { value in
-                                markerDrag = min(max(Int((value.location.x / Self.stationWidth).rounded()), 0), count)
+                                markerDrag = min(max(Int((value.location.x / stationWidth).rounded()), 0), count)
                             }
                             .onEnded { _ in
                                 guard let target = markerDrag else { return }
@@ -256,6 +257,7 @@ struct TimelineView: View {
 private struct StationLabel: View {
     let feature: Feature
     let number: Int
+    let width: CGFloat
     let rolledBack: Bool
     let editing: Bool
     let failure: String?
@@ -288,7 +290,7 @@ private struct StationLabel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .frame(width: TimelineView.stationWidth, height: 50, alignment: .top)
+        .frame(width: width, height: 50, alignment: .top)
         .padding(.bottom, 14)
         // Rolled back: hatched, slate icon, secondary label; no opacity, so the name stays legible.
         .background(alignment: .center) {

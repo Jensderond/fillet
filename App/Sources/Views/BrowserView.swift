@@ -63,6 +63,7 @@ struct BrowserView: View {
             .padding(Theme.Space.l)
         }
         .background(Theme.panel)
+        .dynamicTypeSize(...Theme.TypeLimit.panel)
     }
 }
 
@@ -149,6 +150,7 @@ struct ParameterRow: View {
     @State private var name = ""
     @State private var nameError: String?
     @FocusState private var nameFocused: Bool
+    @State private var nameHovering = false
     @Environment(\.touchTargets) private var touch
 
     var body: some View {
@@ -166,6 +168,15 @@ struct ParameterRow: View {
                     .focusedValue(\.isEditingText, nameFocused ? true : nil)
                     .onSubmit(commitName)
                     .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
+                    // An underline on hover and focus says "this name is editable" (orange while typing).
+                    .padding(.bottom, 2)
+                    .overlay(alignment: .bottom) {
+                        Rectangle()
+                            .fill(nameFocused ? Theme.fillet : nameHovering ? Theme.hairlineStrong : .clear)
+                            .frame(height: nameFocused ? 1.5 : 1)
+                    }
+                    .onHover { nameHovering = $0 }
+                    .animation(Theme.Motion.hover, value: nameHovering)
                 Spacer(minLength: 0)
                 Button {
                     session.perform("Delete Parameter") { $0.parameters.removeAll { $0.id == parameter.id } }
@@ -178,7 +189,7 @@ struct ParameterRow: View {
                 .help("Delete \(parameter.name)")
                 .accessibilityLabel("Delete \(parameter.name)")
             }
-            ExprField(label: "=", value: parameter.expression, evaluator: session.model.parameters.evaluator) { expr in
+            ExprField(label: "=", value: parameter.expression, labelWidth: nil, evaluator: session.model.parameters.evaluator) { expr in
                 session.perform("Edit Parameter") { doc in
                     if let i = doc.parameters.firstIndex(where: { $0.id == parameter.id }) { doc.parameters[i].expression = expr }
                 }

@@ -7,6 +7,8 @@ struct ExprField: View {
     let label: String
     let value: Expr
     var kind: QuantityKind = .length
+    /// Width of the label column; nil lets a short label ("=") hug its text.
+    var labelWidth: CGFloat? = 64
     let evaluator: Evaluator
     let onChange: (Expr) -> Void
 
@@ -22,7 +24,7 @@ struct ExprField: View {
                 Text(label)
                     .font(Theme.body)
                     .foregroundStyle(Theme.inkSecondary)
-                    .frame(minWidth: 64, alignment: .leading)
+                    .frame(minWidth: labelWidth, alignment: .leading)
                     .lineLimit(1)
                 field
             }
@@ -84,8 +86,7 @@ struct ExprField: View {
     private var borderColor: Color {
         if error != nil { return Theme.danger }
         if focused { return Theme.fillet }
-        // Resting border at hairlineStrong so the field reads as a field, not a label.
-        return hovering ? Theme.inkTertiary.opacity(0.7) : Theme.hairlineStrong
+        return hovering ? Theme.inkTertiary : Theme.fieldBorder
     }
 
     private var unit: String {
