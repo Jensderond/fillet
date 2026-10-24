@@ -423,8 +423,8 @@ struct Labeled<Content: View>: View {
     }
 }
 
-/// Fillet's segmented control: equal-width segments on a raised track, the chosen one in ink
-/// on a stronger plate. Unlike the system control it follows Dynamic Type, matches widths
+/// Fillet's segmented control: equal-width segments on a track, the chosen one on a raised
+/// thumb (light) or a slate plate (dark). Unlike the system control it follows Dynamic Type, matches widths
 /// across rows, and is 32 pt with a pointer and 44 pt on touch.
 struct ThemeSegmented<Value: Hashable>: View {
     let label: String
@@ -433,6 +433,7 @@ struct ThemeSegmented<Value: Hashable>: View {
     let onChange: (Value) -> Void
     @Environment(\.touchTargets) private var touch
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorScheme) private var colorScheme
 
     init(_ label: String, selection: Value, options: [(Value, String)], onChange: @escaping (Value) -> Void) {
         self.label = label
@@ -450,18 +451,28 @@ struct ThemeSegmented<Value: Hashable>: View {
                 Button {
                     if !selected { onChange(option.value) }
                 } label: {
-                    // The chosen segment is a solid slate plate with the surface colour for text:
-                    // 5.8:1 against the track (7.7:1 with Increase Contrast), so the state reads
-                    // from the plate itself, not only from the weight of the text.
+                    // Light: the chosen segment is a raised white thumb with an inkTertiary rim on a
+                    // tinted track, the same "on" look as the tool-strip toggles, quieter than a solid
+                    // block next to the orange primary. Dark: a solid slate plate (5.9:1 to the track).
                     Text(option.title)
                         .font(Theme.body.weight(selected ? .semibold : .medium))
-                        .foregroundStyle(selected ? Theme.raised : Theme.inkSecondary)
+                        .foregroundStyle(selected ? (isDark ? Theme.raised : Theme.ink) : Theme.inkSecondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                         .padding(.horizontal, Theme.Space.xs)
                         .frame(maxWidth: .infinity, minHeight: (touch ? 44 : 32) - 4)
-                        .background(RoundedRectangle(cornerRadius: Theme.Radius.control - 2, style: .continuous)
-                            .fill(selected ? Theme.inkSecondary : .clear))
+                        .background {
+                            let plate = RoundedRectangle(cornerRadius: Theme.Radius.control - 2, style: .continuous)
+                            if selected {
+                                if isDark {
+                                    plate.fill(Theme.inkSecondary)
+                                } else {
+                                    plate.fill(Theme.raised)
+                                        .overlay(plate.strokeBorder(Theme.inkTertiary, lineWidth: 1))
+                                        .shadow(color: Theme.ink.opacity(0.08), radius: 1.5, y: 1)
+                                }
+                            }
+                        }
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressableStyle())
@@ -471,13 +482,16 @@ struct ThemeSegmented<Value: Hashable>: View {
             }
         }
         .padding(2)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.raised))
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+            .fill(isDark ? AnyShapeStyle(Theme.raised) : AnyShapeStyle(Theme.hairline)))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).strokeBorder(Theme.hairline))
         .frame(maxWidth: .infinity)
         .animation(Theme.Motion.hover, value: selection)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
     }
+
+    private var isDark: Bool { colorScheme == .dark }
 }
 
 /// Guidance or a printing tip, quiet enough to ignore.
