@@ -48,6 +48,13 @@ struct SelectionInspector: View {
                 Theme.hairline.frame(height: 1)
                 CheckRow(state: a.isWatertight ? .ok : .bad, title: a.isWatertight ? "Watertight" : "Has open edges",
                          detail: a.isWatertight ? "Safe to slice" : "\(a.boundaryEdgeCount) open edges")
+                let failed = session.failedFeatures
+                if let first = failed.first {
+                    Theme.hairline.frame(height: 1)
+                    CheckRow(state: .bad, title: failed.count == 1 ? "1 step failed" : "\(failed.count) steps failed",
+                             detail: "\(first.feature.name): \(first.reason)",
+                             action: ("Show", { session.run(.showFeature(first.feature.id)) }))
+                }
             }
             .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.raised))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.hairline))

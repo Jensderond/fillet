@@ -22,21 +22,34 @@ struct FeatureEdit: Equatable {
     var snapshot: Document
 }
 
-/// A transient banner. Errors get their own icon and colour, and longer text stays up longer.
+/// A banner over the viewport. Info dismisses itself (the timer pauses under the pointer);
+/// errors stay until dismissed or the next edit; a failed-step banner stays until the step
+/// works again, and its Show button opens the step.
 struct ToastMessage: Equatable, ExpressibleByStringInterpolation {
     enum Kind { case info, error }
+    enum Action: Equatable {
+        /// Open this step in the inspector and bring it into view on the timeline.
+        case showFeature(UUID)
+    }
     var text: String
     var kind: Kind = .info
+    var action: Action?
     /// Each post is distinct, so the same text shown twice restarts its timer.
     let id = UUID()
 
-    init(_ text: String, kind: Kind = .info) { self.text = text; self.kind = kind }
+    init(_ text: String, kind: Kind = .info, action: Action? = nil) { self.text = text; self.kind = kind; self.action = action }
     init(stringLiteral value: String) { self.init(value) }
 
     static func error(_ text: String) -> ToastMessage { ToastMessage(text, kind: .error) }
 
+    /// Only info dismisses itself.
+    var dismissesItself: Bool { kind == .info }
+
     /// Seconds on screen: at least 4, longer for long text (about 15 characters a second).
     var duration: Double { max(4, Double(text.count) / 15) }
+
+    /// The step a failed-step banner is about.
+    var failedFeature: UUID? { if case .showFeature(let id)? = action { id } else { nil } }
 }
 
 /// All editing state of one open document window.
@@ -66,10 +79,25 @@ final class DesignSession {
     var documentName: String?
     /// Set by the menu command; the editor presents the file importer.
     var importRequested = false
-    /// Shown as a transient banner (e.g. export finished / failed).
+    /// Shown as a banner over the viewport (export finished, a step failed…).
     var message: ToastMessage?
+    /// Live undo state for the toolbar (`UndoManager` itself isn't observable).
+    private(set) var canUndo = false
+    private(set) var canRedo = false
 
-    @ObservationIgnored var undoManager: UndoManager?
+    @ObservationIgnored var undoManager: UndoManager? {
+        didSet {
+            guard undoManager !== oldValue else { return }
+            undoState = UndoStateObserver(undoManager: undoManager)
+            undoState?.onChange = { [weak self] undo, redo in
+                self?.canUndo = undo
+                self?.canRedo = redo
+            }
+            canUndo = undoState?.canUndo ?? false
+            canRedo = undoState?.canRedo ?? false
+        }
+    }
+    @ObservationIgnored private var undoState: UndoStateObserver?
     /// Writes changes back to the file document (marks it dirty, triggers autosave).
     @ObservationIgnored var onDocumentChange: ((Document) -> Void)?
 
@@ -104,6 +132,8 @@ final class DesignSession {
 
     private func setDocument(_ newDocument: Document) {
         document = newDocument
+        // An error is about the last action; the next edit moves on from it.
+        if message?.kind == .error, message?.failedFeature == nil { message = nil }
         onDocumentChange?(newDocument)
         recompute()
     }
@@ -121,6 +151,7 @@ final class DesignSession {
             }
         }
         undoManager.setActionName(actionName)
+        undoState?.refresh()
     }
 
     // MARK: Feature editing
@@ -203,11 +234,46 @@ final class DesignSession {
                 let doc = self.document
                 let result = await self.evaluator.evaluate(doc, before: self.editing?.feature)
                 let previousBodies = self.model.bodies.count
+                let previousStatus = self.model.status
                 self.model = result
                 self.reframeAfterRecompute(previousBodyCount: previousBodies)
+                self.announceFailures(previous: previousStatus)
             }
             self?.isRecomputing = false
             self?.recomputeTask = nil
+        }
+    }
+
+    // MARK: Failures
+
+    /// Steps that failed in the latest recompute, in timeline order.
+    var failedFeatures: [(feature: Feature, reason: String)] {
+        document.features.compactMap { f in model.error(for: f.id).map { (f, $0) } }
+    }
+
+    /// A step that stopped working after a change gets a banner until it works again (the step
+    /// being edited already shows its error in the inspector).
+    private func announceFailures(previous: [UUID: FeatureStatus]) {
+        if let id = message?.failedFeature, model.error(for: id) == nil { message = nil }
+        let fresh = failedFeatures.filter { f in
+            guard f.feature.id != editing?.feature else { return false }
+            if case .failed = previous[f.feature.id] { return false }
+            return true
+        }
+        guard let first = fresh.first else { return }
+        let others = failedFeatures.count - 1
+        let more = others > 0 ? " (\(others) more \(others == 1 ? "step" : "steps") failed)" : ""
+        message = ToastMessage("\(first.feature.name) failed: \(first.reason)\(more)", kind: .error,
+                               action: .showFeature(first.feature.id))
+    }
+
+    /// Runs a banner's button.
+    func run(_ action: ToastMessage.Action) {
+        switch action {
+        case .showFeature(let id):
+            guard let feature = document.feature(id) else { return }
+            message = nil  // the inspector takes over showing the error
+            if case .sketch = feature.kind { editSketch(id) } else { beginEdit(id) }
         }
     }
 

@@ -206,12 +206,10 @@ struct EditorContent: View {
                 }
                 Spacer(minLength: 0)
                 if let message = session.message {
-                    Toast(message: message) { session.message = nil }
-                        .transition(.panel(from: .bottom, reduceMotion: reduceMotion))
-                        .task(id: message) {
-                            try? await Task.sleep(for: .seconds(message.duration))
-                            if session.message == message { session.message = nil }
-                        }
+                    Toast(message: message, run: { session.run($0) }) {
+                        if session.message == message { session.message = nil }
+                    }
+                    .transition(.panel(from: .bottom, reduceMotion: reduceMotion))
                 }
             }
             .padding(Theme.Space.l)
@@ -288,9 +286,12 @@ struct HintPill: View {
 }
 
 /// Status in ink, errors in red with a warning glyph; announced to VoiceOver when it appears.
+/// Info dismisses itself, pausing while the pointer is over it; errors wait to be dismissed.
 struct Toast: View {
     let message: ToastMessage
+    var run: (ToastMessage.Action) -> Void = { _ in }
     let dismiss: () -> Void
+    @State private var hovering = false
     @Environment(\.touchTargets) private var touch
 
     var body: some View {
@@ -299,6 +300,14 @@ struct Toast: View {
                 .foregroundStyle(message.kind == .error ? Theme.dangerInk : Theme.inkSecondary)
                 .accessibilityHidden(true)
             Text(message.text).font(Theme.body).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
+            if let action = message.action {
+                Button("Show") { run(action) }
+                    .buttonStyle(InlineButtonStyle())
+                    .frame(minHeight: touch ? 44 : 28)
+                    .padding(.leading, Theme.Space.xs)
+                    .hoverHighlight()
+                    .automationMarker("toast-show")
+            }
             Button(action: dismiss) {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.inkTertiary)
                     .frame(width: touch ? 44 : 22, height: touch ? 44 : 22)
@@ -310,8 +319,14 @@ struct Toast: View {
         }
         .padding(.leading, Theme.Space.l).padding(.trailing, Theme.Space.xs).padding(.vertical, Theme.Space.s)
         .floatingElevation()
-        .frame(maxWidth: 460)
+        .frame(maxWidth: 520)
         .onAppear { AccessibilityNotification.Announcement(message.text).post() }
+        .onHover { hovering = $0 }
+        .task(id: hovering) {
+            guard message.dismissesItself, !hovering else { return }
+            try? await Task.sleep(for: .seconds(message.duration))
+            if !Task.isCancelled { dismiss() }
+        }
     }
 }
 
@@ -322,6 +337,12 @@ struct Toast: View {
 struct ToolStrip: View {
     @Bindable var session: DesignSession
     @Binding var showBrowser: Bool
+
+    /// While a step is open, the other tools wait for Done or Cancel.
+    private var busyReason: String? {
+        guard session.isBusyEditing, let name = session.editingFeature?.name else { return nil }
+        return "Finish \(name) first: Done or Cancel."
+    }
 
     var body: some View {
         let busy = session.isBusyEditing
@@ -349,11 +370,10 @@ struct ToolStrip: View {
                         .help("New sketch on the selected face, or on the bed (⇧⌘K)")
                     }
                     ToolCluster {
-                        Group {
-                            ToolButton("Extrude", "square.stack.3d.up", active: session.editingKind == "extrude") { session.startExtrude() }
-                            ToolButton("Revolve", "arrow.triangle.2.circlepath", active: session.editingKind == "revolve") { session.startRevolve() }
-                        }
-                        .disabled(busy)
+                        ToolButton("Extrude", "square.stack.3d.up", active: session.editingKind == "extrude",
+                                   unavailable: session.unavailableReason(.extrude)) { session.startExtrude() }
+                        ToolButton("Revolve", "arrow.triangle.2.circlepath", active: session.editingKind == "revolve",
+                                   unavailable: session.unavailableReason(.revolve)) { session.startRevolve() }
                         Menu {
                             ForEach(PrimitiveKind.allCases, id: \.self) { kind in
                                 Button(kind.rawValue.capitalized) { session.startPrimitive(kind) }
@@ -364,27 +384,30 @@ struct ToolStrip: View {
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                         .hoverHighlight()
-                        ToolButton("Import", "square.and.arrow.down") { session.importRequested = true }
-                            .disabled(busy)
+                        .help(busyReason ?? "Box, cylinder, sphere, cone or torus")
+                        ToolButton("Import", "square.and.arrow.down", unavailable: busyReason) { session.importRequested = true }
                     }
                     ToolCluster {
-                        Group {
-                            ToolButton("Fillet", "rectangle.roundedtop", active: session.editingKind == "fillet") { session.startEdgeFeature(fillet: true) }
-                            ToolButton("Chamfer", "skew", active: session.editingKind == "chamfer") { session.startEdgeFeature(fillet: false) }
-                            ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell") { session.startShell() }
-                            ToolButton("Combine", "square.on.square", active: session.editingKind == "combine") { session.startCombine() }
-                            ToolButton("Move", "move.3d", active: session.editingKind == "move") { session.startMove() }
-                            ToolButton("Mirror", "arrow.left.and.right.righttriangle.left.righttriangle.right", active: session.editingKind == "mirror") { session.startMirror() }
-                            ToolButton("Pattern", "square.grid.3x1.below.line.grid.1x2", active: session.editingKind == "pattern") { session.startPattern() }
-                        }
-                        .disabled(busy)
+                        ToolButton("Fillet", "rectangle.roundedtop", active: session.editingKind == "fillet",
+                                   unavailable: session.unavailableReason(.fillet)) { session.startEdgeFeature(fillet: true) }
+                        ToolButton("Chamfer", "skew", active: session.editingKind == "chamfer",
+                                   unavailable: session.unavailableReason(.chamfer)) { session.startEdgeFeature(fillet: false) }
+                        ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell",
+                                   unavailable: session.unavailableReason(.shell)) { session.startShell() }
+                        ToolButton("Combine", "square.on.square", active: session.editingKind == "combine",
+                                   unavailable: session.unavailableReason(.combine)) { session.startCombine() }
+                        ToolButton("Move", "move.3d", active: session.editingKind == "move",
+                                   unavailable: session.unavailableReason(.move)) { session.startMove() }
+                        ToolButton("Mirror", "arrow.left.and.right.righttriangle.left.righttriangle.right", active: session.editingKind == "mirror",
+                                   unavailable: session.unavailableReason(.mirror)) { session.startMirror() }
+                        ToolButton("Pattern", "square.grid.3x1.below.line.grid.1x2", active: session.editingKind == "pattern",
+                                   unavailable: session.unavailableReason(.pattern)) { session.startPattern() }
                     }
                     ToolCluster {
-                        Group {
-                            ToolButton("Lay flat", "arrow.down.to.line", active: session.editingKind == "layFlat") { session.startLayFlat() }
-                            ToolButton("Overhangs", "angle", active: session.showOverhangs, toggle: true) { session.showOverhangs.toggle() }
-                        }
-                        .disabled(busy)
+                        ToolButton("Lay flat", "arrow.down.to.line", active: session.editingKind == "layFlat",
+                                   unavailable: session.unavailableReason(.layFlat)) { session.startLayFlat() }
+                        ToolButton("Overhangs", "angle", active: session.showOverhangs, toggle: true,
+                                   unavailable: session.showOverhangs ? nil : session.unavailableReason(.overhangs)) { session.showOverhangs.toggle() }
                     }
                 }
                 .padding(.vertical, 1)
@@ -481,25 +504,63 @@ struct ToolButtonStyle: ButtonStyle {
     var symbol: String
     var active: Bool
     var isToggle: Bool
+    var unavailable: Bool
     func makeBody(configuration: Configuration) -> some View {
-        ToolLabel(title, symbol, active: active, pressed: configuration.isPressed, isToggle: isToggle)
+        ToolLabel(title, symbol, active: active, pressed: configuration.isPressed, isToggle: isToggle, disabled: unavailable)
     }
 }
 
+/// A tool-strip button. When the tool can't run it looks unavailable and, instead of acting,
+/// explains why: as the tooltip on the Mac, as a VoiceOver hint, and in a small popover on a tap.
 struct ToolButton: View {
     let title: String
     let symbol: String
     var active = false
     var isToggle = false
+    var unavailable: String?
     let action: () -> Void
-    init(_ title: String, _ symbol: String, active: Bool = false, toggle: Bool = false, action: @escaping () -> Void) {
-        self.title = title; self.symbol = symbol; self.active = active; self.isToggle = toggle; self.action = action
+    @State private var explaining = false
+
+    init(_ title: String, _ symbol: String, active: Bool = false, toggle: Bool = false, unavailable: String? = nil,
+         action: @escaping () -> Void) {
+        self.title = title; self.symbol = symbol; self.active = active; self.isToggle = toggle
+        self.unavailable = unavailable; self.action = action
     }
+
     var body: some View {
-        Button(title, action: action)
-            .buttonStyle(ToolButtonStyle(title: title, symbol: symbol, active: active, isToggle: isToggle))
-            .help(title)
-            .hoverHighlight()
+        Button(title) {
+            if unavailable != nil { explaining = true } else { action() }
+        }
+        .buttonStyle(ToolButtonStyle(title: title, symbol: symbol, active: active, isToggle: isToggle, unavailable: unavailable != nil))
+        .help(unavailable.map { "\(title). \($0)" } ?? title)
+        .accessibilityValue(unavailable == nil ? "" : "Unavailable")
+        .accessibilityHint(unavailable ?? "")
+        .hoverHighlight()
+        .popover(isPresented: $explaining, arrowEdge: .bottom) {
+            ToolReason(title: title, reason: unavailable ?? "")
+        }
+    }
+}
+
+/// Why a tool is unavailable: a short note under the tool, gone after a few seconds.
+private struct ToolReason: View {
+    let title: String
+    let reason: String
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: Theme.Space.xs) {
+            Text(title).font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
+            Text(reason).font(Theme.body).foregroundStyle(Theme.inkSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(Theme.Space.m)
+        .frame(width: 240, alignment: .leading)
+        .presentationCompactAdaptation(.popover)
+        .task {
+            try? await Task.sleep(for: .seconds(4))
+            dismiss()
+        }
     }
 }
 
@@ -698,10 +759,14 @@ struct DocumentToolbar: ToolbarContent {
 
     var body: some ToolbarContent {
         ToolbarItemGroup(placement: .primaryAction) {
+            // The session tracks the undo manager's notifications; reading `canUndo` from the
+            // manager here wouldn't re-render when it changes.
             Button { undoManager?.undo() } label: { Label("Undo", systemImage: "arrow.uturn.backward") }
-                .disabled(!(undoManager?.canUndo ?? false))
+                .disabled(!session.canUndo)
+                .help(session.canUndo ? "Undo \(undoManager?.undoActionName ?? "")" : "Nothing to undo")
             Button { undoManager?.redo() } label: { Label("Redo", systemImage: "arrow.uturn.forward") }
-                .disabled(!(undoManager?.canRedo ?? false))
+                .disabled(!session.canRedo)
+                .help(session.canRedo ? "Redo \(undoManager?.redoActionName ?? "")" : "Nothing to redo")
             PrinterMenu(session: session)
             ExportMenu(session: session)
         }

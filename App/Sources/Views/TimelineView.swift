@@ -55,6 +55,11 @@ struct TimelineView: View {
                 .onChange(of: doc.features.count) { _, _ in
                     withAnimation(Theme.Motion.enter) { proxy.scrollTo("marker", anchor: .trailing) }
                 }
+                // Opening a step from elsewhere (a failed-step banner, the browser) brings it into view.
+                .onChange(of: session.editing?.feature) { _, id in
+                    guard let id else { return }
+                    withAnimation(reduceMotion ? nil : Theme.Motion.move) { proxy.scrollTo(id, anchor: .center) }
+                }
             }
         }
         .padding(.horizontal, Theme.Space.s)

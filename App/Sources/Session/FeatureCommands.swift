@@ -2,6 +2,11 @@ import FilletCore
 import FilletKernel
 import Foundation
 
+/// Modelling tools on the tool strip whose availability depends on the design.
+enum ModelTool {
+    case extrude, revolve, fillet, chamfer, shell, combine, move, mirror, pattern, layFlat, overhangs
+}
+
 /// Creating and editing features from the current selection.
 extension DesignSession {
     // MARK: Sketch
@@ -81,10 +86,35 @@ extension DesignSession {
         }
     }
 
+    // MARK: Availability
+
+    /// Why a modelling tool can't run right now, or nil when it can. The tool strip shows these
+    /// tools as unavailable and explains with this text; menus and shortcuts post it as a toast.
+    func unavailableReason(_ tool: ModelTool) -> String? {
+        if isBusyEditing, let name = editingFeature?.name { return "Finish \(name) first: Done or Cancel." }
+        let noBody = "Needs a body. Extrude a sketch first."
+        switch tool {
+        case .extrude, .revolve:
+            guard let sketch = profileSketch else { return "Needs a sketch. Draw a closed shape with Sketch first." }
+            if (model.sketches[sketch]?.regions?.count ?? 0) == 0 { return "Needs a closed shape in the sketch, like a rectangle or circle." }
+            return nil
+        case .fillet, .chamfer, .shell, .move, .mirror, .pattern, .overhangs:
+            return model.bodies.isEmpty ? noBody : nil
+        case .combine:
+            return model.bodies.count < 2 ? (model.bodies.isEmpty ? noBody : "Needs two bodies. Make another one to join, cut or intersect with.") : nil
+        case .layFlat:
+            if model.bodies.isEmpty { return noBody }
+            guard let (body, face) = selectedFaces.first, model.body(body)?.shape.facePlane(face) != nil else {
+                return "\(Theme.Copy.pick) the flat face that should touch the bed first."
+            }
+            return nil
+        }
+    }
+
     // MARK: Solid features
 
     /// The sketch an extrude/revolve should use: the open one, the newest unused one, or the newest.
-    private var profileSketch: UUID? {
+    var profileSketch: UUID? {
         if let open = sketchEditor?.sketch { return open }
         if let unused = unconsumedSketch { return unused }
         return document.activeFeatures.last { if case .sketch = $0.kind { true } else { false } }?.id

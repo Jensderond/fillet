@@ -128,6 +128,7 @@ enum DebugAutomation {
         await settle(session)
         await snap(session, "04-extruded")
         checkCentred(session, "first body framed in the visible viewport")
+        checkUndoState(session, expectUndo: true, "Undo available after the first extrude")
         let plate = 60.0 * 30 * 12 - Double.pi * 49 * 12
         check(abs((session.model.bodies.first?.shape.volume ?? 0) - plate) < 0.01, "extruded volume \(session.model.bodies.first?.shape.volume ?? 0) ≈ \(plate)")
 
@@ -205,6 +206,8 @@ enum DebugAutomation {
             check(session.model.status.values.allSatisfy { if case .failed = $0 { false } else { true } }, "all features ok after widening")
         }
 
+        await failedStepBanner(session)
+
         // A named parameter, so the browser's parameter row shows in the next capture.
         session.perform("Add Parameter") { $0.parameters.append(Parameter(name: "wall", expression: 2)) }
         check(session.model.parameters.errors.isEmpty, "parameter evaluates")
@@ -217,6 +220,21 @@ enum DebugAutomation {
         session.moveRollbackMarker(to: nil)
         await settle(session)
         check(session.document.activeFeatureCount == session.document.features.count, "rolled forward to the end")
+
+        // Undo and Redo follow the real state: undo the rollback marker move, then redo it.
+        if let undoManager = session.undoManager {
+            let after = session.document
+            undoManager.undo()
+            await settle(session)
+            checkUndoState(session, expectUndo: true, expectRedo: true, "Undo reverts and Redo becomes available")
+            check(session.document != after, "Undo changed the document")
+            undoManager.redo()
+            await settle(session)
+            checkUndoState(session, expectUndo: true, expectRedo: false, "Redo restores and Redo is spent")
+            check(session.document == after, "Redo restored the document")
+        } else {
+            log("no undo manager in this host; undo checks skipped")
+        }
 
         // Export.
         do {
@@ -249,6 +267,51 @@ enum DebugAutomation {
     private static func check(_ ok: Bool, _ what: String) {
         if !ok { failures += 1 }
         log("\(ok ? "✔" : "✘") \(what)")
+    }
+
+    /// The toolbar's undo state matches the undo manager (and the expectation).
+    private static func checkUndoState(_ session: DesignSession, expectUndo: Bool, expectRedo: Bool? = nil, _ what: String) {
+        guard let manager = session.undoManager else { log("no undo manager; skipped: \(what)"); return }
+        let truthful = session.canUndo == manager.canUndo && session.canRedo == manager.canRedo
+        let expected = session.canUndo == expectUndo && (expectRedo.map { session.canRedo == $0 } ?? true)
+        check(truthful && expected, "\(what) (toolbar undo \(session.canUndo) redo \(session.canRedo), manager \(manager.canUndo)/\(manager.canRedo))")
+    }
+
+    /// A parameter drives the fillet radius; an impossible value breaks the fillet. The
+    /// banner names the step, Show opens it, and fixing the value clears the banner.
+    private static func failedStepBanner(_ session: DesignSession) async {
+        guard let fillet = session.document.features.first(where: { if case .fillet = $0.kind { true } else { false } }) else {
+            check(false, "a fillet to break"); return
+        }
+        func setRadius(_ value: Double) {
+            session.perform("Edit Parameter") { doc in
+                if let i = doc.parameters.firstIndex(where: { $0.name == "r" }) { doc.parameters[i].expression = Expr(value) }
+            }
+        }
+        session.perform("Add Parameter") { $0.parameters.append(Parameter(name: "r", expression: 5)) }
+        session.perform("Radius from r") { doc in
+            if let i = doc.index(of: fillet.id), case .fillet(var e) = doc.features[i].kind {
+                e.size = Expr(stringLiteral: "r")
+                doc.features[i].kind = .fillet(e)
+            }
+        }
+        await settle(session)
+        check(session.model.error(for: fillet.id) == nil && session.message == nil, "fillet driven by r = 5 works")
+        setRadius(40)
+        await settle(session)
+        check(session.message?.failedFeature == fillet.id && session.message?.kind == .error,
+              "failed-step banner for \(fillet.name): \(session.message?.text ?? "none")")
+        await snap(session, "09b-failed-step")
+        check(markers["toast-show", default: 0] == 1, "banner has one Show button")
+        check(!(session.message?.dismissesItself ?? true), "error banner doesn't dismiss itself")
+        if let action = session.message?.action { session.run(action) }
+        await settle(session)
+        check(session.editing?.feature == fillet.id && session.model.error(for: fillet.id) != nil, "Show opens the failed step with its error")
+        await snap(session, "09c-show-failed")
+        session.cancelEdit()
+        setRadius(5)
+        await settle(session)
+        check(session.message == nil && session.failedFeatures.isEmpty, "r = 5 again clears the banner and the failure")
     }
 
     /// The bodies' projected bounds sit centred in the unobstructed part of the viewport.
