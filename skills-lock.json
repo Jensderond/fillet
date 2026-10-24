@@ -31,6 +31,12 @@
       "skillPath": "skills/review-animations/SKILL.md",
       "computedHash": "b4e5f0f4fe3e2743c85bf7354108f48a0b9d502cb20ef5c4a9c195da91f93736"
     },
+    "swiftui-design-skill": {
+      "source": "wholiver/swiftui-design-skill",
+      "sourceType": "github",
+      "skillPath": "SKILL.md",
+      "computedHash": "e566cd9af70769555a866c11a8037f326a699f600de200a9dde8518122fb0b32"
+    },
     "write-swift": {
       "source": "emilkowalski/skills",
       "sourceType": "github",
