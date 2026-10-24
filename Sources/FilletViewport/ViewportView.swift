@@ -132,6 +132,30 @@ struct ViewportLabels: View {
     let controller: ViewportController
     let scene: ViewportScene
     let appearance: ViewportAppearance
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    /// The printer's name runs along the bed's front edge, just outside it, like a label printed
+    /// on the plate's rim: never on the outline or the paper, and upright whichever way the
+    /// edge slopes. Hidden when the edge is too short on screen to carry it.
+    private func bedLabelPlacement(_ plate: BuildPlate, _ cam: Camera, _ size: CGSize) -> (center: CGPoint, angle: Angle)? {
+        let y = plate.minXY.y, x0 = plate.minXY.x, x1 = plate.minXY.x + plate.size.x
+        guard let a = cam.project(Vec3(x0, y, 0), viewSize: size), let b = cam.project(Vec3(x1, y, 0), viewSize: size),
+            let outside = cam.project(Vec3((x0 + x1) / 2, y - plate.size.y * 0.1, 0), viewSize: size)
+        else { return nil }
+        let dx = b.x - a.x, dy = b.y - a.y, length = (dx * dx + dy * dy).squareRoot()
+        // Room for the name plus margins (caption2 is about 6.5 pt per character).
+        guard length > CGFloat(plate.name.count) * 6.5 + 32 else { return nil }
+        let mid = CGPoint(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+        // Unit normal to the edge, on the side away from the bed.
+        var nx = -dy / length, ny = dx / length
+        if nx * (outside.x - mid.x) + ny * (outside.y - mid.y) < 0 { nx = -nx; ny = -ny }
+        let offset: CGFloat = 13  // half the text height plus a 6 pt gap from the outline
+        let center = CGPoint(x: mid.x + nx * offset, y: mid.y + ny * offset)
+        guard center.x > -50, center.y > -20, center.x < size.width + 50, center.y < size.height + 20 else { return nil }
+        var degrees = atan2(dy, dx) * 180 / .pi
+        if degrees > 90 { degrees -= 180 } else if degrees < -90 { degrees += 180 }
+        return (center, .degrees(degrees))
+    }
 
     var body: some View {
         let cam = controller.liveCamera
@@ -150,14 +174,16 @@ struct ViewportLabels: View {
                         .fixedSize()
                 }
             }
-            if let plate = scene.plate, !plate.name.isEmpty,
-               let p = cam.project(Vec3(plate.minXY.x, plate.minXY.y, 0), viewSize: size),
-               p.x > -50, p.y > -20, p.x < size.width + 50, p.y < size.height + 20 {
+            if let plate = scene.plate, !plate.name.isEmpty, let place = bedLabelPlacement(plate, cam, size) {
+                // Like lettering on a drawing, the ground's ruling breaks around the name.
                 Text(plate.name)
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(appearance == .dark ? Color.white.opacity(0.45) : Color.black.opacity(0.4))
+                    .foregroundStyle(appearance.labelInk(highContrast: contrast == .increased))
                     .fixedSize()
-                    .position(x: p.x, y: p.y + 12)
+                    .padding(.horizontal, 4)
+                    .background(appearance.palette.backgroundTop.color.opacity(0.9), in: Capsule())
+                    .rotationEffect(place.angle)
+                    .position(place.center)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -178,6 +204,11 @@ extension ViewportAppearance {
     var chipInk: Color {
         self == .dark ? Color(.sRGB, red: 0xE4 / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
             : Color(.sRGB, red: 0x1D / 255, green: 0x2B / 255, blue: 0x45 / 255)
+    }
+    /// Secondary ink for text on the viewport background (the app's `inkSecondary`).
+    func labelInk(highContrast: Bool) -> Color {
+        let hex: UInt32 = self == .dark ? (highContrast ? 0xB8C1D0 : 0x9AA5B8) : (highContrast ? 0x48536B : 0x5A6680)
+        return Color(.sRGB, red: Double((hex >> 16) & 0xFF) / 255, green: Double((hex >> 8) & 0xFF) / 255, blue: Double(hex & 0xFF) / 255)
     }
     var chipEdge: Color { self == .dark ? .white.opacity(0.11) : Color(.sRGB, red: 0x1D / 255, green: 0x2B / 255, blue: 0x45 / 255).opacity(0.11) }
 
