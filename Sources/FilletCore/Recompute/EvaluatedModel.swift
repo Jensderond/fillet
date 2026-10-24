@@ -45,6 +45,8 @@ public struct EvaluatedModel: Sendable {
     public var sketches: [UUID: EvaluatedSketch] = [:]
     public var status: [UUID: FeatureStatus] = [:]
     public var parameters: ParameterTable
+    /// Display tessellation per body (empty mesh when tessellation failed).
+    public var meshes: [BodyRef: Mesh] = [:]
 
     public init(parameters: ParameterTable) { self.parameters = parameters }
 

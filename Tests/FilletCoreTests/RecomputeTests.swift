@@ -38,6 +38,9 @@ struct RecomputeTests {
         #expect(sketch.regions?.count == 2)
         #expect(sketch.regionFills.count == 2)
         #expect(sketch.curves.count == 2)
+        let mesh = try #require(model.meshes[body.ref])
+        #expect(mesh.triangleCount > 0)
+        #expect(mesh.edges.count == body.shape.edgeCount)
     }
 
     @Test func filletSurvivesParameterChange() async throws {

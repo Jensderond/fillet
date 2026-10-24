@@ -27,6 +27,8 @@ public actor ModelEvaluator {
     }
 
     private var cache: [CacheEntry] = []
+    /// Display meshes by shape identity; the shape is retained so the identifier stays unique.
+    private var meshCache: [ObjectIdentifier: (shape: Shape, mesh: Mesh)] = [:]
 
     public init() {}
 
@@ -63,6 +65,7 @@ public actor ModelEvaluator {
         model.bodies = state.bodies
         model.sketches = state.sketches
         model.status = state.status
+        model.meshes = displayMeshes(for: state.bodies)
         for f in document.features where model.status[f.id] == nil {
             model.status[f.id] = .inactive
         }
@@ -70,7 +73,36 @@ public actor ModelEvaluator {
     }
 
     /// Drops all cached results (e.g. after loading a different document).
-    public func reset() { cache = [] }
+    public func reset() {
+        cache = []
+        meshCache = [:]
+    }
+
+    /// Tessellation fine enough to look smooth, scaled to the part size.
+    public static func displayDeflection(for shape: Shape) -> (linear: Double, angular: Double) {
+        guard let b = shape.bounds else { return (0.05, 0.3) }
+        let diagonal = (b.max - b.min).length
+        return (min(max(diagonal * 0.0005, 0.005), 0.5), 0.2)
+    }
+
+    private func displayMeshes(for bodies: [EvaluatedBody]) -> [BodyRef: Mesh] {
+        var result: [BodyRef: Mesh] = [:]
+        var kept: [ObjectIdentifier: (shape: Shape, mesh: Mesh)] = [:]
+        for body in bodies {
+            let id = ObjectIdentifier(body.shape)
+            let mesh: Mesh
+            if let cached = meshCache[id] {
+                mesh = cached.mesh
+            } else {
+                let d = Self.displayDeflection(for: body.shape)
+                mesh = (try? body.shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular)) ?? .empty
+            }
+            kept[id] = (body.shape, mesh)
+            result[body.ref] = mesh
+        }
+        meshCache = kept
+        return result
+    }
 
     // MARK: - Features
 
