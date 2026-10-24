@@ -160,7 +160,8 @@ struct EditorContent: View {
                 scene: session.makeScene(),
                 camera: $session.camera,
                 filter: session.pickFilter,
-                options: ViewportOptions(fingerDraws: fingerDraws),
+                // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
+                options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion),
                 delegate: session,
                 controller: controller)
                 .background(GeometryReader { proxy in
@@ -212,11 +213,23 @@ struct EditorContent: View {
         }
         .clipped()
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
+        // A tick when the pointer snaps to a point or lines up (not for every grid step).
+        .sensoryFeedback(.alignment, trigger: snapFeedback) { _, new in new != nil }
+    }
+
+    private var snapFeedback: SketchSnap? {
+        switch session.sketchEditor?.engine.snap {
+        case .point, .horizontal, .vertical: session.sketchEditor?.engine.snap
+        default: nil
+        }
     }
 
     private var currentHint: (text: String, symbol: String)? {
         if let editor = session.sketchEditor {
-            return (editor.engine.hint, editor.tool == .select ? "cursorarrow" : "pencil.tip")
+            // Tools are icon-only and touch has no tooltips, so the hint names the live tool.
+            let title = editor.tool.title  // menu titles are Title Case; app copy is sentence case
+            let name = title.prefix(1) + title.dropFirst().lowercased()
+            return ("\(name) · \(editor.engine.hint)", editor.tool == .select ? "cursorarrow" : "pencil.tip")
         }
         let pick = Theme.Copy.pick
         switch session.pickMode {

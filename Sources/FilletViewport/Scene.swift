@@ -16,6 +16,10 @@ public struct ViewportColor: Hashable, Codable, Sendable {
     }
 
     public func withAlpha(_ a: Float) -> ViewportColor { ViewportColor(r, g, b, a) }
+    /// Mixed towards white by `amount` (0…1).
+    public func lightened(_ amount: Float) -> ViewportColor {
+        ViewportColor(r + (1 - r) * amount, g + (1 - g) * amount, b + (1 - b) * amount, a)
+    }
 
     /// Linear-light RGBA (what the shaders work in).
     var linear: SIMD4<Float> {
@@ -199,9 +203,11 @@ public struct MeasureAnnotation: Hashable, Sendable, Identifiable {
     public var from: Vec3
     public var to: Vec3
     public var label: String
+    /// False for a bare value label (no dimension line or end dots), e.g. beside a handle.
+    public var showsLine: Bool
 
-    public init(id: String, from: Vec3, to: Vec3, label: String) {
-        self.id = id; self.from = from; self.to = to; self.label = label
+    public init(id: String, from: Vec3, to: Vec3, label: String, showsLine: Bool = true) {
+        self.id = id; self.from = from; self.to = to; self.label = label; self.showsLine = showsLine
     }
 }
 

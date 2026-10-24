@@ -30,7 +30,10 @@ public struct ViewportPalette: Hashable, Sendable {
     public var axisY: ViewportColor
     public var axisZ: ViewportColor
     public var sketchCurve: ViewportColor
+    /// Dashed construction geometry: slate, so orange keeps meaning "active".
     public var sketchConstruction: ViewportColor
+    /// The shape being drawn (rubber band): a ghosted ink stroke, not the selection blue.
+    public var sketchPreview: ViewportColor
     public var sketchPoint: ViewportColor
     public var sketchPointRing: ViewportColor
     public var sketchGridMinor: ViewportColor
@@ -70,11 +73,13 @@ public struct ViewportPalette: Hashable, Sendable {
         axisY: ViewportColor(hex: 0x30A46C),
         axisZ: ViewportColor(hex: 0x3E7BFA),
         sketchCurve: ViewportColor(hex: 0x14181F),
-        sketchConstruction: ViewportColor(hex: 0xE5852B),
+        sketchConstruction: ViewportColor(hex: 0x5A6680),
+        sketchPreview: ViewportColor(hex: 0x1D2B45, alpha: 0.55),
         sketchPoint: ViewportColor(hex: 0x14181F),
         sketchPointRing: ViewportColor(hex: 0xFFFFFF),
-        sketchGridMinor: ViewportColor(hex: 0x1A73FF, alpha: 0.07),
-        sketchGridMajor: ViewportColor(hex: 0x1A73FF, alpha: 0.16),
+        // The icon's graph-paper ruling, so blue only means "picked".
+        sketchGridMinor: ViewportColor(hex: 0x4F8FB0, alpha: 0.10),
+        sketchGridMajor: ViewportColor(hex: 0x4F8FB0, alpha: 0.22),
         regionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.10),
         handle: ViewportColor(hex: 0x1A73FF),
         measure: ViewportColor(hex: 0x2B2F36),
@@ -104,11 +109,12 @@ public struct ViewportPalette: Hashable, Sendable {
         axisY: ViewportColor(hex: 0x4CC38A),
         axisZ: ViewportColor(hex: 0x5B93FF),
         sketchCurve: ViewportColor(hex: 0xF2F4F7),
-        sketchConstruction: ViewportColor(hex: 0xF0A050),
+        sketchConstruction: ViewportColor(hex: 0x9AA5B8),
+        sketchPreview: ViewportColor(hex: 0xE4E9F2, alpha: 0.6),
         sketchPoint: ViewportColor(hex: 0xF2F4F7),
         sketchPointRing: ViewportColor(hex: 0x16181C),
-        sketchGridMinor: ViewportColor(hex: 0x6EA8FF, alpha: 0.07),
-        sketchGridMajor: ViewportColor(hex: 0x6EA8FF, alpha: 0.16),
+        sketchGridMinor: ViewportColor(hex: 0x8FB6D8, alpha: 0.10),
+        sketchGridMajor: ViewportColor(hex: 0x8FB6D8, alpha: 0.22),
         regionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.14),
         handle: ViewportColor(hex: 0x3B8BFF),
         measure: ViewportColor(hex: 0xE6E8EC),

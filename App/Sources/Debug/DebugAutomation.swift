@@ -309,14 +309,17 @@ enum DebugAutomation {
 
     private static func snap(_ session: DesignSession, _ name: String) async {
         let size = CGSize(width: max(session.viewSize.width, 400), height: max(session.viewSize.height, 300))
-        if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2) {
+        if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2,
+                                                 appearance: snapshotAppearance) {
             write(image, name + "-viewport")
         }
         #if os(iOS)
         log("snapshot \(name)")
         try? await Task.sleep(for: iPadScreenshotPause)
         #else
-        if let view = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 200 })?.contentView,
+        // The frame view (content view's superview) includes the title bar and the window toolbar.
+        if let content = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 200 })?.contentView,
+            let view = content.superview ?? Optional(content),
             let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
         {
             view.cacheDisplay(in: view.bounds, to: rep)
@@ -338,6 +341,15 @@ enum DebugAutomation {
             }
         }
         log("snapshot \(name)")
+        #endif
+    }
+
+    /// The viewport render follows the app's appearance, like the live viewport does.
+    private static var snapshotAppearance: ViewportAppearance {
+        #if os(macOS)
+        NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? .dark : .light
+        #else
+        UITraitCollection.current.userInterfaceStyle == .dark ? .dark : .light
         #endif
     }
 

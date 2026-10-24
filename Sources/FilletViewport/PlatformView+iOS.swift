@@ -30,6 +30,9 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         isMultipleTouchEnabled = true
         controller.renderer?.configure(self)
         installGestures()
+        let pencil = UIPencilInteraction()
+        pencil.delegate = self
+        addInteraction(pencil)
     }
 
     @available(*, unavailable)
@@ -310,6 +313,20 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
 
     private func pressure(_ t: UITouch) -> Double? {
         t.maximumPossibleForce > 0 ? Double(t.force / t.maximumPossibleForce) : nil
+    }
+}
+
+// MARK: - Apple Pencil double tap / squeeze
+
+extension ViewportUIView: UIPencilInteractionDelegate {
+    func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveTap tap: UIPencilInteraction.Tap) {
+        guard UIPencilInteraction.preferredTapAction != .ignore else { return }
+        controller?.delegate?.viewportPencilToolSwitch()
+    }
+
+    func pencilInteraction(_ interaction: UIPencilInteraction, didReceiveSqueeze squeeze: UIPencilInteraction.Squeeze) {
+        guard squeeze.phase == .ended, UIPencilInteraction.preferredSqueezeAction != .ignore else { return }
+        controller?.delegate?.viewportPencilToolSwitch()
     }
 }
 #endif

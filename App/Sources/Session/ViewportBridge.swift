@@ -72,7 +72,7 @@ extension DesignSession {
         }
         scene.sketch = sketchOverlay()
         scene.handles = editingHandles()
-        scene.measures = sketchMeasures()
+        scene.measures = sketchMeasures() + handleMeasures(scene.handles)
         return scene
     }
 
@@ -200,7 +200,19 @@ extension DesignSession {
             let distance = try? model.parameters.evaluator.length(e.distance)
         else { return [] }
         let anchor = regions.region(containing: first.point).map { regions.interiorPoint($0) } ?? first.point
-        return [Handle(id: "distance", origin: sketch.plane.point(anchor), direction: sketch.plane.normal, value: distance)]
+        // Orange: it manipulates the feature being edited (active), not something picked.
+        return [Handle(id: "distance", origin: sketch.plane.point(anchor), direction: sketch.plane.normal, value: distance,
+                       color: ViewportColor(hex: 0xF26B1D))]
+    }
+
+    /// The live value beside each handle's arrowhead, so dragging shows the distance on the canvas.
+    private func handleMeasures(_ handles: [Handle]) -> [MeasureAnnotation] {
+        handles.map { h in
+            let perPoint = camera.worldUnitsPerPoint(at: h.tip, viewSize: viewSize)
+            let beside = h.tip + h.direction * (60 * perPoint)  // past the 48 pt arrow
+            return MeasureAnnotation(id: "handle-\(h.id)", from: beside, to: beside,
+                                     label: "\(ExprField.format(h.value)) mm", showsLine: false)
+        }
     }
 }
 
@@ -302,6 +314,10 @@ extension DesignSession: ViewportDelegate {
 
     func viewportCameraChanged(_ camera: Camera) {
         self.camera = camera
+    }
+
+    func viewportPencilToolSwitch() {
+        sketchEditor?.switchPencilTool()
     }
 
     // MARK: Helpers

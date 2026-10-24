@@ -147,6 +147,11 @@ struct ViewportLabels: View {
 
 // MARK: - View cube
 
+extension ViewportColor {
+    /// The same colour for SwiftUI drawing (view cube triad).
+    var color: Color { Color(.sRGB, red: Double(r), green: Double(g), blue: Double(b), opacity: Double(a)) }
+}
+
 struct ViewCubeOverlay: View {
     let controller: ViewportController
     let appearance: ViewportAppearance
@@ -261,14 +266,16 @@ public struct ViewCube: View {
                 if facing > 0.3 {
                     let c = Self.project(face.normal, camera: cam, size: sz.width)
                     ctx.opacity = min(1, (facing - 0.3) * 2.5)
-                    ctx.draw(Text(face.label).font(.system(size: 9, weight: .semibold)).foregroundStyle(dark ? .white : .black.opacity(0.75)),
+                    ctx.draw(Text(face.label).font(.system(size: 10, weight: .semibold).width(.condensed))
+                                .foregroundStyle(dark ? .white : .black.opacity(0.75)),
                              at: c)
                     ctx.opacity = 1
                 }
             }
             // Axis triad in the bottom-left corner.
             let o = CGPoint(x: 10, y: sz.height - 10)
-            for (axis, color) in [(Vec3.unitX, Color.red), (Vec3.unitY, Color.green), (Vec3.unitZ, Color.blue)] {
+            let pal = appearance.palette
+            for (axis, color) in [(Vec3.unitX, pal.axisX.color), (Vec3.unitY, pal.axisY.color), (Vec3.unitZ, pal.axisZ.color)] {
                 var p = Path()
                 p.move(to: o)
                 p.addLine(to: CGPoint(x: o.x + axis.dot(cam.right) * 13, y: o.y - axis.dot(cam.up) * 13))

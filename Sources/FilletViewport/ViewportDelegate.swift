@@ -57,6 +57,8 @@ public protocol ViewportDelegate: AnyObject {
     func viewportHandleDragEnded(id: String, value: Double)
     /// The camera settled after a gesture or animation (also written to the binding).
     func viewportCameraChanged(_ camera: Camera)
+    /// Apple Pencil double tap or squeeze (by convention: switch between the current tool and the last one).
+    func viewportPencilToolSwitch()
 }
 
 public extension ViewportDelegate {
@@ -71,6 +73,7 @@ public extension ViewportDelegate {
     func viewportHandleDragged(id: String, value: Double) {}
     func viewportHandleDragEnded(id: String, value: Double) {}
     func viewportCameraChanged(_ camera: Camera) {}
+    func viewportPencilToolSwitch() {}
 }
 
 /// Viewport behaviour switches.

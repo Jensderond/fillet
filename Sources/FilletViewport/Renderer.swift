@@ -398,9 +398,10 @@ public final class ViewportRenderer: NSObject {
         plateSegs = makeBuffer(ps); plateSegCount = ps.count
         plateStates = makeBuffer([UInt8]([0, 1, 2, 3]))
         // Measures.
-        let ms = GPUBody.segments(scene.measures.map { [$0.from.float, $0.to.float] }, ids: scene.measures.map { _ in 0 })
+        let lined = scene.measures.filter(\.showsLine)
+        let ms = GPUBody.segments(lined.map { [$0.from.float, $0.to.float] }, ids: lined.map { _ in 0 })
         measureSegs = makeBuffer(ms); measureSegCount = ms.count
-        let mp = scene.measures.flatMap { m in [m.from.float, m.to.float].map { GPUPointInst(x: $0.x, y: $0.y, z: $0.z, state: 0) } }
+        let mp = lined.flatMap { m in [m.from.float, m.to.float].map { GPUPointInst(x: $0.x, y: $0.y, z: $0.z, state: 0) } }
         measurePoints = makeBuffer(mp); measurePointCount = mp.count
     }
 
@@ -769,7 +770,7 @@ public final class ViewportRenderer: NSObject {
                 LineStyle(pal.hover, width: 2.6),
                 LineStyle(pal.accent, width: 3.0),
                 LineStyle(pal.sketchConstruction, width: 1.6, dashed: true),
-                LineStyle(pal.accent.withAlpha(0.85), width: 2.2))
+                LineStyle(pal.sketchPreview, width: 2.2))
             d.stateCount = UInt32(sketchCurveCount)
             d.dashPeriod = U.viewport.w * U.viewport.z * 10
             enc.setVertexBuffer(sb, offset: 0, index: 0)
@@ -800,7 +801,8 @@ public final class ViewportRenderer: NSObject {
             let active = activeHandleID == h.id
             let hovered = hover == .handle(h.id)
             let base = h.color ?? pal.handle
-            let color = active ? pal.accent : (hovered ? pal.hover : base)
+            // Hover and drag brighten the handle's own colour rather than switching to the selection blue.
+            let color = active ? base.lightened(0.3) : (hovered ? base.lightened(0.15) : base)
             // Screen-constant size at the tip's depth.
             let depthScale = camera.projection == .perspective ? max(camera.depth(of: h.tip), 1e-3) / camera.distance : 1
             let wpp = wppPoints * depthScale

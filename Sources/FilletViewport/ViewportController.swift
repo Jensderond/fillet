@@ -180,7 +180,8 @@ public final class ViewportController {
 
     /// Animates the live camera and writes the result to the binding when done.
     public func animate(to camera: Camera, animated: Bool = true) {
-        if animated, let r = renderer {
+        // `animatesCameraChanges` off (Reduce Motion) cuts straight to the new view.
+        if animated, options.animatesCameraChanges, let r = renderer {
             r.camera = liveCamera
             r.animateCamera(to: camera, duration: options.cameraAnimationDuration)
         } else {
