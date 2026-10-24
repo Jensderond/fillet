@@ -122,6 +122,10 @@ struct ExportMenu: View {
         } label: {
             if busy { ProgressView().controlSize(.small) } else { Label("Export", systemImage: "square.and.arrow.up") }
         }
+        .automationFrame("export-menu")
+        #if DEBUG && os(iOS)
+        .onReceive(NotificationCenter.default.publisher(for: .demoExport)) { _ in export(.threeMF) }
+        #endif
         .disabled(session.model.bodies.isEmpty)
         .fileExporter(
             isPresented: Binding(get: { exporting != nil }, set: { if !$0 { exporting = nil } }),

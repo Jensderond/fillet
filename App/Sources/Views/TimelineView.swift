@@ -130,6 +130,7 @@ struct TimelineView: View {
                 dropTarget: dropTarget == index)
         }
         .buttonStyle(PressableStyle())
+        .automationFrame("station.\(index)")
         .hoverHighlight(ownsPointerHover: true)
         // Hovering a step highlights the body it made, like Fusion's timeline.
         .onHover { inside in

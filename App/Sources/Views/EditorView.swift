@@ -153,6 +153,12 @@ struct EditorContent: View {
             DebugAutomation.controller = controller
             await DebugAutomation.run(session)
         }
+        #if os(iOS)
+        .task {
+            DemoDirector.controller = controller
+            await DemoDirector.run(session)
+        }
+        #endif
         #endif
         // Only show "Updating" when a recompute takes long enough to notice.
         .task(id: session.isRecomputing) {
@@ -217,6 +223,7 @@ struct EditorContent: View {
                 filter: session.pickFilter,
                 // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
                 options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion,
+                                         cameraAnimationDuration: cameraAnimationDuration,
                                          contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary),
                 delegate: session,
                 controller: controller)
@@ -287,6 +294,15 @@ struct EditorContent: View {
         .clipped()
         // A tick when the pointer snaps to a point or lines up (not for every grid step).
         .sensoryFeedback(.alignment, trigger: snapFeedback) { _, new in new != nil }
+    }
+
+    /// Camera flights; the debug demo slows them down for recordings.
+    private var cameraAnimationDuration: Double {
+        #if DEBUG && os(iOS)
+        DemoDirector.isEnabled ? DemoDirector.cameraDuration : 0.35
+        #else
+        0.35
+        #endif
     }
 
     private var snapFeedback: SketchSnap? {
@@ -452,6 +468,7 @@ struct ToolStrip: View {
                             .disabled(busy)
                         } label: {
                             ToolLabel("Sketch", "pencil.and.outline", active: session.sketchEditor != nil, disabled: busy)
+                                .automationFrame("tool.Sketch")
                         } primaryAction: {
                             if !busy { session.startSketch() }
                         }
@@ -623,6 +640,7 @@ struct ToolButton: View {
             if unavailable != nil { explaining = true } else { action() }
         }
         .buttonStyle(ToolButtonStyle(title: title, symbol: symbol, active: active, isToggle: isToggle, unavailable: unavailable != nil))
+        .automationFrame("tool.\(title)")
         .help(unavailable.map { "\(title). \($0)" } ?? title)
         .accessibilityValue(unavailable == nil ? "" : "Unavailable")
         .accessibilityHint(unavailable ?? "")
@@ -781,6 +799,7 @@ struct SketchToolbar: View {
                     Label("Finish sketch", systemImage: "checkmark")
                 }
                 .buttonStyle(PrimaryButtonStyle())
+                .automationFrame(measuring ? nil : "finish-sketch-button")
                 .help("Finish the sketch (⌘↩)")
                 .automationMarker(measuring ? "finish-sketch-measure" : "finish-sketch")
             }

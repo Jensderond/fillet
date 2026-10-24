@@ -1,3 +1,4 @@
+import SwiftUI
 #if DEBUG
 #if os(macOS)
 import AppKit
@@ -628,6 +629,9 @@ struct AutomationEditor: View {
     private var editor: some View {
         NavigationStack {
             EditorView(document: $document, fileURL: nil)
+        }
+        .overlay {
+            if DemoDirector.isEnabled { DemoTouchOverlay().ignoresSafeArea() }
         }
     }
 }

@@ -20,7 +20,7 @@ struct FilletApp: App {
 @main
 enum FilletLauncher {
     @MainActor static func main() {
-        if DebugAutomation.isEnabled { AutomationApp.main() } else { FilletApp.main() }
+        if DebugAutomation.isEnabled || DemoDirector.isEnabled { AutomationApp.main() } else { FilletApp.main() }
     }
 }
 #else

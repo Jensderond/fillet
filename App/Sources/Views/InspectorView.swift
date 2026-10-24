@@ -112,6 +112,7 @@ struct SketchFooter: View {
         }
         .buttonStyle(PrimaryButtonStyle())
         .automationMarker("finish-sketch")
+        .automationFrame("finish-sketch-button")
         .padding(.horizontal, Theme.Space.l)
         .padding(.vertical, Theme.Space.m)
         .background(Theme.panel)
@@ -185,6 +186,7 @@ struct InspectorFooter: View {
                 Label("Done", systemImage: "checkmark").frame(maxWidth: .infinity)
             }
             .buttonStyle(PrimaryButtonStyle())
+            .automationFrame("inspector-done")
             .keyboardShortcut(.defaultAction)
         }
         .padding(.horizontal, Theme.Space.l)
@@ -487,6 +489,7 @@ struct ThemeSegmented<Value: Hashable>: View {
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).strokeBorder(Theme.hairline))
         .frame(maxWidth: .infinity)
         .animation(Theme.Motion.hover, value: selection)
+        .automationFrame("segmented.\(label)")
         .accessibilityElement(children: .contain)
         .accessibilityLabel(label)
     }

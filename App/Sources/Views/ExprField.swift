@@ -41,6 +41,7 @@ struct ExprField: View {
             }
         }
         .animation(Theme.Motion.hover, value: error)
+        .automationFrame("field.\(label)")
         .onAppear { text = value.source }
         .onChange(of: value) { _, new in if !focused { text = new.source } }
         .onChange(of: text) { _, _ in validate() }
