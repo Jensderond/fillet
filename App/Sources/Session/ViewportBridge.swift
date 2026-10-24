@@ -73,6 +73,7 @@ extension DesignSession {
         scene.sketch = sketchOverlay()
         scene.handles = editingHandles()
         scene.measures = sketchMeasures() + handleMeasures(scene.handles)
+        scene.edgeHighlights = edgeHighlights()
         return scene
     }
 

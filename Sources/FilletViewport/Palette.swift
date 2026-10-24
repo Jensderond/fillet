@@ -41,6 +41,8 @@ public struct ViewportPalette: Hashable, Sendable {
     public var regionFill: ViewportColor
     public var handle: ViewportColor
     public var measure: ViewportColor
+    /// Halo behind picked edges, so the blue reads over any surface.
+    public var edgeHalo: ViewportColor
     /// Soft contact shadow under bodies on the bed (alpha = strength).
     public var shadow: ViewportColor
     /// Hemisphere ambient colours (sky = up-facing, ground = down-facing).
@@ -83,6 +85,7 @@ public struct ViewportPalette: Hashable, Sendable {
         regionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.10),
         handle: ViewportColor(hex: 0x1A73FF),
         measure: ViewportColor(hex: 0x2B2F36),
+        edgeHalo: ViewportColor(hex: 0xFFFFFF, alpha: 0.9),
         shadow: ViewportColor(hex: 0x1C2633, alpha: 0.22),
         skyLight: ViewportColor(hex: 0xF2F5FA),
         groundLight: ViewportColor(hex: 0x8C8A86),
@@ -118,6 +121,7 @@ public struct ViewportPalette: Hashable, Sendable {
         regionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.14),
         handle: ViewportColor(hex: 0x3B8BFF),
         measure: ViewportColor(hex: 0xE6E8EC),
+        edgeHalo: ViewportColor(hex: 0x10141C, alpha: 0.85),
         shadow: ViewportColor(hex: 0x000000, alpha: 0.38),
         skyLight: ViewportColor(hex: 0xDDE3EC),
         groundLight: ViewportColor(hex: 0x5E5C59),

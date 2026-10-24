@@ -16,6 +16,8 @@ struct TimelineView: View {
     /// Where the caliper is while it's being dragged (a station boundary), nil otherwise.
     @State private var markerDrag: Int?
     @State private var visibleWidth: CGFloat = 0
+    /// The station under the pointer: its ruler number shows (names already say the order).
+    @State private var hoveredStation: Int?
     @Namespace private var markerSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.touchTargets) private var touch
@@ -25,6 +27,7 @@ struct TimelineView: View {
 
     private var doc: Document { session.document }
     private var markerIndex: Int { doc.activeFeatureCount }
+    private var editingIndex: Int? { session.editing.flatMap { doc.index(of: $0.feature) } }
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -32,7 +35,8 @@ struct TimelineView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     ZStack(alignment: .bottomLeading) {
-                        RulerTicks(count: doc.features.count, stationWidth: stationWidth, minWidth: visibleWidth - 8)
+                        RulerTicks(count: doc.features.count, stationWidth: stationWidth, minWidth: visibleWidth - 8,
+                                   numbered: Set([hoveredStation, editingIndex].compactMap { $0 }))
                         HStack(spacing: 0) {
                             if doc.features.isEmpty {
                                 emptyState
@@ -128,7 +132,10 @@ struct TimelineView: View {
         .buttonStyle(PressableStyle())
         .hoverHighlight()
         // Hovering a step highlights the body it made, like Fusion's timeline.
-        .onHover { inside in hoverBody(of: feature, inside) }
+        .onHover { inside in
+            hoverBody(of: feature, inside)
+            if inside { hoveredStation = index } else if hoveredStation == index { hoveredStation = nil }
+        }
         .help(failed.map { "\(feature.name): \($0)" } ?? "\(feature.name). \(Theme.Copy.pick) to edit.")
         .accessibilityLabel("Step \(index + 1), \(feature.name)")
         .accessibilityValue(stateDescription(feature, index: index, failure: failed))
@@ -280,7 +287,8 @@ private struct StationLabel: View {
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(chipFill))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(chipBorder, style: StrokeStyle(lineWidth: editing ? 1.5 : 1, dash: feature.suppressed ? [3, 2] : [])))
+                            .strokeBorder(chipBorder, style: StrokeStyle(lineWidth: editing ? 1.5 : 1,
+                                                                         dash: feature.suppressed || (rolledBack && !editing) ? [3, 2] : [])))
                 if failure != nil {
                     Circle().fill(Theme.danger)
                         .frame(width: 9, height: 9)
@@ -290,16 +298,17 @@ private struct StationLabel: View {
             }
             Text(feature.name)
                 .font(editing ? Theme.label.weight(.semibold) : Theme.label)
-                .foregroundStyle(failure != nil ? Theme.dangerInk : editing ? Theme.ink : Theme.inkSecondary)
+                .foregroundStyle(failure != nil ? Theme.dangerInk : rolledBack ? Theme.inkSecondary : Theme.ink)
                 .strikethrough(feature.suppressed)
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
         .frame(width: width, height: 50, alignment: .top)
         .padding(.bottom, 14)
-        // Rolled back: hatched, slate icon, secondary label; no opacity, so the name stays legible.
+        // Rolled back: hatched, an empty dashed chip, slate icon and secondary label (active
+        // steps are ink); no opacity, so the name stays legible.
         .background(alignment: .center) {
-            if rolledBack { SectionHatch().opacity(0.5) }
+            if rolledBack { SectionHatch() }
         }
         .overlay(alignment: .leading) {
             if dropTarget { Capsule().fill(Theme.fillet).frame(width: 2.5, height: 44) }
@@ -318,12 +327,14 @@ private struct StationLabel: View {
     private var chipFill: Color {
         if editing { return Theme.filletSoft }
         if failure != nil { return Theme.dangerSoft }
+        if rolledBack { return hovering ? Theme.raised.opacity(0.6) : .clear }
         return hovering ? Theme.raised : Theme.raised.opacity(0.7)
     }
 
     private var chipBorder: Color {
         if editing { return Theme.fillet }
         if failure != nil { return Theme.danger.opacity(0.5) }
+        if rolledBack { return Theme.inkTertiary }
         return hovering ? Theme.hairlineStrong : Theme.hairline
     }
 }
@@ -334,6 +345,8 @@ private struct RulerTicks: View {
     let stationWidth: CGFloat
     /// The ruler runs at least the visible width, so it never stops mid-panel.
     var minWidth: CGFloat = 0
+    /// Stations whose number shows (hovered, being edited): the names already give the order.
+    var numbered: Set<Int> = []
 
     var body: some View {
         Canvas { context, size in
@@ -350,13 +363,13 @@ private struct RulerTicks: View {
                 let major = i % 5 == 0
                 // A numbered station gets a short tick with its number centred on it; unnumbered
                 // major graduations (past the last step) keep the long tick.
-                let numbered = major && i / 5 < count
+                let station = major && i / 5 < count
                 var tick = Path()
                 tick.move(to: CGPoint(x: x + stationWidth / 2, y: baseline))
-                tick.addLine(to: CGPoint(x: x + stationWidth / 2, y: baseline - (major && !numbered ? 7 : 3)))
+                tick.addLine(to: CGPoint(x: x + stationWidth / 2, y: baseline - (major && !station ? 7 : 3)))
                 context.stroke(tick, with: ink, lineWidth: major ? 1.2 : 0.8)
-                if numbered {
-                    let label = Text("\(i / 5 + 1)").font(Theme.micro).foregroundStyle(Theme.inkSecondary)
+                if station, numbered.contains(i / 5) {
+                    let label = Text("\(i / 5 + 1)").font(Theme.micro).foregroundStyle(Theme.inkTertiary)
                     context.draw(label, at: CGPoint(x: x + stationWidth / 2, y: baseline - 9), anchor: .center)
                 }
                 x += minor
@@ -380,7 +393,7 @@ private struct SectionHatch: View {
                 p.addLine(to: CGPoint(x: x + size.height, y: 0))
                 x += 6
             }
-            context.stroke(p, with: .color(Theme.inkTertiary.opacity(0.45)), lineWidth: 0.7)
+            context.stroke(p, with: .color(Theme.inkTertiary.opacity(0.35)), lineWidth: 0.8)
         }
         .allowsHitTesting(false)
     }

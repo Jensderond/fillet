@@ -204,6 +204,16 @@ struct EditorContent: View {
                         .padding(.trailing, Self.cubeClearance)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                if session.document.activeFeatureCount < session.document.features.count {
+                    // Rolled back, the viewport shows an earlier state: say so where the eye is.
+                    RollbackPill(shown: session.document.activeFeatureCount, total: session.document.features.count) {
+                        session.moveRollbackMarker(to: nil)
+                    }
+                    .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                    .padding(.trailing, Self.cubeClearance)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .transition(.panel(from: .top, reduceMotion: reduceMotion))
+                }
                 Spacer(minLength: 0)
                 if let message = session.message {
                     Toast(message: message, run: { session.run($0) }) {
@@ -214,6 +224,7 @@ struct EditorContent: View {
             }
             .padding(Theme.Space.l)
             .animation(Theme.Motion.enter, value: session.sketchEditor != nil)
+            .animation(Theme.Motion.enter, value: session.document.activeFeatureCount < session.document.features.count)
             .animation(Theme.Motion.enter, value: session.message)
 
             if showUpdating {
@@ -282,6 +293,41 @@ struct HintPill: View {
             .padding(.vertical, Theme.Space.s)
             .background(Capsule().fill(Theme.ink.opacity(0.88)))
             .accessibilityAddTraits(.updatesFrequently)
+    }
+}
+
+/// The viewport is showing an earlier step: "Showing step 2 of 5", with the way back to the end.
+/// Section hatching on the leading edge echoes the hatched steps on the timeline.
+struct RollbackPill: View {
+    let shown: Int
+    let total: Int
+    let playToEnd: () -> Void
+    @Environment(\.touchTargets) private var touch
+
+    var body: some View {
+        HStack(spacing: Theme.Space.s) {
+            Label("Showing step \(shown) of \(total)", systemImage: "clock.arrow.circlepath")
+                .font(Theme.body.weight(.medium))
+                .foregroundStyle(Theme.ink)
+            Theme.hairlineStrong.frame(width: 1, height: 16)
+            Button(action: playToEnd) {
+                Label("Play to end", systemImage: "forward.end.fill")
+                    .font(Theme.body.weight(.semibold))
+                    .foregroundStyle(Theme.filletInk)
+                    .frame(minHeight: touch ? 44 : 24)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .hoverHighlight()
+            .help("Roll forward to the last step")
+        }
+        .padding(.leading, Theme.Space.m)
+        .padding(.trailing, Theme.Space.s)
+        .padding(.vertical, touch ? 0 : Theme.Space.xs)
+        .background(Capsule().fill(Theme.raised))
+        .overlay(Capsule().strokeBorder(Theme.inkTertiary, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+        .shadow(color: .black.opacity(0.08), radius: 8, y: 3)
+        .accessibilityElement(children: .contain)
     }
 }
 

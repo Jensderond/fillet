@@ -197,6 +197,16 @@ public struct Handle: Hashable, Sendable, Identifiable {
     public var tip: Vec3 { origin + direction * value }
 }
 
+/// A picked edge drawn on top of the model: thick, in the selection blue, with a halo, and
+/// faintly where the model hides it, so a pick reads at arm's length.
+public struct EdgeHighlight: Hashable, Sendable {
+    public var points: [Vec3]
+    /// Dashed: an edge that no longer exists in what's shown (the sharp edge a fillet replaces).
+    public var dashed: Bool
+
+    public init(points: [Vec3], dashed: Bool = false) { self.points = points; self.dashed = dashed }
+}
+
 /// A dimension-like annotation: a line between two points with a text label.
 public struct MeasureAnnotation: Hashable, Sendable, Identifiable {
     public var id: String
@@ -271,6 +281,8 @@ public struct ViewportScene: Sendable {
     public var overhang: OverhangStyle?
     public var handles: [Handle]
     public var measures: [MeasureAnnotation]
+    /// Picked edges drawn over everything else (see `EdgeHighlight`).
+    public var edgeHighlights: [EdgeHighlight] = []
     /// Infinite-feel ground grid on z = 0.
     public var showsGroundGrid: Bool
 

@@ -181,6 +181,8 @@ public final class ViewportRenderer: NSObject {
     private var plateStates: MTLBuffer?
     private var measureSegs: MTLBuffer?, measureSegCount = 0
     private var measurePoints: MTLBuffer?, measurePointCount = 0
+    private var highlightSegs: MTLBuffer?, highlightSegCount = 0
+    private var highlightStates: MTLBuffer?, highlightCount = 0
 
     // Camera animation.
     private struct Animation { var from: Camera; var to: Camera; var start: CFTimeInterval; var duration: Double }
@@ -397,6 +399,11 @@ public final class ViewportRenderer: NSObject {
         let ps = GPUBody.segments(plateLines, ids: plateIDs)
         plateSegs = makeBuffer(ps); plateSegCount = ps.count
         plateStates = makeBuffer([UInt8]([0, 1, 2, 3]))
+        // Picked-edge highlights: one id per polyline, state 1 = dashed.
+        let hl = scene.edgeHighlights.filter { $0.points.count >= 2 }
+        let hs = GPUBody.segments(hl.map { $0.points.map(\.float) })
+        highlightSegs = makeBuffer(hs); highlightSegCount = hs.count
+        highlightStates = makeBuffer(hl.map { UInt8($0.dashed ? 1 : 0) }); highlightCount = hl.count
         // Measures.
         let lined = scene.measures.filter(\.showsLine)
         let ms = GPUBody.segments(lined.map { [$0.from.float, $0.to.float] }, ids: lined.map { _ in 0 })
@@ -550,6 +557,7 @@ public final class ViewportRenderer: NSObject {
             d.pull = 1
             drawEdges(enc, id: b.id, draw: &d)
         }
+        drawEdgeHighlights(enc, U: U, pixelsPerPoint: pixelsPerPoint)
 
         // Translucent bodies and previews: depth pre-pass so only the front layer blends.
         func drawTranslucent(_ b: SceneBody, xray: Bool) {
@@ -644,6 +652,39 @@ public final class ViewportRenderer: NSObject {
         enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: g.segmentCount)
+    }
+
+    /// Picked edges are 3 pt (4 pt on touch, read at arm's length) with a halo, and still
+    /// show at 35 % where the model is in front of them.
+    #if os(iOS) || os(visionOS)
+    static let pickedEdgeWidth: Float = 4
+    #else
+    static let pickedEdgeWidth: Float = 3
+    #endif
+
+    private func drawEdgeHighlights(_ enc: MTLRenderCommandEncoder, U: FrameUniforms, pixelsPerPoint: Float) {
+        guard highlightSegCount > 0, let segs = highlightSegs else { return }
+        let pal = palette
+        let w = Self.pickedEdgeWidth
+        let dashPeriod = U.viewport.w * pixelsPerPoint * 10
+        enc.setRenderPipelineState(pLine)
+        enc.setVertexBuffer(segs, offset: 0, index: 0)
+        enc.setVertexBuffer(highlightStates ?? zeroBuffer, offset: 0, index: 3)
+        func pass(_ depth: MTLDepthStencilState, _ solid: LineStyle, _ dashed: LineStyle) {
+            var d = LineDraw(solid, dashed)
+            d.stateCount = UInt32(highlightCount)
+            d.pull = 1
+            d.dashPeriod = dashPeriod
+            enc.setDepthStencilState(depth)
+            enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+            enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: highlightSegCount)
+        }
+        let hidden = pal.accent.withAlpha(0.35)
+        pass(dsGreater, LineStyle(hidden, width: w - 1), LineStyle(hidden, width: w - 1, dashed: true))
+        let halo = LineStyle(pal.edgeHalo, width: w + 3)
+        pass(dsTest, halo, halo)
+        pass(dsTest, LineStyle(pal.accent, width: w), LineStyle(pal.accent, width: w, dashed: true))
     }
 
     private func drawGrid(_ enc: MTLRenderCommandEncoder, _ g: inout GridDraw) {
