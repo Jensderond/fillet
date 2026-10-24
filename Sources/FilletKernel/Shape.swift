@@ -192,7 +192,7 @@ public final class Shape: @unchecked Sendable {
     public func facePlane(_ index: Int) -> Plane? {
         var p = FKPlane()
         guard index >= 0, fk_face_plane(handle, Int32(clamping: index), &p) else { return nil }
-        return Plane(p)
+        return Plane(p).withReadableXAxis()
     }
 
     /// Standalone copy of one face (e.g. for measuring or as an extrude profile).

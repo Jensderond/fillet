@@ -84,6 +84,9 @@ struct EditorContent: View {
         }
         #endif
         .focusedSceneValue(\.session, session)
+        #if DEBUG && os(macOS)
+        .task { await DebugAutomation.run(session) }
+        #endif
         .fileImporter(isPresented: $session.importRequested, allowedContentTypes: [.step]) { result in
             if case .success(let url) = result { session.importSTEP(from: url) }
         }
@@ -135,6 +138,7 @@ struct EditorContent: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
             }
         }
+        .clipped()
     }
 
     private var currentHint: String? {
@@ -230,7 +234,7 @@ struct SketchToolbar: View {
 
     private let tools: [(SketchTool, String)] = [
         (.select, "cursorarrow"), (.line, "line.diagonal"), (.rectangle, "rectangle"),
-        (.centerRectangle, "rectangle.center.inset.filled"), (.circle, "circle"), (.arc, "arc.forward"),
+        (.centerRectangle, "rectangle.center.inset.filled"), (.circle, "circle"), (.arc, "point.topleft.down.to.point.bottomright.curvepath"),
         (.polygon, "hexagon"), (.slot, "capsule"), (.spline, "scribble"), (.point, "smallcircle.filled.circle"),
     ]
 
@@ -265,10 +269,11 @@ struct SketchToolbar: View {
             Button {
                 session.finishSketch()
             } label: {
-                Label("Finish", systemImage: "checkmark")
+                Label("Finish", systemImage: "checkmark").fixedSize()
             }
             .buttonStyle(.borderedProminent)
         }
+        .fixedSize()
         .padding(6)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
         .shadow(color: .black.opacity(0.08), radius: 8, y: 2)

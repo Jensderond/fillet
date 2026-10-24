@@ -91,6 +91,16 @@ public struct Plane: Hashable, Codable, Sendable {
 
     public func flipped() -> Plane { Plane(origin: origin, normal: -normal, xDir: xDir) }
 
+    /// Same plane with xDir flipped, if needed, to point along world +X
+    /// (or +Y, then +Z, when the axis is perpendicular to those), so sketches
+    /// on faces aren't shown mirrored or upside down.
+    public func withReadableXAxis() -> Plane {
+        let x = xDir
+        let sign: Double
+        if abs(x.x) > 1e-6 { sign = x.x } else if abs(x.y) > 1e-6 { sign = x.y } else { sign = x.z }
+        return sign < 0 ? Plane(origin: origin, normal: normal, xDir: -x) : self
+    }
+
     static func anyPerpendicular(to n: Vec3) -> Vec3 {
         let helper = abs(n.x) < 0.9 ? Vec3.unitX : Vec3.unitY
         return n.cross(helper).normalized

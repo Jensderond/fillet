@@ -83,10 +83,21 @@ extension DesignSession {
         return false
     }
 
+    /// When looking straight at a sketch, swing to a 3D view so the new solid is visible (like Fusion).
+    private func showIn3D(_ sketch: UUID) {
+        guard let plane = model.sketches[sketch]?.plane else { return }
+        let headOn = abs(camera.back.normalized.dot(plane.normal)) > 0.97
+        guard headOn else { return }
+        var c = camera
+        c.setView(.iso)
+        camera = c
+    }
+
     func startExtrude() {
         guard let sketch = profileSketch else { message = "Draw a sketch first"; return }
         if sketchEditor != nil { finishSketch() }
-        let op: Operation = sketchIsOnFace(sketch) ? .join : (model.bodies.isEmpty ? .newBody : .newBody)
+        showIn3D(sketch)
+        let op: Operation = sketchIsOnFace(sketch) ? .join : .newBody
         beginNewFeature(Feature(name: nextName("Extrude"), .extrude(Extrude(
             sketch: sketch, regions: defaultRegions(sketch), distance: 10, operation: op))))
     }
@@ -94,6 +105,7 @@ extension DesignSession {
     func startRevolve() {
         guard let sketch = profileSketch else { message = "Draw a sketch first"; return }
         if sketchEditor != nil { finishSketch() }
+        showIn3D(sketch)
         var axis = RevolveAxis.y
         if case .sketch(let s) = document.feature(sketch)?.kind,
             let line = s.shapes.first(where: { if case .line = $0.kind { $0.construction } else { false } })
