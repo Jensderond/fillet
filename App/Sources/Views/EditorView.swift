@@ -60,10 +60,10 @@ struct EditorContent: View {
     @State private var showBrowser = true
     @State private var browserOverlay = false
     @State private var width: CGFloat = 1400
-    @State private var viewportWidth: CGFloat = 800
     @State private var showUpdating = false
     @AppStorage("fingerDraws") private var fingerDraws = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.touchTargets) private var touch
 
     private var layout: EditorLayout { EditorLayout(width: width) }
 
@@ -79,6 +79,12 @@ struct EditorContent: View {
     /// One Finish sketch at a time: on the floating bar where the inspector is a wide column,
     /// pinned in the inspector footer (next to the form) on narrower layouts.
     private var finishInBar: Bool { layout == .regular }
+
+    /// What floating chrome covers of the viewport, so the camera frames content in the rest.
+    private var chromeInsets: ChromeInsets {
+        ChromeInsets(sketchTop: touch ? 136 : 116, hintTop: touch ? 76 : 64,
+                     leading: layout != .regular && browserOverlay ? 252 : 0)
+    }
 
     /// Room the floating bars leave for the view cube column (84 pt cube, 12 pt margin, a gap).
     static let cubeClearance: CGFloat = 96
@@ -170,13 +176,15 @@ struct EditorContent: View {
                 camera: $session.camera,
                 filter: session.pickFilter,
                 // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
-                options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion),
+                options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion,
+                                         contentInsets: session.viewInsets),
                 delegate: session,
                 controller: controller)
                 .background(GeometryReader { proxy in
                     Color.clear
-                        .onAppear { session.viewSize = proxy.size }
-                        .onChange(of: proxy.size) { _, size in session.viewSize = size }
+                        .onAppear { session.viewportGeometryChanged(size: proxy.size, chrome: chromeInsets) }
+                        .onChange(of: proxy.size) { _, size in session.viewportGeometryChanged(size: size, chrome: chromeInsets) }
+                        .onChange(of: chromeInsets) { _, chrome in session.viewportGeometryChanged(size: proxy.size, chrome: chrome) }
                 })
                 .ignoresSafeArea(.container, edges: .bottom)
 
@@ -226,7 +234,6 @@ struct EditorContent: View {
             }
         }
         .clipped()
-        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
         // A tick when the pointer snaps to a point or lines up (not for every grid step).
         .sensoryFeedback(.alignment, trigger: snapFeedback) { _, new in new != nil }
     }

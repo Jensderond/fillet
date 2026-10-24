@@ -54,6 +54,12 @@ final class DesignSession {
     var camera = Camera(target: Vec3(0, 0, 10), distance: 260)
     /// Size of the viewport in points (for converting screen tolerances to mm).
     @ObservationIgnored var viewSize = CGSize(width: 1000, height: 800)
+    /// What the editor's floating chrome covers of the viewport (see `CameraFraming`).
+    @ObservationIgnored var chromeInsets = ChromeInsets()
+    /// The first real viewport size frames the bed or the design once.
+    @ObservationIgnored var hasFramedInitialView = false
+    /// Set when a shape lands in the open sketch; the next recompute checks it's still in view.
+    @ObservationIgnored var revealSketchAfterRecompute = false
     var showOverhangs = false
     var overhangAngle = 45.0
     /// Window title when the document has no explicit name.
@@ -196,7 +202,9 @@ final class DesignSession {
                 self.isRecomputing = true
                 let doc = self.document
                 let result = await self.evaluator.evaluate(doc, before: self.editing?.feature)
+                let previousBodies = self.model.bodies.count
                 self.model = result
+                self.reframeAfterRecompute(previousBodyCount: previousBodies)
             }
             self?.isRecomputing = false
             self?.recomputeTask = nil

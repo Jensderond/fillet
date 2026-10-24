@@ -152,8 +152,7 @@ public final class ViewportController {
     /// Frames all bodies (or the bed) with an animation.
     public func fitAll(animated: Bool = true) {
         guard let b = scene.fitBounds else { return }
-        let aspect = viewSize.height > 0 ? Double(viewSize.width / viewSize.height) : 1
-        animate(to: liveCamera.fitted(to: b, aspect: aspect), animated: animated)
+        animate(to: liveCamera.framing(b, viewSize: viewSize, insets: options.contentInsets, margin: 1.35), animated: animated)
     }
 
     /// Switches to a standard view, keeping target and distance.

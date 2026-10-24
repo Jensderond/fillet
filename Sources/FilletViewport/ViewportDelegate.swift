@@ -88,14 +88,18 @@ public struct ViewportOptions: Hashable, Sendable {
     public var showsLabels: Bool
     /// Force an appearance; nil follows the environment's colour scheme.
     public var appearance: ViewportAppearance?
+    /// Parts of the view covered by floating chrome; "fit all" frames the model in the rest.
+    public var contentInsets: ViewportInsets
 
     public init(fingerDraws: Bool = false, animatesCameraChanges: Bool = true, cameraAnimationDuration: Double = 0.35,
-                showsViewCube: Bool = true, showsLabels: Bool = true, appearance: ViewportAppearance? = nil) {
+                showsViewCube: Bool = true, showsLabels: Bool = true, appearance: ViewportAppearance? = nil,
+                contentInsets: ViewportInsets = .zero) {
         self.fingerDraws = fingerDraws
         self.animatesCameraChanges = animatesCameraChanges
         self.cameraAnimationDuration = cameraAnimationDuration
         self.showsViewCube = showsViewCube
         self.showsLabels = showsLabels
         self.appearance = appearance
+        self.contentInsets = contentInsets
     }
 }

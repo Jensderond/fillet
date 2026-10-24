@@ -49,8 +49,10 @@ public struct ViewportView: View {
     public var body: some View {
         ZStack(alignment: .topTrailing) {
             if controller.renderer != nil {
-                ViewportRepresentable(controller: controller, scene: scene, camera: $camera, filter: filter,
-                                      options: options, delegate: delegate, appearance: appearance)
+                // Reading the camera here (not only passing its binding) makes a camera-only change
+                // from outside, like framing the first body, update the view straight away.
+                ViewportRepresentable(controller: controller, scene: scene, camera: $camera, requestedCamera: camera,
+                                      filter: filter, options: options, delegate: delegate, appearance: appearance)
             } else {
                 Rectangle().fill(.gray.opacity(0.2))
                     .overlay(Text("Metal is not available").foregroundStyle(.secondary))
@@ -74,6 +76,8 @@ struct ViewportRepresentable: UIViewRepresentable {
     let controller: ViewportController
     let scene: ViewportScene
     @Binding var camera: Camera
+    /// The camera value this update was rendered for.
+    let requestedCamera: Camera
     let filter: PickFilter
     let options: ViewportOptions
     weak var delegate: (any ViewportDelegate)?
@@ -85,7 +89,7 @@ struct ViewportRepresentable: UIViewRepresentable {
 
     func updateUIView(_ view: ViewportUIView, context: Context) {
         controller.cameraBinding = $camera
-        controller.update(scene: scene, camera: camera, filter: filter, options: options, delegate: delegate, appearance: appearance)
+        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance)
     }
 }
 #elseif os(macOS)
@@ -93,6 +97,8 @@ struct ViewportRepresentable: NSViewRepresentable {
     let controller: ViewportController
     let scene: ViewportScene
     @Binding var camera: Camera
+    /// The camera value this update was rendered for.
+    let requestedCamera: Camera
     let filter: PickFilter
     let options: ViewportOptions
     weak var delegate: (any ViewportDelegate)?
@@ -104,7 +110,7 @@ struct ViewportRepresentable: NSViewRepresentable {
 
     func updateNSView(_ view: ViewportNSView, context: Context) {
         controller.cameraBinding = $camera
-        controller.update(scene: scene, camera: camera, filter: filter, options: options, delegate: delegate, appearance: appearance)
+        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance)
     }
 }
 #endif

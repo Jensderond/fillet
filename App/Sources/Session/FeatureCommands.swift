@@ -11,19 +11,20 @@ extension DesignSession {
         if plane == nil, let (body, face) = selectedFaces.first, let ref = model.faceRef(body: body, face: face),
             let facePlane = model.body(body)?.shape.facePlane(face)
         {
-            camera = camera.looking(at: facePlane)
             newSketch(on: .face(ref, fallback: facePlane))
+            // Frame the face's body footprint, so the new sketch starts where the part is.
+            frameSketch(on: facePlane, bounds: sketchFrameBounds(sketch: nil, plane: facePlane, on: body))
         } else {
             let p = plane ?? .xy
-            camera = camera.looking(at: p.plane)
             newSketch(on: .standard(p, offset: 0))
+            frameSketch(on: p.plane, bounds: sketchFrameBounds(sketch: nil, plane: p.plane))
         }
     }
 
     /// Re-opens a sketch for editing.
     func editSketch(_ id: UUID) {
         beginEdit(id)
-        if let plane = model.sketches[id]?.plane { camera = camera.looking(at: plane) }
+        if let plane = model.sketches[id]?.plane { frameSketch(on: plane, bounds: sketchFrameBounds(sketch: id, plane: plane)) }
     }
 
     func finishSketch() {
@@ -36,6 +37,7 @@ extension DesignSession {
         guard !shapes.isEmpty, let id = sketchEditor?.sketch else { return }
         updateSketch("Add \(shapes[0].kind.typeName.capitalized)") { $0.shapes += shapes }
         sketchEditor?.selectedShapes = Set(shapes.map(\.id))
+        revealSketchAfterRecompute = true
         _ = id
     }
 

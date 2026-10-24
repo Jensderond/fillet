@@ -76,6 +76,10 @@ enum DebugAutomation {
         #if os(macOS)
         if let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }) {
             window.setFrame(NSRect(x: 40, y: 40, width: 1600, height: 1000), display: true)
+            // Frontmost and key, so SwiftUI updates and draws it like a window in use
+            // (an occluded window gets its view updates late) and the undo state is the window's.
+            NSApp.activate(ignoringOtherApps: true)
+            window.makeKeyAndOrderFront(nil)
         }
         #endif
         try? await Task.sleep(for: .milliseconds(300))
@@ -97,6 +101,9 @@ enum DebugAutomation {
         hover(session, SIMD2(52.6, 19.2))
         await settle(session)
         await snap(session, "02a-drawing")
+        checkInView(session, session.sketchFrameBounds(sketch: session.sketchEditor?.sketch,
+                                                       plane: session.model.sketches.values.first?.plane ?? StandardPlane.xy.plane),
+                    "sketch geometry inside the visible viewport")
         check(markers["finish-sketch", default: 0] == 1, "exactly one Finish sketch button (\(markers["finish-sketch", default: 0]))")
         session.sketchEditor?.engine.cancel()
         session.sketchEditor?.engine.setTool(.circle)
@@ -120,6 +127,7 @@ enum DebugAutomation {
         session.commitEdit()
         await settle(session)
         await snap(session, "04-extruded")
+        checkCentred(session, "first body framed in the visible viewport")
         let plate = 60.0 * 30 * 12 - Double.pi * 49 * 12
         check(abs((session.model.bodies.first?.shape.volume ?? 0) - plate) < 0.01, "extruded volume \(session.model.bodies.first?.shape.volume ?? 0) ≈ \(plate)")
 
@@ -187,8 +195,12 @@ enum DebugAutomation {
                 }
             }
             session.finishSketch()
-            session.camera = Camera(target: Vec3(40, 15, 6), distance: 220)
             await settle(session)
+            // ⌘0 from an isometric view, once the wider plate has recomputed.
+            session.camera = session.camera.viewing(.iso)
+            session.frameBodies()
+            await settle(session)
+            checkCentred(session, "widened body framed")
             await snap(session, "09-widened")
             check(session.model.status.values.allSatisfy { if case .failed = $0 { false } else { true } }, "all features ok after widening")
         }
@@ -239,6 +251,25 @@ enum DebugAutomation {
         log("\(ok ? "✔" : "✘") \(what)")
     }
 
+    /// The bodies' projected bounds sit centred in the unobstructed part of the viewport.
+    private static func checkCentred(_ session: DesignSession, _ what: String) {
+        guard let bounds = session.visibleBodyBounds,
+            let box = session.camera.screenRect(of: bounds, viewSize: session.viewSize)
+        else { check(false, what); return }
+        let safe = session.viewInsets.rect(in: session.viewSize)
+        let dx = (box.midX - safe.midX) / safe.width, dy = (box.midY - safe.midY) / safe.height
+        let inside = box.minX >= safe.minX - 1 && box.maxX <= safe.maxX + 1 && box.minY >= safe.minY - 1 && box.maxY <= safe.maxY + 1
+        check(inside && abs(dx) < 0.03 && abs(dy) < 0.03,
+              "\(what) (centre off by \(Int(dx * 1000) / 10)% × \(Int(dy * 1000) / 10)%, inside: \(inside))")
+    }
+
+    /// Bounds project fully inside the unobstructed part of the viewport.
+    private static func checkInView(_ session: DesignSession, _ bounds: Bounds3, _ what: String) {
+        guard let box = session.camera.screenRect(of: bounds, viewSize: session.viewSize) else { check(false, what); return }
+        let safe = session.viewInsets.rect(in: session.viewSize)
+        check(safe.insetBy(dx: -1, dy: -1).contains(box), "\(what) (\(Int(box.minX)),\(Int(box.minY)) \(Int(box.width))×\(Int(box.height)) in \(Int(safe.minX)),\(Int(safe.minY)) \(Int(safe.width))×\(Int(safe.height)))")
+    }
+
     private static func log(_ s: String) {
         print("[automation] \(s)")
         let url = outputDirectory.appendingPathComponent("log.txt")
@@ -255,6 +286,11 @@ enum DebugAutomation {
         try? await Task.sleep(for: .milliseconds(150))
         while session.isRecomputing { try? await Task.sleep(for: .milliseconds(30)) }
         try? await Task.sleep(for: .milliseconds(250))
+        // Let a camera flight land, so captures and checks see the camera the user would.
+        for _ in 0..<40 {
+            guard let live = controller?.liveCamera, !live.isApproximatelyEqual(to: session.camera, tolerance: 1e-3) else { break }
+            try? await Task.sleep(for: .milliseconds(50))
+        }
     }
 
     /// A tap at a sketch-plane point, delivered as tool events with a real camera ray.
@@ -340,8 +376,8 @@ enum DebugAutomation {
                 return nil
             }
             if let mtk = find(content) {
-                if name == "02a-drawing", let live = controller?.liveCamera {
-                    log("camera: session yaw=\(session.camera.yaw) pitch=\(session.camera.pitch) dist=\(session.camera.distance) target=\(session.camera.target) | live yaw=\(live.yaw) pitch=\(live.pitch) dist=\(live.distance) target=\(live.target)")
+                if let live = controller?.liveCamera, !live.isApproximatelyEqual(to: session.camera, tolerance: 1e-3) {
+                    log("camera \(name) not landed: session yaw=\(session.camera.yaw) pitch=\(session.camera.pitch) dist=\(session.camera.distance) | live yaw=\(live.yaw) pitch=\(live.pitch) dist=\(live.distance)")
                 }
                 // Where the Metal view sits in the window (bottom-left origin), for compositing the captures.
                 let r = mtk.convert(mtk.bounds, to: nil)
