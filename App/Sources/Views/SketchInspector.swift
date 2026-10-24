@@ -14,28 +14,25 @@ struct SketchInspector: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Image(systemName: "pencil.and.outline").foregroundStyle(.tint)
-                Text(session.editingFeature?.name ?? "Sketch").font(.headline)
-                Spacer()
-            }
+        VStack(alignment: .leading, spacing: 18) {
             if let editor = session.sketchEditor {
-                if let error = session.model.error(for: editor.sketch) {
-                    Label(error, systemImage: "exclamationmark.triangle.fill").font(.callout).foregroundStyle(.red)
-                }
-                options(editor)
-                Divider()
-                selectedShapes(editor)
+                InspectorHeader(
+                    symbol: "pencil.and.outline", title: session.editingFeature?.name ?? "Sketch",
+                    subtitle: "Finish the sketch to extrude or revolve it",
+                    error: session.model.error(for: editor.sketch))
+                PanelSection("Drawing") { options(editor) }
+                PanelSection(selectedTitle(editor)) { selectedShapes(editor) }
+                    .padding(.top, 2)
             }
-            Button {
-                session.finishSketch()
-            } label: {
-                Label("Finish Sketch", systemImage: "checkmark").frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
-            .keyboardShortcut(.defaultAction)
+        }
+    }
+
+    /// One selected shape titles itself ("Circle"); otherwise the section needs a name.
+    private func selectedTitle(_ editor: SketchEditor) -> String? {
+        switch editor.selectedShapes.count {
+        case 0: "Dimensions"
+        case 1: nil
+        default: "Selection"
         }
     }
 
@@ -49,7 +46,7 @@ struct SketchInspector: View {
             Text("1 mm").tag(1.0)
             Text("5 mm").tag(5.0)
         }
-        Toggle("Construction lines", isOn: Binding(
+        Toggle("Draw construction lines", isOn: Binding(
             get: { editor.engine.construction },
             set: { session.sketchEditor?.engine.construction = $0 }))
         if editor.tool == .polygon {
@@ -62,7 +59,7 @@ struct SketchInspector: View {
     @ViewBuilder private func selectedShapes(_ editor: SketchEditor) -> some View {
         let shapes = sketch?.shapes.filter { editor.selectedShapes.contains($0.id) } ?? []
         if shapes.isEmpty {
-            Hint("Draw with Apple Pencil, or tap/drag with the mouse. Pick the Select tool to change a shape's exact dimensions.")
+            Hint("Draw with Apple Pencil, or click and drag with the mouse. Use the Select tool and pick a shape to type exact dimensions.", symbol: "pencil.tip")
         } else if shapes.count == 1, let shape = shapes.first {
             ShapeDimensions(shape: shape, evaluator: ev) { updated in
                 session.updateSketch("Edit \(updated.kind.typeName.capitalized)") { sketch in
@@ -70,16 +67,17 @@ struct SketchInspector: View {
                 }
             }
         } else {
-            Text("\(shapes.count) shapes selected").font(.subheadline.weight(.medium))
+            Text("\(shapes.count) shapes selected").font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
         }
         if !shapes.isEmpty {
-            HStack {
+            HStack(spacing: 8) {
                 Button { session.toggleConstructionOfSelection() } label: { Label("Construction", systemImage: "line.diagonal") }
-                Spacer()
+                    .buttonStyle(SecondaryButtonStyle())
+                Spacer(minLength: 0)
                 Button(role: .destructive) { session.deleteSelectedSketchShapes() } label: { Label("Delete", systemImage: "trash") }
+                    .buttonStyle(SecondaryButtonStyle(role: .destructive))
                     .keyboardShortcut(.delete, modifiers: [])
             }
-            .buttonStyle(.bordered)
         }
     }
 }
@@ -98,16 +96,22 @@ struct ShapeDimensions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(shape.kind.typeName.capitalized + (shape.construction ? " (construction)" : ""))
-                .font(.subheadline.weight(.semibold))
+            HStack {
+                Text(shape.kind.typeName.capitalized).font(Theme.sectionTitle).foregroundStyle(Theme.ink)
+                if shape.construction {
+                    Text("Construction").font(Theme.caption.weight(.medium)).foregroundStyle(Theme.inkSecondary)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Capsule().strokeBorder(Theme.hairlineStrong, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
+                }
+            }
             switch shape.kind {
             case .line(let a, let b):
                 PointField(label: "Start", value: a, evaluator: evaluator) { update(.line(a: $0, b: b)) }
                 PointField(label: "End", value: b, evaluator: evaluator) { update(.line(a: a, b: $0)) }
                 if let pa = try? a.evaluate(using: evaluator), let pb = try? b.evaluate(using: evaluator) {
                     let d = pb - pa
-                    Text("Length \(ExprField.format((d.x * d.x + d.y * d.y).squareRoot())) mm · angle \(ExprField.format(atan2(d.y, d.x) * 180 / .pi))°")
-                        .font(.caption).foregroundStyle(.secondary)
+                    Text("Length \(ExprField.format((d.x * d.x + d.y * d.y).squareRoot())) mm, angle \(ExprField.format(atan2(d.y, d.x) * 180 / .pi))°")
+                        .font(Theme.caption.monospacedDigit()).foregroundStyle(Theme.inkSecondary)
                 }
             case .rectangle(let anchor, let position, let width, let height, let angle):
                 Picker("Anchor", selection: Binding(get: { anchor }, set: { update(.rectangle(anchor: $0, position: position, width: width, height: height, angle: angle)) })) {
@@ -139,9 +143,9 @@ struct ShapeDimensions: View {
             case .point(let p):
                 PointField(label: "Position", value: p, evaluator: evaluator) { update(.point($0)) }
             case .polyline(let vertices, let closed):
-                Text("\(vertices.count) points\(closed ? ", closed" : "")").foregroundStyle(.secondary)
+                Text("\(vertices.count) points\(closed ? ", closed" : "")").font(Theme.body).foregroundStyle(Theme.inkSecondary)
             case .spline(let points):
-                Text("\(points.count) points").foregroundStyle(.secondary)
+                Text("\(points.count) points").font(Theme.body).foregroundStyle(Theme.inkSecondary)
             }
         }
     }

@@ -2,7 +2,7 @@ import FilletCore
 import SwiftUI
 
 /// A text field for a dimension expression (`12`, `width / 2 + 3`, `1 in`, `30 deg`).
-/// Valid input is pushed live; invalid input shows the error and is not applied.
+/// Valid input is pushed live; invalid input shows the reason and is not applied.
 struct ExprField: View {
     let label: String
     let value: Expr
@@ -12,42 +12,75 @@ struct ExprField: View {
 
     @State private var text = ""
     @State private var error: String?
+    @State private var hovering = false
     @FocusState private var focused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 8) {
+        VStack(alignment: .trailing, spacing: 4) {
+            HStack(spacing: 10) {
                 Text(label)
-                    .foregroundStyle(.secondary)
-                    .frame(minWidth: 70, alignment: .leading)
-                TextField(label, text: $text)
-                    .textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.trailing)
-                    .monospacedDigit()
-                    .autocorrectionDisabled()
-                    #if os(iOS)
-                    .textInputAutocapitalization(.never)
-                    .keyboardType(.numbersAndPunctuation)
-                    #endif
-                    .focused($focused)
-                    .onSubmit(apply)
-                    .frame(minWidth: 90)
-                Text(unit)
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(width: 22, alignment: .leading)
+                    .font(Theme.body)
+                    .foregroundStyle(Theme.inkSecondary)
+                    .frame(minWidth: 64, alignment: .leading)
+                    .lineLimit(1)
+                field
             }
             if let error {
-                Text(error).font(.caption).foregroundStyle(.red).fixedSize(horizontal: false, vertical: true)
+                Label(error, systemImage: "exclamationmark.circle.fill")
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .transition(.opacity)
             } else if !value.isLiteral, let v = try? evaluator.evaluate(value, as: kind) {
-                Text("= \(Self.format(v)) \(unit)").font(.caption).foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Text("= \(Self.format(v)) \(unit)")
+                    .font(Theme.caption.monospacedDigit())
+                    .foregroundStyle(Theme.inkTertiary)
             }
         }
+        .animation(Theme.Motion.hover, value: error)
         .onAppear { text = value.source }
         .onChange(of: value) { _, new in if !focused { text = new.source } }
-        .onChange(of: text) { _, _ in validate(pushIfValid: true) }
+        .onChange(of: text) { _, _ in validate() }
         .onChange(of: focused) { _, isFocused in if !isFocused { apply() } }
+    }
+
+    private var field: some View {
+        HStack(spacing: 6) {
+            TextField(label, text: $text)
+                .textFieldStyle(.plain)
+                .font(Theme.value)
+                .foregroundStyle(Theme.ink)
+                .multilineTextAlignment(.trailing)
+                .autocorrectionDisabled()
+                #if os(iOS)
+                .textInputAutocapitalization(.never)
+                .keyboardType(.numbersAndPunctuation)
+                #endif
+                .focused($focused)
+                .onSubmit(apply)
+            if !unit.isEmpty {
+                Text(unit)
+                    .font(Theme.caption)
+                    .foregroundStyle(Theme.inkTertiary)
+            }
+        }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 32)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.raised))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .strokeBorder(borderColor, lineWidth: focused || error != nil ? 1.5 : 1))
+        .shadow(color: focused ? Theme.fillet.opacity(0.25) : .clear, radius: 4)
+        .contentShape(Rectangle())
+        .onTapGesture { focused = true }
+        .onHover { hovering = $0 }
+        .animation(Theme.Motion.hover, value: focused)
+    }
+
+    private var borderColor: Color {
+        if error != nil { return Theme.danger }
+        if focused { return Theme.fillet }
+        return hovering ? Theme.hairlineStrong : Theme.hairline
     }
 
     private var unit: String {
@@ -58,19 +91,19 @@ struct ExprField: View {
         }
     }
 
-    private func validate(pushIfValid: Bool) {
+    private func validate() {
         let expr = Expr(stringLiteral: text.trimmingCharacters(in: .whitespaces))
         do {
             _ = try evaluator.evaluate(expr, as: kind)
             error = nil
-            if pushIfValid, expr != value { onChange(expr) }
+            if expr != value { onChange(expr) }
         } catch {
             self.error = text.isEmpty ? nil : error.message
         }
     }
 
     private func apply() {
-        validate(pushIfValid: true)
+        validate()
         if error != nil || text.isEmpty {
             text = value.source
             error = nil
@@ -83,7 +116,7 @@ struct ExprField: View {
     }
 }
 
-/// Two expression fields side by side for a 2D point.
+/// X and Y expression fields for a 2D point.
 struct PointField: View {
     let label: String
     let value: Point2Expr
@@ -91,8 +124,8 @@ struct PointField: View {
     let onChange: (Point2Expr) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(label).font(.subheadline.weight(.medium))
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(Theme.caption.weight(.semibold)).foregroundStyle(Theme.inkSecondary)
             ExprField(label: "X", value: value.x, evaluator: evaluator) { onChange(Point2Expr($0, value.y)) }
             ExprField(label: "Y", value: value.y, evaluator: evaluator) { onChange(Point2Expr(value.x, $0)) }
         }

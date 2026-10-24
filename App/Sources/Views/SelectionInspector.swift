@@ -7,12 +7,17 @@ struct SelectionInspector: View {
     @Bindable var session: DesignSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 18) {
             if session.selection.isEmpty {
                 summary
             } else {
-                ForEach(Array(session.selection.prefix(4).enumerated()), id: \.offset) { _, item in
-                    describe(item)
+                InspectorHeader(
+                    symbol: "cursorarrow.rays", title: session.selection.count == 1 ? "Selection" : "\(session.selection.count) selected",
+                    subtitle: session.selection.count == 2 ? nil : "Pick two items to measure between them")
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(session.selection.prefix(4).enumerated()), id: \.offset) { _, item in
+                        describe(item)
+                    }
                 }
                 if session.selection.count == 2 { distance }
                 actions
@@ -21,30 +26,39 @@ struct SelectionInspector: View {
     }
 
     @ViewBuilder private var summary: some View {
-        Text("Design").font(.headline)
+        InspectorHeader(symbol: "printer", title: "Print check", subtitle: session.document.printerPreset.name)
         if session.model.bodies.isEmpty {
-            Hint("Start with a sketch: pick Sketch in the toolbar, draw a profile, then Extrude it.")
-        } else {
-            let analysis = session.printAnalysis
-            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 6) {
-                row("Bodies", "\(session.model.bodies.count)")
-                if let a = analysis {
-                    row("Size", "\(fmt(a.size.x)) × \(fmt(a.size.y)) × \(fmt(a.size.z)) mm")
+            Hint("Start with Sketch in the toolbar, draw a profile on the bed, then Extrude it.", symbol: "pencil.and.outline")
+        } else if let a = session.printAnalysis {
+            VStack(spacing: 0) {
+                CheckRow(state: a.fitsOnBed ? .ok : .bad, title: "Fits the bed",
+                         detail: a.fitsOnBed ? (a.fitsOnlyRotated ? "Rotate 90° in the slicer" : "\(fmt(a.size.x)) × \(fmt(a.size.y)) × \(fmt(a.size.z)) mm")
+                                             : "\(fmt(a.size.x)) × \(fmt(a.size.y)) × \(fmt(a.size.z)) mm is too big")
+                Theme.hairline.frame(height: 1)
+                CheckRow(state: a.overhangCount == 0 ? .ok : .warn, title: a.overhangCount == 0 ? "No overhangs" : "Overhangs",
+                         detail: a.overhangCount == 0 ? "Prints without supports" : "\(fmt(a.overhangArea)) mm² past \(Int(session.overhangAngle))°",
+                         action: a.overhangCount == 0 ? nil : ("Show", { session.showOverhangs = true }))
+                Theme.hairline.frame(height: 1)
+                CheckRow(state: a.isWatertight ? .ok : .bad, title: a.isWatertight ? "Watertight" : "Has open edges",
+                         detail: a.isWatertight ? "Safe to slice" : "\(a.boundaryEdgeCount) open edges")
+            }
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.raised))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.hairline))
+
+            PanelSection("Material") {
+                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
                     row("Volume", "\(fmt(a.volume / 1000)) cm³")
-                    row("PLA", "≈ \(fmt(a.grams(.pla))) g")
-                    row("Fits \(session.document.printerPreset.name)", a.fitsOnBed ? (a.fitsOnlyRotated ? "Yes, rotated 90°" : "Yes") : "No")
-                    row("Overhangs", a.overhangCount == 0 ? "None" : "\(fmt(a.overhangArea)) mm²")
-                    row("Watertight", a.isWatertight ? "Yes" : "No (\(a.boundaryEdgeCount) open edges)")
+                    row("PLA, solid", "\(fmt(a.grams(.pla))) g")
+                    row("Bodies", "\(session.model.bodies.count)")
                 }
             }
-            .font(.callout)
         }
     }
 
     private func row(_ k: String, _ v: String) -> some View {
         GridRow {
-            Text(k).foregroundStyle(.secondary)
-            Text(v).monospacedDigit()
+            Text(k).font(Theme.body).foregroundStyle(Theme.inkSecondary)
+            Text(v).font(Theme.value).foregroundStyle(Theme.ink)
         }
     }
 
@@ -52,23 +66,20 @@ struct SelectionInspector: View {
         switch s {
         case .face(let b, let i):
             if let shape = session.model.body(b)?.shape, let info = shape.faceInfoIfValid(i) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("\(info.surface.title) face", systemImage: "square.fill").font(.subheadline.weight(.medium))
-                    Text("Area \(fmt(info.area)) mm²").font(.caption).foregroundStyle(.secondary)
-                }
+                MeasureRow(symbol: "square.fill", title: "\(info.surface.title) face", detail: "Area \(fmt(info.area)) mm²")
             }
         case .edge(let b, let i):
             if let shape = session.model.body(b)?.shape, let info = shape.edgeInfoIfValid(i) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Label("\(info.curve.title) edge", systemImage: "line.diagonal").font(.subheadline.weight(.medium))
-                    Text(info.curve == .circle ? "Radius \(fmt(info.radius)) mm · Ø \(fmt(info.radius * 2)) mm · length \(fmt(info.length)) mm"
-                                               : "Length \(fmt(info.length)) mm")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
+                MeasureRow(symbol: "line.diagonal", title: "\(info.curve.title) edge",
+                           detail: info.curve == .circle ? "Ø \(fmt(info.radius * 2)) mm, length \(fmt(info.length)) mm"
+                                                         : "Length \(fmt(info.length)) mm")
             }
         case .body(let b):
             if let body = session.model.body(b) {
-                Label(body.name, systemImage: "cube").font(.subheadline.weight(.medium))
+                MeasureRow(symbol: "cube", title: body.name, detail: body.shape.bounds.map { b in
+                    let d = b.max - b.min
+                    return "\(fmt(d.x)) × \(fmt(d.y)) × \(fmt(d.z)) mm"
+                } ?? "")
             }
         default:
             EmptyView()
@@ -77,27 +88,36 @@ struct SelectionInspector: View {
 
     @ViewBuilder private var distance: some View {
         if let d = session.selectionDistance {
-            Label("Distance \(fmt(d)) mm", systemImage: "ruler").font(.subheadline.weight(.semibold))
+            HStack(spacing: 10) {
+                Image(systemName: "ruler").foregroundStyle(Theme.select)
+                Text("Distance").font(Theme.body).foregroundStyle(Theme.inkSecondary)
+                Spacer()
+                Text("\(fmt(d)) mm").font(.system(size: 17, weight: .semibold).monospacedDigit()).foregroundStyle(Theme.ink)
+            }
+            .padding(12)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.selectSoft))
         }
     }
 
     @ViewBuilder private var actions: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if !session.selectedEdges.isEmpty {
-                Button { session.startEdgeFeature(fillet: true) } label: { Label("Fillet edges", systemImage: "rectangle.roundedtop") }
-                Button { session.startEdgeFeature(fillet: false) } label: { Label("Chamfer edges", systemImage: "skew") }
+        PanelSection("Next") {
+            VStack(spacing: 6) {
+                if !session.selectedEdges.isEmpty {
+                    ActionRow(symbol: "rectangle.roundedtop", title: "Fillet edges") { session.startEdgeFeature(fillet: true) }
+                    ActionRow(symbol: "skew", title: "Chamfer edges") { session.startEdgeFeature(fillet: false) }
+                }
+                if let (b, f) = session.selectedFaces.first, session.model.body(b)?.shape.facePlane(f) != nil {
+                    ActionRow(symbol: "pencil.and.outline", title: "Sketch on this face") { session.startSketch() }
+                    ActionRow(symbol: "arrow.down.to.line", title: "Lay flat on the bed") { session.startLayFlat() }
+                }
+                if !session.selectedFaces.isEmpty {
+                    ActionRow(symbol: "cube.transparent", title: "Shell, removing these faces") { session.startShell() }
+                }
             }
-            if let (b, f) = session.selectedFaces.first, session.model.body(b)?.shape.facePlane(f) != nil {
-                Button { session.startSketch() } label: { Label("Sketch on face", systemImage: "pencil.and.outline") }
-                Button { session.startLayFlat() } label: { Label("Lay flat on bed", systemImage: "arrow.down.to.line") }
-            }
-            if !session.selectedFaces.isEmpty {
-                Button { session.startShell() } label: { Label("Shell (remove faces)", systemImage: "cube.transparent") }
-            }
-            Button("Clear selection") { session.selection = [] }.foregroundStyle(.secondary)
+            Button("Clear selection") { session.selection = [] }
+                .buttonStyle(InlineButtonStyle(tint: Theme.inkSecondary))
+                .padding(.top, 2)
         }
-        .buttonStyle(.borderless)
-        .padding(.top, 6)
     }
 
     private func fmt(_ v: Double) -> String { ExprField.format((v * 100).rounded() / 100) }
@@ -150,5 +170,80 @@ extension CurveType {
         case .bspline: "Curved"
         case .other: "Curved"
         }
+    }
+}
+
+/// One check in the print summary.
+private struct CheckRow: View {
+    enum State { case ok, warn, bad }
+    let state: State
+    let title: String
+    let detail: String
+    var action: (String, () -> Void)?
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: state == .ok ? "checkmark.circle.fill" : state == .warn ? "exclamationmark.triangle.fill" : "xmark.octagon.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(state == .ok ? Theme.ok : state == .warn ? Theme.warn : Theme.danger)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
+                Text(detail).font(Theme.caption.monospacedDigit()).foregroundStyle(Theme.inkSecondary)
+            }
+            Spacer(minLength: 0)
+            if let action {
+                Button(action.0, action: action.1).buttonStyle(InlineButtonStyle())
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
+    }
+}
+
+/// A measured item in the selection list.
+private struct MeasureRow: View {
+    let symbol: String
+    let title: String
+    let detail: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            IconChip(symbol: symbol, tint: Theme.select, size: 28)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title).font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
+                Text(detail).font(Theme.caption.monospacedDigit()).foregroundStyle(Theme.inkSecondary)
+            }
+            Spacer(minLength: 0)
+        }
+    }
+}
+
+/// A suggested next step for the selection.
+private struct ActionRow: View {
+    let symbol: String
+    let title: String
+    let action: () -> Void
+    @State private var hovering = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.fillet).frame(width: 20)
+                Text(title).font(Theme.body.weight(.medium)).foregroundStyle(Theme.ink)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.inkTertiary)
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 38)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .fill(hovering ? Theme.raised : Theme.raised.opacity(0.6)))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .strokeBorder(hovering ? Theme.hairlineStrong : Theme.hairline))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .onHover { hovering = $0 }
+        .animation(Theme.Motion.hover, value: hovering)
+        .hoverHighlight()
     }
 }

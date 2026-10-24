@@ -5,72 +5,128 @@ import SwiftUI
 struct BrowserView: View {
     @Bindable var session: DesignSession
 
+    private var sketches: [Feature] {
+        session.document.activeFeatures.filter { if case .sketch = $0.kind { true } else { false } }
+    }
+
     var body: some View {
-        List {
-            Section("Bodies") {
-                if session.model.bodies.isEmpty {
-                    Text("No bodies yet").foregroundStyle(.secondary)
-                }
-                ForEach(session.model.bodies) { body in
-                    HStack {
-                        Image(systemName: "cube").foregroundStyle(.secondary)
-                        Text(body.name)
-                        Spacer()
-                        Button {
-                            if session.hiddenBodies.contains(body.ref) {
-                                session.hiddenBodies.remove(body.ref)
-                            } else {
-                                session.hiddenBodies.insert(body.ref)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 22) {
+                PanelSection("Bodies") {
+                    if session.model.bodies.isEmpty {
+                        Hint("Extrude a sketch to make your first body.", symbol: "cube")
+                    }
+                    VStack(spacing: 2) {
+                        ForEach(session.model.bodies) { body in
+                            let hidden = session.hiddenBodies.contains(body.ref)
+                            BrowserRow(
+                                symbol: "cube", title: body.name, selected: session.selection.contains(.body(body.ref)),
+                                dimmed: hidden,
+                                trailing: {
+                                    Button {
+                                        if hidden { session.hiddenBodies.remove(body.ref) } else { session.hiddenBodies.insert(body.ref) }
+                                    } label: {
+                                        Image(systemName: hidden ? "eye.slash" : "eye")
+                                            .font(.system(size: 12, weight: .medium))
+                                            .foregroundStyle(hidden ? Theme.inkTertiary : Theme.inkSecondary)
+                                            .frame(width: 26, height: 26)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(PressableStyle())
+                                    .help(hidden ? "Show \(body.name)" : "Hide \(body.name)")
+                                    .accessibilityLabel(hidden ? "Show \(body.name)" : "Hide \(body.name)")
+                                }
+                            ) {
+                                session.toggleSelection(.body(body.ref), additive: false)
                             }
-                        } label: {
-                            Image(systemName: session.hiddenBodies.contains(body.ref) ? "eye.slash" : "eye")
                         }
-                        .buttonStyle(.borderless)
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture { session.toggleSelection(.body(body.ref), additive: false) }
-                    .listRowBackground(session.selection.contains(.body(body.ref)) ? Color.accentColor.opacity(0.15) : nil)
                 }
-            }
-            Section("Sketches") {
-                ForEach(session.document.activeFeatures.filter { if case .sketch = $0.kind { true } else { false } }) { f in
-                    Button {
-                        session.editSketch(f.id)
-                    } label: {
-                        Label(f.name, systemImage: "pencil.and.outline")
+                PanelSection("Sketches") {
+                    if sketches.isEmpty {
+                        Hint("Sketches you draw are listed here.", symbol: "pencil.and.outline")
                     }
-                    .buttonStyle(.plain)
+                    VStack(spacing: 2) {
+                        ForEach(sketches) { f in
+                            BrowserRow(symbol: "pencil.and.outline", title: f.name,
+                                       selected: session.sketchEditor?.sketch == f.id,
+                                       dimmed: false, trailing: { EmptyView() }) {
+                                session.editSketch(f.id)
+                            }
+                        }
+                    }
                 }
+                ParametersSection(session: session)
             }
-            ParametersSection(session: session)
+            .padding(14)
         }
-        #if os(macOS)
-        .listStyle(.sidebar)
-        #else
-        .listStyle(.insetGrouped)
-        #endif
+        .background(Theme.panel)
     }
 }
 
-/// Named parameters that any dimension can reference (`wall`, `width/2 + wall`).
+/// A sidebar row with hover and selected states.
+struct BrowserRow<Trailing: View>: View {
+    let symbol: String
+    let title: String
+    let selected: Bool
+    let dimmed: Bool
+    @ViewBuilder var trailing: Trailing
+    let action: () -> Void
+
+    @State private var hovering = false
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button(action: action) {
+                HStack(spacing: 9) {
+                    Image(systemName: symbol)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(selected ? Theme.select : Theme.inkSecondary)
+                        .frame(width: 18)
+                    Text(title)
+                        .font(Theme.body.weight(selected ? .semibold : .regular))
+                        .foregroundStyle(Theme.ink)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            trailing
+        }
+        .padding(.leading, 8)
+        .padding(.trailing, 2)
+        .frame(minHeight: 32)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+            .fill(selected ? Theme.selectSoft : hovering ? Theme.hairline : .clear))
+        .opacity(dimmed ? 0.5 : 1)
+        .onHover { hovering = $0 }
+        .animation(Theme.Motion.hover, value: hovering)
+        .hoverHighlight()
+    }
+}
+
+/// Named parameters that any dimension can reference (`wall`, `width / 2 + wall`).
 struct ParametersSection: View {
     @Bindable var session: DesignSession
 
     var body: some View {
-        Section {
-            ForEach(session.document.parameters) { p in
-                ParameterRow(session: session, parameter: p)
+        PanelSection("Parameters") {
+            if session.document.parameters.isEmpty {
+                Hint("Name a value once, then type its name in any dimension, like width / 2 + wall.", symbol: "function")
+            }
+            VStack(spacing: 10) {
+                ForEach(session.document.parameters) { p in
+                    ParameterRow(session: session, parameter: p)
+                }
             }
             Button {
                 let name = uniqueName()
                 session.perform("Add Parameter") { $0.parameters.append(Parameter(name: name, expression: 10)) }
             } label: {
-                Label("Add Parameter", systemImage: "plus")
+                Label("Add parameter", systemImage: "plus")
             }
-        } header: {
-            Text("Parameters")
-        } footer: {
-            Text("Use parameter names in any dimension, e.g. width / 2 + wall.").font(.caption)
+            .buttonStyle(InlineButtonStyle())
         }
     }
 
@@ -87,47 +143,58 @@ struct ParameterRow: View {
     let parameter: Parameter
     @State private var name = ""
     @State private var nameError: String?
+    @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 6) {
                 TextField("name", text: $name)
-                    .font(.body.monospaced())
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    .foregroundStyle(Theme.ink)
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
                     #endif
+                    .focused($nameFocused)
                     .onSubmit(commitName)
-                Spacer()
-                Button(role: .destructive) {
+                    .onChange(of: nameFocused) { _, focused in if !focused { commitName() } }
+                Spacer(minLength: 0)
+                Button {
                     session.perform("Delete Parameter") { $0.parameters.removeAll { $0.id == parameter.id } }
-                } label: { Image(systemName: "minus.circle") }
-                .buttonStyle(.borderless)
+                } label: {
+                    Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Theme.inkTertiary)
+                        .frame(width: 24, height: 24).contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .help("Delete \(parameter.name)")
+                .accessibilityLabel("Delete \(parameter.name)")
             }
-            ExprField(label: "=", value: parameter.expression, evaluator: evaluatorExcludingSelf) { expr in
+            ExprField(label: "=", value: parameter.expression, evaluator: session.model.parameters.evaluator) { expr in
                 session.perform("Edit Parameter") { doc in
                     if let i = doc.parameters.firstIndex(where: { $0.id == parameter.id }) { doc.parameters[i].expression = expr }
                 }
             }
             if let error = nameError ?? session.model.parameters.errors[parameter.id]?.message {
-                Text(error).font(.caption).foregroundStyle(.red)
+                Label(error, systemImage: "exclamationmark.circle.fill").font(Theme.caption).foregroundStyle(Theme.danger)
             }
         }
+        .padding(10)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.raised.opacity(0.6)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.hairline))
         .onAppear { name = parameter.name }
         .onChange(of: parameter.name) { _, n in name = n }
     }
 
-    /// Other parameters' values, so the field can validate references.
-    private var evaluatorExcludingSelf: Evaluator { session.model.parameters.evaluator }
-
     private func commitName() {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard trimmed != parameter.name else { nameError = nil; return }
         if let error = Parameter.validationError(forName: trimmed) {
             nameError = error
             return
         }
         if session.document.parameters.contains(where: { $0.name == trimmed && $0.id != parameter.id }) {
-            nameError = "Another parameter is called \(trimmed)"
+            nameError = "Another parameter is already called \(trimmed)"
             return
         }
         nameError = nil

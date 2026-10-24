@@ -33,6 +33,11 @@ enum DebugAutomation {
     static func run(_ session: DesignSession) async {
         guard isEnabled, !ran else { return }
         ran = true
+        switch ProcessInfo.processInfo.environment["FILLET_APPEARANCE"] {
+        case "light": NSApp.appearance = NSAppearance(named: .aqua)
+        case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
+        default: break
+        }
         log("output: \(outputDirectory.path)")
         try? await Task.sleep(for: .seconds(1))
         if let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }) {
