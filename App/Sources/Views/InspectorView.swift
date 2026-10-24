@@ -432,6 +432,7 @@ struct ThemeSegmented<Value: Hashable>: View {
     let options: [(value: Value, title: String)]
     let onChange: (Value) -> Void
     @Environment(\.touchTargets) private var touch
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     init(_ label: String, selection: Value, options: [(Value, String)], onChange: @escaping (Value) -> Void) {
         self.label = label
@@ -441,7 +442,9 @@ struct ThemeSegmented<Value: Hashable>: View {
     }
 
     var body: some View {
-        HStack(spacing: 2) {
+        // At accessibility sizes the segments stack, so no label is ever truncated.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: 2)) : AnyLayout(HStackLayout(spacing: 2))
+        layout {
             ForEach(options, id: \.value) { option in
                 let selected = option.value == selection
                 Button {
@@ -500,9 +503,13 @@ struct SelectionCount: View {
     let plural: String
     let hint: String
     let clear: () -> Void
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: Theme.Space.m) {
+        // At accessibility sizes Clear moves under the text, so the text keeps the full width.
+        let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(alignment: .leading, spacing: Theme.Space.s))
+            : AnyLayout(HStackLayout(spacing: Theme.Space.m))
+        layout {
             HStack(spacing: Theme.Space.m) {
                 Image(systemName: count > 0 ? "checkmark.circle.fill" : "hand.tap")
                     .font(.system(size: 16, weight: .semibold))
@@ -514,14 +521,16 @@ struct SelectionCount: View {
                         .foregroundStyle(Theme.ink)
                         .contentTransition(.numericText())
                     Text(hint).font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             .accessibilityElement(children: .combine)
-            Spacer(minLength: 0)
+            if !typeSize.isAccessibilitySize { Spacer(minLength: 0) }
             if count > 0 {
                 Button("Clear", action: clear).buttonStyle(InlineButtonStyle(tint: Theme.selectInk))
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .padding(Theme.Space.m)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
             .fill(count > 0 ? Theme.selectSoft : Theme.raised.opacity(0.5)))

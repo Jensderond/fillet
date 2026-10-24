@@ -311,7 +311,7 @@ private struct StationLabel: View {
             if rolledBack { SectionHatch() }
         }
         .overlay(alignment: .leading) {
-            if dropTarget { Capsule().fill(Theme.fillet).frame(width: 2.5, height: 44) }
+            if dropTarget { Capsule().fill(Theme.filletMark).frame(width: 2.5, height: 44) }
         }
         .contentShape(Rectangle())
         .onHover { hovering = $0 }
@@ -332,7 +332,7 @@ private struct StationLabel: View {
     }
 
     private var chipBorder: Color {
-        if editing { return Theme.fillet }
+        if editing { return Theme.filletMark }
         if failure != nil { return Theme.danger.opacity(0.5) }
         if rolledBack { return Theme.inkTertiary }
         return hovering ? Theme.hairlineStrong : Theme.hairline
@@ -406,15 +406,15 @@ private struct RollbackCaliper: View {
     var body: some View {
         VStack(spacing: 0) {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
-                .fill(Theme.fillet)
+                .fill(Theme.filletMark)
                 .frame(width: 14, height: 9)
                 .overlay(
                     HStack(spacing: 2) { ForEach(0..<3, id: \.self) { _ in Capsule().fill(.white.opacity(0.7)).frame(width: 1, height: 5) } })
-            Rectangle().fill(Theme.fillet).frame(width: 2.5)
-            Triangle().fill(Theme.fillet).frame(width: 10, height: 6)
+            Rectangle().fill(Theme.filletMark).frame(width: 2.5)
+            Triangle().fill(Theme.filletMark).frame(width: 10, height: 6)
         }
         .frame(width: 16, height: 64)
-        .shadow(color: Theme.fillet.opacity(0.35), radius: 4)
+        .shadow(color: Theme.filletMark.opacity(0.3), radius: 4)
         .frame(width: hitWidth)
         .contentShape(Rectangle())
     }

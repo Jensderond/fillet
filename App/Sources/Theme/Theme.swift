@@ -29,8 +29,12 @@ enum Theme {
     /// Text-field outline: 3:1 against the panel, so the field reads as a field (WCAG 1.4.11).
     static let fieldBorder = Color(light: 0x868FA2, dark: 0x5E687C, highContrastLight: 0x5E687E, highContrastDark: 0x8C96AA)
 
-    /// The fillet orange, for marks: caliper, active underline, focus ring, drop bar.
+    /// The fillet orange, for fills (handles, the splash's fillet surface).
     static let fillet = Color(hex: 0xF26B1D)
+    /// Orange marks that are controls or state on a panel: caliper, focus ring, active
+    /// underline, drop bar. Burnt orange in light (4.6:1 on the panel; the bright orange is
+    /// 2.84:1), the bright orange in dark (5.6:1).
+    static let filletMark = Color(light: 0xC94F0B, dark: 0xF26B1D)
     static let filletSoft = Color(hex: 0xF26B1D).opacity(0.14)
     /// Burnt orange behind white labels (primary buttons): 4.5:1 with white.
     static let filletFill = Color(hex: 0xC94F0B)

@@ -147,6 +147,8 @@ enum DebugAutomation {
         session.updateEditing { f in if case .fillet(var e) = f.kind { e.size = 5; f.kind = .fillet(e) } }
         await settle(session)
         await snap(session, "05-fillet-editing")
+        check(session.viewportSummary.contains("4 edges picked") && session.viewportSummary.contains("1 body"),
+              "3D view summary for VoiceOver: \(session.viewportSummary)")
         session.commitEdit()
         await settle(session)
         check(session.model.status.values.allSatisfy { if case .failed = $0 { false } else { true } }, "no failed features")

@@ -53,6 +53,17 @@ public struct ViewportView: View {
                 // from outside, like framing the first body, update the view straight away.
                 ViewportRepresentable(controller: controller, scene: scene, camera: $camera, requestedCamera: camera,
                                       filter: filter, options: options, delegate: delegate, appearance: appearance)
+                    // One element for VoiceOver: what's modelled and picked, with the camera moves.
+                    .accessibilityElement()
+                    .accessibilityLabel("3D view")
+                    .accessibilityValue(options.accessibilitySummary)
+                    .accessibilityAddTraits(.allowsDirectInteraction)
+                    .accessibilityActions {
+                        Button("Fit all") { controller.fitAll() }
+                        Button("Top view") { controller.show(.top) }
+                        Button("Front view") { controller.show(.front) }
+                        Button("Isometric view") { controller.show(.iso) }
+                    }
             } else {
                 Rectangle().fill(.gray.opacity(0.2))
                     .overlay(Text("Metal is not available").foregroundStyle(.secondary))
@@ -199,8 +210,13 @@ struct ViewCubeOverlay: View {
                      onCorner: { controller.show(yaw: $0, pitch: $1) })
             HStack(spacing: 6) {
                 CubeButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Fit all", appearance: appearance) { controller.fitAll() }
-                CubeButton(systemName: controller.liveCamera.projection == .perspective ? "cube" : "square.grid.3x3",
-                           help: "Perspective / orthographic", appearance: appearance) { controller.toggleProjection() }
+                // Labelled by what it does; the glyph shows the projection you'd switch to.
+                let perspective = controller.liveCamera.projection == .perspective
+                CubeButton(systemName: perspective ? "square.grid.3x3" : "cube",
+                           help: perspective ? "Switch to orthographic" : "Switch to perspective", appearance: appearance) {
+                    controller.toggleProjection()
+                }
+                .accessibilityValue(perspective ? "Perspective" : "Orthographic")
             }
         }
     }
@@ -293,8 +309,20 @@ public struct ViewCube: View {
         return CGPoint(x: size / 2 + p.dot(camera.right) * s, y: size / 2 - p.dot(camera.up) * s)
     }
 
+    /// The camera the cube is drawn from. Looking straight at a face, a flat square with a label
+    /// wouldn't read as a cube you can tap, so it turns 15° to show two more faces.
+    var displayCamera: Camera {
+        let back = camera.back
+        guard Self.faces.contains(where: { $0.normal.dot(back) > 0.985 }) else { return camera }
+        var c = camera
+        let tilt = 15 * Double.pi / 180
+        c.yaw += tilt
+        c.pitch = c.pitch > 0.5 ? c.pitch - tilt : c.pitch < -0.5 ? c.pitch + tilt : c.pitch + tilt
+        return c
+    }
+
     public var body: some View {
-        let cam = camera
+        let cam = displayCamera
         let look = appearance
         let hovered = hoveredFace
         Canvas { ctx, sz in
@@ -339,6 +367,7 @@ public struct ViewCube: View {
         }
         .accessibilityElement()
         .accessibilityLabel("View cube")
+        .accessibilityValue(Self.faces.first { $0.normal.dot(camera.back) > 0.9 }.map { "Looking from \($0.view.rawValue)" } ?? "Angled view")
         .accessibilityActions {
             ForEach(Camera.StandardView.allCases, id: \.self) { v in
                 Button(v.rawValue.capitalized) { onFace(v) }
@@ -355,6 +384,7 @@ public struct ViewCube: View {
 
     /// The visible face under a point (corners excluded), for hover.
     private func face(at loc: CGPoint) -> Camera.StandardView? {
+        let camera = displayCamera
         let back = camera.back
         for d in Self.cornerDirs where d.dot(back) > 0.2 {
             let p = Self.project(d, camera: camera, size: size)
@@ -371,6 +401,7 @@ public struct ViewCube: View {
     }
 
     private func tap(_ loc: CGPoint) {
+        let camera = displayCamera
         let back = camera.back
         // Corners first (iso views from that corner).
         for d in Self.cornerDirs where d.dot(back) > 0.2 {

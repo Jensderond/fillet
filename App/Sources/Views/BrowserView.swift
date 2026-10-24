@@ -86,12 +86,13 @@ struct BrowserRow<Trailing: View>: View {
                 HStack(spacing: Theme.Space.s) {
                     Image(systemName: symbol)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isActive ? Theme.filletInk : selected ? Theme.select : Theme.inkSecondary)
+                        .foregroundStyle(isActive ? Theme.filletInk : selected ? Theme.select : dimmed ? Theme.inkTertiary : Theme.inkSecondary)
                         .frame(width: 18)
                         .accessibilityHidden(true)
                     Text(title)
                         .font(Theme.body.weight(selected || isActive ? .semibold : .regular))
-                        .foregroundStyle(Theme.ink)
+                        // Hidden bodies step down to secondary ink (5.4:1): quieter, still readable.
+                        .foregroundStyle(dimmed ? Theme.inkSecondary : Theme.ink)
                         .lineLimit(1)
                     Spacer(minLength: 0)
                 }
@@ -105,7 +106,6 @@ struct BrowserRow<Trailing: View>: View {
         .frame(minHeight: touch ? 44 : 32)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
             .fill(isActive ? Theme.filletSoft : selected ? Theme.selectSoft : hovering ? Theme.hairline : .clear))
-        .opacity(dimmed ? 0.5 : 1)
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: hovering)
         .hoverHighlight(ownsPointerHover: true)
@@ -173,7 +173,7 @@ struct ParameterRow: View {
                     .padding(.bottom, 2)
                     .overlay(alignment: .bottom) {
                         Rectangle()
-                            .fill(nameFocused ? Theme.fillet : nameHovering ? Theme.hairlineStrong : .clear)
+                            .fill(nameFocused ? Theme.filletMark : nameHovering ? Theme.hairlineStrong : .clear)
                             .frame(height: nameFocused ? 1.5 : 1)
                     }
                     .onHover { nameHovering = $0 }

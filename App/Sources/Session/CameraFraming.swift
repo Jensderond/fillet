@@ -136,3 +136,38 @@ extension DesignSession {
         }
     }
 }
+
+// MARK: - VoiceOver
+
+extension DesignSession {
+    /// What the 3D view shows, read by VoiceOver: the design, the open sketch, what's picked.
+    var viewportSummary: String {
+        var parts: [String] = []
+        func mm(_ v: Double) -> String { ExprField.format((v * 10).rounded() / 10) }
+        if let editor = sketchEditor, let sketch = model.sketches[editor.sketch] {
+            let shapes = sketch.source.shapes.count
+            parts.append("\(editingFeature?.name ?? "Sketch"), \(shapes) \(shapes == 1 ? "shape" : "shapes")")
+        }
+        let bodies = model.bodies.filter { !hiddenBodies.contains($0.ref) }
+        if let b = visibleBodyBounds {
+            let s = b.size
+            parts.append("\(bodies.count) \(bodies.count == 1 ? "body" : "bodies"), \(mm(s.x)) × \(mm(s.y)) × \(mm(s.z)) mm")
+        } else if sketchEditor == nil {
+            parts.append(document.features.isEmpty ? "Empty print bed" : "No bodies yet")
+        }
+        func picked(_ n: Int, _ noun: String) -> String? { n > 0 ? "\(n) \(noun)\(n == 1 ? "" : "s") picked" : nil }
+        switch editingFeature?.kind {
+        case .fillet(let f), .chamfer(let f): picked(f.edges.count, "edge").map { parts.append($0) }
+        case .shell(let s): picked(s.removeFaces.count, "face").map { parts.append($0) }
+        case .extrude(let e): picked(e.regions.count, "profile").map { parts.append($0) }
+        case .revolve(let r): picked(r.regions.count, "profile").map { parts.append($0) }
+        default:
+            if let p = picked(selectedEdges.count, "edge") { parts.append(p) }
+            if let p = picked(selectedFaces.count, "face") { parts.append(p) }
+        }
+        if document.activeFeatureCount < document.features.count {
+            parts.append("showing step \(document.activeFeatureCount) of \(document.features.count)")
+        }
+        return parts.joined(separator: "; ")
+    }
+}

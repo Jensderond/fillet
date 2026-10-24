@@ -90,10 +90,12 @@ public struct ViewportOptions: Hashable, Sendable {
     public var appearance: ViewportAppearance?
     /// Parts of the view covered by floating chrome; "fit all" frames the model in the rest.
     public var contentInsets: ViewportInsets
+    /// What the 3D view shows, for VoiceOver ("1 body, 80 × 30 × 12 mm; 4 edges picked").
+    public var accessibilitySummary: String
 
     public init(fingerDraws: Bool = false, animatesCameraChanges: Bool = true, cameraAnimationDuration: Double = 0.35,
                 showsViewCube: Bool = true, showsLabels: Bool = true, appearance: ViewportAppearance? = nil,
-                contentInsets: ViewportInsets = .zero) {
+                contentInsets: ViewportInsets = .zero, accessibilitySummary: String = "") {
         self.fingerDraws = fingerDraws
         self.animatesCameraChanges = animatesCameraChanges
         self.cameraAnimationDuration = cameraAnimationDuration
@@ -101,5 +103,6 @@ public struct ViewportOptions: Hashable, Sendable {
         self.showsLabels = showsLabels
         self.appearance = appearance
         self.contentInsets = contentInsets
+        self.accessibilitySummary = accessibilitySummary
     }
 }

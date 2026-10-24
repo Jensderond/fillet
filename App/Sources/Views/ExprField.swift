@@ -75,7 +75,7 @@ struct ExprField: View {
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: focused || error != nil ? 1.5 : 1))
-        .shadow(color: focused ? Theme.fillet.opacity(0.25) : .clear, radius: 4)
+        .shadow(color: focused ? Theme.filletMark.opacity(0.25) : .clear, radius: 4)
         .contentShape(Rectangle())
         .onTapGesture { focused = true }
         .hoverHighlight(ownsPointerHover: true)
@@ -85,7 +85,7 @@ struct ExprField: View {
 
     private var borderColor: Color {
         if error != nil { return Theme.danger }
-        if focused { return Theme.fillet }
+        if focused { return Theme.filletMark }
         return hovering ? Theme.inkTertiary : Theme.fieldBorder
     }
 

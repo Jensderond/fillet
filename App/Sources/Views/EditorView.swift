@@ -64,6 +64,7 @@ struct EditorContent: View {
     @AppStorage("fingerDraws") private var fingerDraws = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.touchTargets) private var touch
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var layout: EditorLayout { EditorLayout(width: width) }
 
@@ -74,7 +75,12 @@ struct EditorContent: View {
             || !session.model.bodies.isEmpty
     }
 
-    private var browserVisible: Binding<Bool> { layout == .regular ? $showBrowser : $browserOverlay }
+    /// The browser floats over the viewport below regular width, and at accessibility text
+    /// sizes, where two fixed columns would leave the viewport too little room.
+    private var browserFloats: Bool { layout != .regular || typeSize.isAccessibilitySize }
+    private var browserVisible: Binding<Bool> { browserFloats ? $browserOverlay : $showBrowser }
+    /// The inspector widens for accessibility text sizes so rows don't wrap word by word.
+    private var inspectorWidth: CGFloat { typeSize.isAccessibilitySize ? 380 : 320 }
 
     /// One Finish sketch at a time: on the floating bar where the inspector is a wide column,
     /// pinned in the inspector footer (next to the form) on narrower layouts.
@@ -83,7 +89,7 @@ struct EditorContent: View {
     /// What floating chrome covers of the viewport, so the camera frames content in the rest.
     private var chromeInsets: ChromeInsets {
         ChromeInsets(sketchTop: touch ? 136 : 116, hintTop: touch ? 76 : 64,
-                     leading: layout != .regular && browserOverlay ? 252 : 0)
+                     leading: browserFloats && browserOverlay ? 252 : 0)
     }
 
     /// Room the floating bars leave for the view cube column (84 pt cube, 12 pt margin, a gap).
@@ -94,7 +100,7 @@ struct EditorContent: View {
             ToolStrip(session: session, showBrowser: browserVisible)
                 .dynamicTypeSize(...Theme.TypeLimit.chrome)
             HStack(spacing: 0) {
-                if layout == .regular, showBrowser {
+                if !browserFloats, showBrowser {
                     BrowserView(session: session)
                         .frame(width: 252)
                         .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
@@ -103,7 +109,7 @@ struct EditorContent: View {
                 VStack(spacing: 0) {
                     viewport
                         .overlay(alignment: .leading) {
-                            if layout != .regular, browserOverlay {
+                            if browserFloats, browserOverlay {
                                 BrowserView(session: session)
                                     .frame(width: 252)
                                     .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
@@ -118,7 +124,7 @@ struct EditorContent: View {
                 }
                 if layout != .compact, showInspector {
                     InspectorView(session: session, showsSketchFooter: !finishInBar)
-                        .frame(width: 320)
+                        .frame(width: inspectorWidth)
                         .overlay(alignment: .leading) { Theme.hairline.frame(width: 1) }
                         .transition(.panel(from: .trailing, reduceMotion: reduceMotion))
                 }
@@ -132,7 +138,7 @@ struct EditorContent: View {
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // A floating browser gives way to the inspector rather than covering the viewport twice.
-        .onChange(of: showInspector) { _, shown in if shown, layout != .regular { browserOverlay = false } }
+        .onChange(of: showInspector) { _, shown in if shown, browserFloats { browserOverlay = false } }
         .background(Theme.chrome)
         .tint(Theme.fillet)
         #if os(macOS)
@@ -177,7 +183,7 @@ struct EditorContent: View {
                 filter: session.pickFilter,
                 // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
                 options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion,
-                                         contentInsets: session.viewInsets),
+                                         contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary),
                 delegate: session,
                 controller: controller)
                 .background(GeometryReader { proxy in
@@ -305,6 +311,7 @@ struct RollbackPill: View {
     let total: Int
     let playToEnd: () -> Void
     @Environment(\.touchTargets) private var touch
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -341,6 +348,7 @@ struct Toast: View {
     let dismiss: () -> Void
     @State private var hovering = false
     @Environment(\.touchTargets) private var touch
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -534,7 +542,7 @@ struct ToolLabel: View {
                 .fill(active ? activeFill : hovering || pressed ? Theme.hairline : .clear))
         .overlay(alignment: .bottom) {
             if active, !isToggle {
-                Capsule().fill(Theme.fillet).frame(width: 18, height: 2.5).offset(y: -1)
+                Capsule().fill(Theme.filletMark).frame(width: 18, height: 2.5).offset(y: -1)
             }
         }
         .accessibilityElement(children: .ignore)
@@ -642,6 +650,7 @@ struct SketchToolbar: View {
     /// Finish sits here only when the inspector shows no footer (wide layouts): one primary at a time.
     var showsFinish: Bool
     @Environment(\.touchTargets) private var touch
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Every tool, in its group.
     static let fullGroups: [[SketchTool]] = [[.select], [.line, .arc, .spline, .point], [.rectangle, .centerRectangle, .circle, .polygon, .slot]]
