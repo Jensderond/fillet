@@ -1,5 +1,6 @@
 #if DEBUG && os(macOS)
 import AppKit
+import MetalKit
 import FilletCore
 import FilletKernel
 import FilletViewport
@@ -29,6 +30,8 @@ enum DebugAutomation {
     }
 
     private static var ran = false
+    /// The editor's viewport controller, to compare its live (animated) camera with the session's.
+    static weak var controller: ViewportController?
 
     static func run(_ session: DesignSession) async {
         guard isEnabled, !ran else { return }
@@ -56,6 +59,14 @@ enum DebugAutomation {
         session.sketchEditor?.engine.setTool(.circle)
         tap(session, SIMD2(15, 15))
         tap(session, SIMD2(22, 15))
+        // Mid-draw state: a centre rectangle with its live dimensions.
+        session.sketchEditor?.engine.setTool(.centerRectangle)
+        tap(session, SIMD2(45, 15))
+        hover(session, SIMD2(52.6, 19.2))
+        await settle(session)
+        await snap(session, "02a-drawing")
+        session.sketchEditor?.engine.cancel()
+        session.sketchEditor?.engine.setTool(.circle)
         await settle(session)
         await snap(session, "02-sketch")
         check(session.model.sketches.values.first?.regions?.count == 2, "sketch has 2 regions")
@@ -206,6 +217,14 @@ enum DebugAutomation {
         session.viewportToolEnded(event)
     }
 
+    /// Pointer hover over a sketch-plane point (drives the rubber-band preview).
+    private static func hover(_ session: DesignSession, _ p: SIMD2<Double>) {
+        guard let sketch = session.sketchEditor.flatMap({ session.model.sketches[$0.sketch] }) else { return }
+        let size = session.viewSize
+        guard let screen = session.camera.project(sketch.plane.point(p), viewSize: size) else { return }
+        session.viewportToolHover(ViewportToolEvent(ray: session.camera.ray(at: screen, viewSize: size), location: screen, pointer: .mouse))
+    }
+
     private static func snap(_ session: DesignSession, _ name: String) async {
         let size = CGSize(width: max(session.viewSize.width, 400), height: max(session.viewSize.height, 300))
         if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2) {
@@ -217,6 +236,19 @@ enum DebugAutomation {
             view.cacheDisplay(in: view.bounds, to: rep)
             if let image = rep.cgImage { write(image, name + "-window") }
         }
+        if name == "02a-drawing", let content = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 })?.contentView {
+            func find(_ v: NSView) -> NSView? {
+                if v is MTKView { return v }
+                for s in v.subviews { if let f = find(s) { return f } }
+                return nil
+            }
+            if let mtk = find(content) {
+                if let live = controller?.liveCamera {
+                    log("camera: session yaw=\(session.camera.yaw) pitch=\(session.camera.pitch) dist=\(session.camera.distance) target=\(session.camera.target) | live yaw=\(live.yaw) pitch=\(live.pitch) dist=\(live.distance) target=\(live.target)")
+                }
+                log("geometry: session.viewSize=\(session.viewSize) mtk.bounds=\(mtk.bounds.size) mtk.inWindow=\(mtk.convert(mtk.bounds, to: nil)) content=\(content.bounds.size)")
+            }
+        }
         log("snapshot \(name)")
     }
 
@@ -225,6 +257,8 @@ enum DebugAutomation {
         try? rep.representation(using: .png, properties: [:])?.write(to: outputDirectory.appendingPathComponent(name + ".png"))
     }
 }
+
+private protocol MTKViewMarker {}
 
 extension DesignSession {
     /// The sketch the extrude being edited uses.

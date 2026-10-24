@@ -424,6 +424,13 @@ public final class ViewportRenderer: NSObject {
     /// Whether a camera animation is running.
     public var isAnimating: Bool { animation != nil }
 
+    /// Advances a running animation by wall-clock time without drawing. Animations
+    /// normally advance per frame, but an occluded window gets no frames; this lets
+    /// the camera still arrive so picking and labels never use a stale camera.
+    public func advanceAnimationWithoutDrawing() {
+        stepAnimation()
+    }
+
     /// Cancels a running animation, leaving the camera where it is.
     public func cancelAnimation() {
         guard animation != nil else { return }

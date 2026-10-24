@@ -84,6 +84,8 @@ public struct SketchToolEngine: Sendable {
     /// Start of the current line chain (to detect closing it).
     private var chainStart: SIMD2<Double>?
     private var pressPoint: SIMD2<Double>?
+    /// Grid step of the last input event (0 = off), used to snap sizes as well as points.
+    private var grid: Double = 0
 
     public init(tool: SketchTool = .line) { self.tool = tool }
 
@@ -201,6 +203,50 @@ public struct SketchToolEngine: Sendable {
         return SketchShape(kind).displayPolyline(using: .empty)
     }
 
+    /// A live dimension shown while drawing: from/to in sketch coordinates and its label.
+    public struct PreviewDimension: Hashable, Sendable {
+        public var from: SIMD2<Double>
+        public var to: SIMD2<Double>
+        public var label: String
+    }
+
+    /// Dimensions of the shape in progress ("40 × 25" style feedback while drawing).
+    public func previewDimensions() -> [PreviewDimension] {
+        guard let c = cursor, let first = points.first else { return [] }
+        func mm(_ v: Double) -> String {
+            let r = (v * 100).rounded() / 100
+            return r == r.rounded() ? "\(Int(r)) mm" : String(format: "%.2f mm", r)
+        }
+        switch tool {
+        case .rectangle, .centerRectangle:
+            guard case .rectangle(let anchor, let position, let width, let height, _)? = shape(from: first, to: c),
+                let p = try? position.evaluate(using: .empty), let w = try? Evaluator.empty.length(width),
+                let h = try? Evaluator.empty.length(height)
+            else { return [] }
+            let origin = anchor == .center ? p - SIMD2(w, h) / 2 : p
+            return [
+                PreviewDimension(from: origin, to: origin + SIMD2(w, 0), label: mm(w)),
+                PreviewDimension(from: origin + SIMD2(w, 0), to: origin + SIMD2(w, h), label: mm(h)),
+            ]
+        case .circle:
+            guard case .circle(_, let d)? = shape(from: first, to: c), let diameter = try? Evaluator.empty.length(d) else { return [] }
+            let dir = distance(first, c) > 1e-9 ? (c - first) / distance(first, c) : SIMD2(1, 0)
+            return [PreviewDimension(from: first - dir * diameter / 2, to: first + dir * diameter / 2, label: "Ø " + mm(diameter))]
+        case .polygon:
+            guard case .polygon(_, _, let r, _, _)? = shape(from: first, to: c), let radius = try? Evaluator.empty.length(r) else { return [] }
+            let dir = distance(first, c) > 1e-9 ? (c - first) / distance(first, c) : SIMD2(1, 0)
+            return [PreviewDimension(from: first, to: first + dir * radius, label: "R " + mm(radius))]
+        case .line, .spline:
+            guard let last = points.last, distance(last, c) > 1e-9 else { return [] }
+            return [PreviewDimension(from: last, to: c, label: mm(distance(last, c)))]
+        case .slot, .arc:
+            guard points.count == 1 else { return [] }
+            return [PreviewDimension(from: first, to: c, label: mm(distance(first, c)))]
+        case .select, .point:
+            return []
+        }
+    }
+
     // MARK: Geometry
 
     private func shape(from a: SIMD2<Double>, to b: SIMD2<Double>) -> SketchShapeKind? {
@@ -212,15 +258,16 @@ public struct SketchToolEngine: Sendable {
             return .rectangle(anchor: .corner, position: Self.expr(SIMD2(min(a.x, b.x), min(a.y, b.y))),
                               width: Self.expr(w), height: Self.expr(h), angle: 0)
         case .centerRectangle:
-            let w = abs(d.x) * 2, h = abs(d.y) * 2
+            // Snap the size, not the corner, so odd widths (15 mm) are reachable.
+            let w = snapSize(abs(d.x) * 2), h = snapSize(abs(d.y) * 2)
             guard w > 1e-6, h > 1e-6 else { return nil }
             return .rectangle(anchor: .center, position: Self.expr(a), width: Self.expr(w), height: Self.expr(h), angle: 0)
         case .circle:
-            let r = distance(a, b)
-            guard r > 1e-6 else { return nil }
-            return .circle(center: Self.expr(a), diameter: Self.expr(r * 2))
+            let diameter = snapSize(distance(a, b) * 2)
+            guard diameter > 1e-6 else { return nil }
+            return .circle(center: Self.expr(a), diameter: Self.expr(diameter))
         case .polygon:
-            let r = distance(a, b)
+            let r = snapSize(distance(a, b))
             guard r > 1e-6 else { return nil }
             return .polygon(center: Self.expr(a), sides: Expr(integerLiteral: polygonSides), radius: Self.expr(r),
                             inscribed: true, angle: Self.expr(atan2(d.y, d.x) * 180 / .pi))
@@ -249,6 +296,12 @@ public struct SketchToolEngine: Sendable {
         }
     }
 
+    /// Rounds a dimension to the grid step (never below one step) when the grid is on.
+    private func snapSize(_ v: Double) -> Double {
+        guard grid > 0 else { return v }
+        return max(grid, (v / grid).rounded() * grid)
+    }
+
     private func make(_ kind: SketchShapeKind) -> SketchShape {
         SketchShape(construction: construction && tool != .point, kind)
     }
@@ -256,6 +309,7 @@ public struct SketchToolEngine: Sendable {
     // MARK: Snapping
 
     private mutating func snapped(_ raw: SIMD2<Double>, _ context: SnapContext) -> SIMD2<Double> {
+        grid = context.gridSize
         // 1. Existing geometry (and the chain start, to close a loop).
         var candidates = context.points.map { ($0.position, $0.kind) }
         if let s = chainStart { candidates.append((s, .endpoint)) }
@@ -272,7 +326,10 @@ public struct SketchToolEngine: Sendable {
         var p = raw
         snap = .none
         if context.gridSize > 0 {
-            p = (raw / context.gridSize).rounded(.toNearestOrAwayFromZero) * context.gridSize
+            // Centre-based sizes (centre rectangle, circle, polygon) need half steps for whole-step sizes.
+            let sizing = points.count == 1 && [.centerRectangle, .circle, .polygon].contains(tool)
+            let step = sizing ? context.gridSize / 2 : context.gridSize
+            p = (raw / step).rounded(.toNearestOrAwayFromZero) * step
             snap = .grid
         } else {
             p = (raw * 100).rounded(.toNearestOrAwayFromZero) / 100

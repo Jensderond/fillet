@@ -99,4 +99,43 @@ struct SketchToolEngineTests {
         _ = tap(&e, 0, 0)
         #expect(try #require(tap(&e, 0, 10).first).construction)
     }
+
+    @Test func centerRectangleSnapsSizeToGrid() throws {
+        var e = SketchToolEngine(tool: .centerRectangle)
+        _ = tap(&e, 10, 10)
+        // Corner at (17.6, 14.1): raw size 15.2 × 8.2 → 15 × 8 (odd widths possible).
+        e.hover(SIMD2(17.6, 14.1), context: SnapContext(points: [], tolerance: 0.1, gridSize: 1))
+        #expect(e.previewDimensions().map(\.label) == ["15 mm", "8 mm"])
+        let s = try #require(tap(&e, 17.6, 14.1, SnapContext(points: [], tolerance: 0.1, gridSize: 1)).first)
+        guard case .rectangle(.center, let p, let w, let h, _) = s.kind else { Issue.record(); return }
+        #expect(p == Point2Expr(10, 10))
+        #expect(w == 15)
+        #expect(h == 8)
+    }
+
+    @Test func cornerRectangleCornersOnGrid() throws {
+        var e = SketchToolEngine(tool: .rectangle)
+        _ = tap(&e, 2.4, 3.6)
+        let s = try #require(tap(&e, 41.7, 28.2).first)
+        guard case .rectangle(.corner, let p, let w, let h, _) = s.kind else { Issue.record(); return }
+        #expect(p == Point2Expr(2, 4))
+        #expect(w == 40)
+        #expect(h == 24)
+    }
+
+    @Test func circleDiameterSnapsEvenWhenDraggedDiagonally() throws {
+        var e = SketchToolEngine(tool: .circle)
+        _ = tap(&e, 0, 0)
+        // (5, 5) is 7.07 from the centre → Ø 14.14 → snapped to Ø 14.
+        guard case .circle(_, let d) = try #require(tap(&e, 5, 5).first).kind else { Issue.record(); return }
+        #expect(d == 14)
+    }
+
+    @Test func gridOffKeepsExactSizes() throws {
+        let off = SnapContext(points: [], tolerance: 0.1, gridSize: 0)
+        var e = SketchToolEngine(tool: .circle)
+        _ = tap(&e, 0, 0, off)
+        guard case .circle(_, let d) = try #require(tap(&e, 5, 5, off).first).kind else { Issue.record(); return }
+        #expect(abs((try Evaluator.empty.length(d)) - 14.1421) < 0.001)
+    }
 }

@@ -60,6 +60,12 @@ public final class ViewportController {
             if options.animatesCameraChanges, let r = renderer, !viewSize.width.isZero {
                 r.camera = liveCamera
                 r.animateCamera(to: camera, duration: options.cameraAnimationDuration)
+                // Land the camera even if the view isn't drawing (occluded window).
+                let deadline = options.cameraAnimationDuration + 0.05
+                Task { @MainActor [weak r] in
+                    try? await Task.sleep(for: .seconds(deadline))
+                    r?.advanceAnimationWithoutDrawing()
+                }
             } else {
                 setLive(camera)
             }

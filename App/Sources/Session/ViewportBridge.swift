@@ -72,6 +72,7 @@ extension DesignSession {
         }
         scene.sketch = sketchOverlay()
         scene.handles = editingHandles()
+        scene.measures = sketchMeasures()
         return scene
     }
 
@@ -140,9 +141,50 @@ extension DesignSession {
             if editor.tool != .select, let c = editor.engine.cursor {
                 overlay.points.append(SketchPoint(shapeID: UUID(), index: 0, position: c, style: .snap))
             }
-            overlay.grid = SketchGrid(spacing: max(editor.gridSize, 1) * 5, majorEvery: 2, extent: 400)
+            overlay.grid = adaptiveGrid(snap: editor.gridSize, plane: evaluated.plane)
         }
         return overlay
+    }
+
+    /// Grid lines that show the snap step itself when zoomed in enough, coarser
+    /// round steps (×5, ×10…) when zoomed out; major lines land on round values.
+    private func adaptiveGrid(snap: Double, plane: Plane) -> SketchGrid {
+        let base = snap > 0 ? snap : 1
+        let mmPerPoint = max(camera.worldUnitsPerPoint(at: plane.origin, viewSize: viewSize), 1e-6)
+        let minSpacing = 4 * mmPerPoint  // lines no closer than ~4 pt on screen
+        var minor = base
+        var multipliers = [5.0, 2.0].makeIterator()  // 1 → 5 → 10 → 50 → 100…
+        while minor < minSpacing {
+            guard let m = multipliers.next() else { multipliers = [5.0, 2.0].makeIterator(); continue }
+            minor *= m
+        }
+        let leading = minor / pow(10, floor(log10(minor)))
+        let majorEvery = abs(leading - 1) < 1e-6 ? 10 : 2
+        let visible = Double(max(viewSize.width, viewSize.height)) * mmPerPoint
+        return SketchGrid(spacing: minor, majorEvery: majorEvery, extent: max(200, visible * 1.5))
+    }
+
+    /// Live dimensions of the shape being drawn.
+    private func sketchMeasures() -> [MeasureAnnotation] {
+        guard let editor = sketchEditor, let plane = model.sketches[editor.sketch]?.plane else { return [] }
+        let dims = editor.engine.previewDimensions()
+        guard !dims.isEmpty else { return [] }
+        // Like dimension lines on a drawing: offset each one outward, away from the shape's middle.
+        let all = dims.flatMap { [$0.from, $0.to] }
+        let centre = all.reduce(SIMD2<Double>(0, 0), +) / Double(all.count)
+        let gap = 16 * camera.worldUnitsPerPoint(at: plane.origin, viewSize: viewSize)
+        return dims.enumerated().map { i, d in
+            let along = d.to - d.from
+            let length = (along.x * along.x + along.y * along.y).squareRoot()
+            var offset = SIMD2<Double>(0, 0)
+            if dims.count > 1, length > 1e-9 {
+                var normal = SIMD2(-along.y, along.x) / length
+                let mid = (d.from + d.to) / 2
+                if ((mid - centre) * normal).sum() < 0 { normal = -normal }
+                offset = normal * gap
+            }
+            return MeasureAnnotation(id: "draw-\(i)", from: plane.point(d.from + offset), to: plane.point(d.to + offset), label: d.label)
+        }
     }
 
     /// The newest sketch no feature uses yet (shown so it can be extruded).
