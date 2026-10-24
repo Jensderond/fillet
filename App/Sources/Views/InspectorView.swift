@@ -81,9 +81,8 @@ struct FeatureInspector: View {
         case .move(let m): move(m)
         case .mirror(let m): mirror(m)
         case .pattern(let p): pattern(p)
-        case .layFlat(let l):
-            Hint(l.face.signature.area > 0 ? "Tap another flat face to change which side touches the bed."
-                                            : "Tap the flat face that should touch the bed.")
+        case .layFlat:
+            Hint("Tap another flat face to change which side touches the bed.")
         case .importedSTEP(let s):
             Text("Imported from \(s.name)").foregroundStyle(.secondary)
         case .sketch, .unknown:

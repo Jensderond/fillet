@@ -65,7 +65,7 @@ extension DesignSession {
         scene.selection = selected.union(editingSelectionTargets())
         scene.hover = hover?.pickTarget
         let preset = document.printerPreset
-        scene.plate = BuildPlate(name: preset.name, size: preset.size)
+        scene.plate = BuildPlate(name: preset.name, size: preset.bedSize)
         if showOverhangs {
             let minZ = model.bodies.compactMap { $0.shape.bounds?.min.z }.min() ?? 0
             scene.overhang = OverhangStyle(thresholdDegrees: overhangAngle, bedZ: minZ)

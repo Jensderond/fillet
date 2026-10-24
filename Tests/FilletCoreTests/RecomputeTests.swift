@@ -200,3 +200,23 @@ struct RecomputeTests {
         #expect(abs((b.max.z - b.min.z) - 10) < 1e-6)  // the 10 mm width is now the height
     }
 }
+
+@Suite("Parameter rename")
+struct ParameterRenameTests {
+    @Test func renamesReferencesEverywhere() throws {
+        var doc = Document()
+        doc.parameters = [Parameter(name: "w", expression: 40), Parameter(name: "half", expression: "w / 2 + w2")]
+        let s = UUID()
+        doc.features = [
+            Feature(id: s, name: "w", .sketch(Sketch(shapes: [SketchShape(.circle(center: Point2Expr("w", 0), diameter: "w*2"))]))),
+        ]
+        doc.renameParameterReferences(from: "w", to: "width")
+        #expect(doc.parameters[1].expression == "width / 2 + w2")
+        #expect(doc.features[0].name == "w")
+        guard case .sketch(let sketch) = doc.features[0].kind, case .circle(let c, let d) = sketch.shapes[0].kind else {
+            Issue.record(); return
+        }
+        #expect(c.x == "width")
+        #expect(d == "width*2")
+    }
+}

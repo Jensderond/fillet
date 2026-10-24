@@ -33,7 +33,7 @@ struct SelectionInspector: View {
                     row("Volume", "\(fmt(a.volume / 1000)) cm³")
                     row("PLA", "≈ \(fmt(a.grams(.pla))) g")
                     row("Fits \(session.document.printerPreset.name)", a.fitsOnBed ? (a.fitsOnlyRotated ? "Yes, rotated 90°" : "Yes") : "No")
-                    row("Overhangs", a.overhangTriangleCount == 0 ? "None" : "\(fmt(a.overhangArea)) mm²")
+                    row("Overhangs", a.overhangCount == 0 ? "None" : "\(fmt(a.overhangArea)) mm²")
                     row("Watertight", a.isWatertight ? "Yes" : "No (\(a.boundaryEdgeCount) open edges)")
                 }
             }

@@ -39,6 +39,10 @@ final class DesignSession {
     @ObservationIgnored var viewSize = CGSize(width: 1000, height: 800)
     var showOverhangs = false
     var overhangAngle = 45.0
+    /// Window title when the document has no explicit name.
+    var documentName: String?
+    /// Set by the menu command; the editor presents the file importer.
+    var importRequested = false
     /// Shown as a transient banner (e.g. export finished / failed).
     var message: String?
 
