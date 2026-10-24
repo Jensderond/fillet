@@ -6,6 +6,8 @@ import SwiftUI
 /// current selection. Header and actions stay put; only the controls scroll.
 struct InspectorView: View {
     @Bindable var session: DesignSession
+    /// Whether this inspector carries Finish sketch (the floating bar has it otherwise).
+    var showsSketchFooter = true
 
     var body: some View {
         VStack(spacing: 0) {
@@ -27,7 +29,7 @@ struct InspectorView: View {
                 .tint(Theme.ink)
             }
             if session.sketchEditor != nil {
-                SketchFooter(finish: session.finishSketch)
+                if showsSketchFooter { SketchFooter(finish: session.finishSketch) }
             } else if session.editingFeature != nil {
                 InspectorFooter(cancel: session.cancelEdit, done: session.commitEdit)
             }
@@ -73,6 +75,7 @@ struct SketchFooter: View {
             Label("Finish sketch", systemImage: "checkmark").frame(maxWidth: .infinity)
         }
         .buttonStyle(PrimaryButtonStyle())
+        .automationMarker("finish-sketch")
         .padding(.horizontal, Theme.Space.l)
         .padding(.vertical, Theme.Space.m)
         .background(Theme.panel)

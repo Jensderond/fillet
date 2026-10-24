@@ -76,6 +76,13 @@ struct EditorContent: View {
 
     private var browserVisible: Binding<Bool> { layout == .regular ? $showBrowser : $browserOverlay }
 
+    /// One Finish sketch at a time: on the floating bar where the inspector is a wide column,
+    /// pinned in the inspector footer (next to the form) on narrower layouts.
+    private var finishInBar: Bool { layout == .regular }
+
+    /// Room the floating bars leave for the view cube column (84 pt cube, 12 pt margin, a gap).
+    static let cubeClearance: CGFloat = 96
+
     var body: some View {
         VStack(spacing: 0) {
             ToolStrip(session: session, showBrowser: browserVisible)
@@ -104,7 +111,7 @@ struct EditorContent: View {
                     }
                 }
                 if layout != .compact, showInspector {
-                    InspectorView(session: session)
+                    InspectorView(session: session, showsSketchFooter: !finishInBar)
                         .frame(width: 320)
                         .overlay(alignment: .leading) { Theme.hairline.frame(width: 1) }
                         .transition(.panel(from: .trailing, reduceMotion: reduceMotion))
@@ -175,16 +182,19 @@ struct EditorContent: View {
 
             VStack(spacing: Theme.Space.m) {
                 if session.sketchEditor != nil {
-                    // Centred, and kept clear of the view cube (84 pt + margins) on both sides.
-                    SketchToolbar(session: session, fingerDraws: $fingerDraws)
+                    // Lead-aligned, away from the view cube in the trailing corner (84 pt + margins).
+                    SketchToolbar(session: session, fingerDraws: $fingerDraws, showsFinish: finishInBar)
                         .dynamicTypeSize(...Theme.TypeLimit.chrome)
-                        .frame(maxWidth: max(viewportWidth - 2 * 112, 300))
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .transition(.panel(from: .top, reduceMotion: reduceMotion))
                 }
                 if let hint = currentHint {
                     HintPill(text: hint.text, symbol: hint.symbol)
                         .dynamicTypeSize(...Theme.TypeLimit.chrome)
                         .blurCrossfade(hint.text)
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 Spacer(minLength: 0)
                 if let message = session.message {
@@ -488,44 +498,94 @@ struct ToolButton: View {
 
 // MARK: - Sketch toolbar
 
-/// Drawing tools floating at the top of the viewport in sketch mode. When the full bar
-/// doesn't fit (iPad portrait, Split View) the tools scroll and Finish stays in view.
+extension SketchTool {
+    /// Glyph on the sketch bar and in the "More shapes" menu.
+    var symbol: String {
+        switch self {
+        case .select: "cursorarrow"
+        case .line: "line.diagonal"
+        case .arc: "circle.bottomhalf.filled"
+        case .spline: "scribble"
+        case .point: "smallcircle.filled.circle"
+        case .rectangle: "rectangle"
+        case .centerRectangle: "plus.rectangle"
+        case .circle: "circle"
+        case .polygon: "hexagon"
+        case .slot: "capsule"
+        }
+    }
+}
+
+/// Drawing tools floating at the top-leading corner of the viewport in sketch mode, grouped
+/// select | lines and curves | shapes. When the full bar doesn't fit (iPad portrait, Split View)
+/// the secondary tools fold into a "More shapes" menu, so a glyph is never cut off.
 struct SketchToolbar: View {
     @Bindable var session: DesignSession
     @Binding var fingerDraws: Bool
+    /// Finish sits here only when the inspector shows no footer (wide layouts): one primary at a time.
+    var showsFinish: Bool
     @Environment(\.touchTargets) private var touch
 
-    private let tools: [(SketchTool, String)] = [
-        (.select, "cursorarrow"), (.line, "line.diagonal"), (.rectangle, "rectangle"),
-        (.centerRectangle, "plus.rectangle"), (.circle, "circle"),
-        (.arc, "circle.bottomhalf.filled"),
-        (.polygon, "hexagon"), (.slot, "capsule"), (.spline, "scribble"), (.point, "smallcircle.filled.circle"),
-    ]
+    /// Every tool, in its group.
+    static let fullGroups: [[SketchTool]] = [[.select], [.line, .arc, .spline, .point], [.rectangle, .centerRectangle, .circle, .polygon, .slot]]
+    /// The everyday tools; the rest fold into the menu.
+    static let compactGroups: [[SketchTool]] = [[.select], [.line, .arc], [.rectangle, .circle]]
+    static let minimalGroups: [[SketchTool]] = [[.select], [.line], [.rectangle]]
+
+    static let variants = [fullGroups, compactGroups, minimalGroups]
 
     private var toolSize: CGSize { touch ? CGSize(width: 44, height: 44) : CGSize(width: 38, height: 34) }
+    private var activeTool: SketchTool? { session.sketchEditor?.tool }
 
-    var body: some View {
-        ViewThatFits(in: .horizontal) {
-            bar(scrolling: false).fixedSize()
-            bar(scrolling: true)
-        }
+    /// Width the bar may use, and the ideal width of each variant (measured, not guessed, so
+    /// Dynamic Type and the Done button are accounted for). Not `ViewThatFits`: on iPadOS 26 it
+    /// sizes its children on SwiftUI's async renderer, off the main actor these views live on.
+    @State private var available: CGFloat = 0
+    @State private var idealWidths: [CGFloat] = [0, 0, 0]
+
+    private var variant: Int {
+        guard available > 0 else { return 0 }
+        return Self.variants.indices.first { idealWidths[$0] > 0 && idealWidths[$0] <= available } ?? Self.variants.count - 1
     }
 
-    private func bar(scrolling: Bool) -> some View {
-        HStack(spacing: Theme.Space.s) {
-            if scrolling {
-                ScrollView(.horizontal) { toolButtons }
-                    .overflowFade()
-            } else {
-                toolButtons
+    var body: some View {
+        bar(Self.variants[variant], measuring: false)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
+            .background(alignment: .topLeading) {
+                ZStack(alignment: .topLeading) {
+                    measured(0)
+                    measured(1)
+                    measured(2)
+                }
+                .hidden()
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
-            if session.sketchEditor?.tool == .spline || session.sketchEditor?.tool == .line {
+    }
+
+    private func measured(_ i: Int) -> some View {
+        bar(Self.variants[i], measuring: true)
+            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { idealWidths[i] = $0 }
+    }
+
+    private func bar(_ groups: [[SketchTool]], measuring: Bool) -> some View {
+        let shown = Set(groups.joined())
+        let more = SketchTool.allCases.filter { !shown.contains($0) }
+        return HStack(spacing: Theme.Space.s) {
+            HStack(spacing: 2) {
+                ForEach(groups.indices, id: \.self) { i in
+                    if i > 0 { Theme.hairline.frame(width: 1, height: 24).padding(.horizontal, Theme.Space.xs) }
+                    ForEach(groups[i], id: \.self) { toolButton($0) }
+                }
+                if !more.isEmpty { moreMenu(more) }
+            }
+            if activeTool == .spline || activeTool == .line {
                 Button("Done") {
                     let shapes = session.sketchEditor?.engine.finish() ?? []
                     session.addSketchShapes(shapes)
                 }
                 .buttonStyle(SecondaryButtonStyle())
-                .fixedSize()
                 .help("End the line chain or spline")
             }
             #if os(iOS)
@@ -545,42 +605,73 @@ struct SketchToolbar: View {
             .accessibilityLabel("Draw with finger")
             .accessibilityAddTraits(fingerDraws ? .isSelected : [])
             #endif
-            Button {
-                session.finishSketch()
-            } label: {
-                Label("Finish sketch", systemImage: "checkmark").fixedSize()
+            if showsFinish {
+                Button {
+                    session.finishSketch()
+                } label: {
+                    Label("Finish sketch", systemImage: "checkmark")
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .help("Finish the sketch (⌘↩)")
+                .automationMarker(measuring ? "finish-sketch-measure" : "finish-sketch")
             }
-            .buttonStyle(PrimaryButtonStyle())
-            .fixedSize()
         }
+        .fixedSize()
         .padding(Theme.Space.s)
         .floatingElevation(cornerRadius: Theme.Radius.control + Theme.Space.s)
     }
 
-    private var toolButtons: some View {
-        HStack(spacing: 2) {
-            ForEach(tools, id: \.0) { tool, symbol in
-                let active = session.sketchEditor?.tool == tool
+    private func toolButton(_ tool: SketchTool) -> some View {
+        let active = activeTool == tool
+        return Button {
+            // Tool switches are frequent (and keyboard-driven too): no animation.
+            session.sketchEditor?.engine.setTool(tool)
+        } label: {
+            toolGlyph(tool.symbol, active: active)
+        }
+        .buttonStyle(PressableStyle())
+        .help("\(tool.title) (\(String(tool.shortcut.character).uppercased()))")
+        .accessibilityLabel(tool.title)
+        .accessibilityAddTraits(active ? .isSelected : [])
+        .hoverHighlight()
+    }
+
+    private func toolGlyph(_ symbol: String, active: Bool) -> some View {
+        Image(systemName: symbol)
+            .font(.system(size: 16, weight: .medium))
+            .foregroundStyle(active ? Theme.filletInk : Theme.ink)
+            .frame(width: toolSize.width, height: toolSize.height)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                .fill(active ? Theme.filletSoft : .clear))
+            .contentShape(Rectangle())
+    }
+
+    /// The folded tools. Shows the active one when it's in here, so the bar still says which tool is live.
+    private func moreMenu(_ tools: [SketchTool]) -> some View {
+        let current = activeTool.flatMap { tools.contains($0) ? $0 : nil }
+        return Menu {
+            ForEach(tools, id: \.self) { tool in
                 Button {
-                    // Tool switches are frequent (and keyboard-driven too): no animation.
                     session.sketchEditor?.engine.setTool(tool)
                 } label: {
-                    Image(systemName: symbol)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(active ? Theme.filletInk : Theme.ink)
-                        .frame(width: toolSize.width, height: toolSize.height)
-                        .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                            .fill(active ? Theme.filletSoft : .clear))
-                        .contentShape(Rectangle())
+                    Label(tool.title, systemImage: tool.symbol)
                 }
-                .buttonStyle(PressableStyle())
-                .help("\(tool.title) (\(String(tool.shortcut.character).uppercased()))")
-                .accessibilityLabel(tool.title)
-                .accessibilityAddTraits(active ? .isSelected : [])
-                .hoverHighlight()
-                if tool == .select { Theme.hairline.frame(width: 1, height: 24).padding(.horizontal, Theme.Space.xs) }
             }
+        } label: {
+            toolGlyph(current?.symbol ?? "ellipsis", active: current != nil)
+                .overlay(alignment: .bottomTrailing) {
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 7, weight: .bold))
+                        .foregroundStyle(Theme.inkSecondary)
+                        .padding(touch ? 6 : 4)
+                }
         }
+        .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+        .fixedSize()
+        .hoverHighlight()
+        .help("More shapes")
+        .accessibilityLabel("More shapes")
+        .accessibilityValue(current?.title ?? "")
     }
 }
 

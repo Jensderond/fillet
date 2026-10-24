@@ -97,6 +97,7 @@ enum DebugAutomation {
         hover(session, SIMD2(52.6, 19.2))
         await settle(session)
         await snap(session, "02a-drawing")
+        check(markers["finish-sketch", default: 0] == 1, "exactly one Finish sketch button (\(markers["finish-sketch", default: 0]))")
         session.sketchEditor?.engine.cancel()
         session.sketchEditor?.engine.setTool(.circle)
         await settle(session)
@@ -311,6 +312,9 @@ enum DebugAutomation {
     }
     #endif
 
+    /// How many views carrying each `automationMarker` are currently on screen.
+    static var markers: [String: Int] = [:]
+
     private static func snap(_ session: DesignSession, _ name: String) async {
         let size = CGSize(width: max(session.viewSize.width, 400), height: max(session.viewSize.height, 300))
         if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2,
@@ -410,3 +414,16 @@ struct AutomationEditor: View {
 }
 #endif
 #endif
+
+extension View {
+    /// Debug builds count views with this marker while they're on screen (see `DebugAutomation.markers`),
+    /// so the automation can check what the hierarchy really shows (e.g. one Finish sketch button).
+    func automationMarker(_ name: String) -> some View {
+        #if DEBUG
+        onAppear { DebugAutomation.markers[name, default: 0] += 1 }
+            .onDisappear { DebugAutomation.markers[name, default: 0] -= 1 }
+        #else
+        self
+        #endif
+    }
+}
