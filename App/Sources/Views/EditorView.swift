@@ -50,6 +50,26 @@ enum EditorLayout: Equatable {
     }
 }
 
+/// Sizes itself to the space it's offered, never to its content, and offers its content that
+/// space. Content wider than its room overflows (and is clipped or folded) instead of widening
+/// everything around it, so widths read from this view are the room there is, not what the
+/// content asked for. Where nothing is offered (ideal-size queries) it takes the content's size.
+struct OfferedSpace: Layout {
+    /// Takes the content's height, for a bar that's as tall as itself but only as wide as its room.
+    var fitsContentHeight = false
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let content = subviews.first?.sizeThatFits(fitsContentHeight ? .unspecified : proposal) ?? .zero
+        return CGSize(width: proposal.width ?? content.width,
+                      height: fitsContentHeight ? content.height : proposal.height ?? content.height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let offer = fitsContentHeight ? ProposedViewSize.unspecified : ProposedViewSize(bounds.size)
+        for subview in subviews { subview.place(at: bounds.origin, proposal: offer) }
+    }
+}
+
 struct EditorContent: View {
     @Bindable var session: DesignSession
     let fileURL: URL?
@@ -59,6 +79,7 @@ struct EditorContent: View {
     /// with `browserOverlay` and never write to it.
     @State private var showBrowser = true
     @State private var browserOverlay = false
+    /// The window's width, from a container that content can't widen (see `OfferedSpace`).
     @State private var width: CGFloat = 1400
     @State private var showUpdating = false
     @AppStorage("fingerDraws") private var fingerDraws = false
@@ -83,7 +104,8 @@ struct EditorContent: View {
     private var inspectorWidth: CGFloat { typeSize.isAccessibilitySize ? 380 : 320 }
 
     /// One Finish sketch at a time: on the floating bar where the inspector is a wide column,
-    /// pinned in the inspector footer (next to the form) on narrower layouts.
+    /// pinned in the inspector footer (next to the form) on narrower layouts. Decided by the
+    /// window's width, so the bar's own contents can't move it.
     private var finishInBar: Bool { layout == .regular }
 
     /// What floating chrome covers of the viewport, so the camera frames content in the rest.
@@ -96,45 +118,10 @@ struct EditorContent: View {
     static let cubeClearance: CGFloat = 96
 
     var body: some View {
-        VStack(spacing: 0) {
-            ToolStrip(session: session, showBrowser: browserVisible)
-                .dynamicTypeSize(...Theme.TypeLimit.chrome)
-            HStack(spacing: 0) {
-                if !browserFloats, showBrowser {
-                    BrowserView(session: session)
-                        .frame(width: 252)
-                        .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
-                        .transition(.panel(from: .leading, reduceMotion: reduceMotion))
-                }
-                VStack(spacing: 0) {
-                    viewport
-                        .overlay(alignment: .leading) {
-                            if browserFloats, browserOverlay {
-                                BrowserView(session: session)
-                                    .frame(width: 252)
-                                    .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
-                                    .shadow(color: .black.opacity(0.16), radius: 16, x: 4)
-                                    .transition(.panel(from: .leading, reduceMotion: reduceMotion))
-                            }
-                        }
-                    if layout == .compact, showInspector {
-                        InspectorDrawer(session: session)
-                            .transition(.panel(from: .bottom, reduceMotion: reduceMotion))
-                    }
-                }
-                if layout != .compact, showInspector {
-                    InspectorView(session: session, showsSketchFooter: !finishInBar)
-                        .frame(width: inspectorWidth)
-                        .overlay(alignment: .leading) { Theme.hairline.frame(width: 1) }
-                        .transition(.panel(from: .trailing, reduceMotion: reduceMotion))
-                }
-            }
-            .animation(Theme.Motion.enter, value: showInspector)
-            .animation(Theme.Motion.enter, value: showBrowser)
-            .animation(Theme.Motion.enter, value: browserOverlay)
-            .animation(Theme.Motion.enter, value: layout)
-            TimelineView(session: session)
-                .dynamicTypeSize(...Theme.TypeLimit.chrome)
+        // The editor is exactly as wide as its window: no panel or floating bar can widen it, and
+        // the layout (and with it where Finish goes) follows the window, not the content.
+        OfferedSpace {
+            editor
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
         // A floating browser gives way to the inspector rather than covering the viewport twice.
@@ -173,6 +160,53 @@ struct EditorContent: View {
             try? await Task.sleep(for: .milliseconds(180))
             if session.isRecomputing { showUpdating = true }
         }
+    }
+
+    private var editor: some View {
+        VStack(spacing: 0) {
+            ToolStrip(session: session, showBrowser: browserVisible)
+                .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                .automationFrame("tool-strip")
+            HStack(spacing: 0) {
+                if !browserFloats, showBrowser {
+                    BrowserView(session: session)
+                        .frame(width: 252)
+                        .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
+                        .transition(.panel(from: .leading, reduceMotion: reduceMotion))
+                }
+                VStack(spacing: 0) {
+                    viewport
+                        .automationFrame("viewport")
+                        .overlay(alignment: .leading) {
+                            if browserFloats, browserOverlay {
+                                BrowserView(session: session)
+                                    .frame(width: 252)
+                                    .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
+                                    .shadow(color: .black.opacity(0.16), radius: 16, x: 4)
+                                    .transition(.panel(from: .leading, reduceMotion: reduceMotion))
+                            }
+                        }
+                    if layout == .compact, showInspector {
+                        InspectorDrawer(session: session)
+                            .transition(.panel(from: .bottom, reduceMotion: reduceMotion))
+                    }
+                }
+                if layout != .compact, showInspector {
+                    InspectorView(session: session, showsSketchFooter: !finishInBar)
+                        .frame(width: inspectorWidth)
+                        .overlay(alignment: .leading) { Theme.hairline.frame(width: 1) }
+                        .transition(.panel(from: .trailing, reduceMotion: reduceMotion))
+                }
+            }
+            .animation(Theme.Motion.enter, value: showInspector)
+            .animation(Theme.Motion.enter, value: showBrowser)
+            .animation(Theme.Motion.enter, value: browserOverlay)
+            .animation(Theme.Motion.enter, value: layout)
+            TimelineView(session: session)
+                .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                .automationFrame("timeline")
+        }
+        .automationFrame("editor-content")
     }
 
     private var viewport: some View {
@@ -642,8 +676,9 @@ extension SketchTool {
 }
 
 /// Drawing tools floating at the top-leading corner of the viewport in sketch mode, grouped
-/// select | lines and curves | shapes. When the full bar doesn't fit (iPad portrait, Split View)
-/// the secondary tools fold into a "More shapes" menu, so a glyph is never cut off.
+/// select | lines and curves | shapes. When the full bar doesn't fit (iPad portrait, landscape
+/// with both panels, Split View, large text) the secondary tools fold into a "More shapes"
+/// menu, so a glyph is never cut off and the bar never widens the viewport.
 struct SketchToolbar: View {
     @Bindable var session: DesignSession
     @Binding var fingerDraws: Bool
@@ -654,11 +689,13 @@ struct SketchToolbar: View {
 
     /// Every tool, in its group.
     static let fullGroups: [[SketchTool]] = [[.select], [.line, .arc, .spline, .point], [.rectangle, .centerRectangle, .circle, .polygon, .slot]]
-    /// The everyday tools; the rest fold into the menu.
+    /// Fewer tools at each step; the rest fold into the menu. Lines and curves go last, then the
+    /// everyday shapes.
+    static let roomyGroups: [[SketchTool]] = [[.select], [.line, .arc, .spline, .point], [.rectangle, .circle]]
     static let compactGroups: [[SketchTool]] = [[.select], [.line, .arc], [.rectangle, .circle]]
     static let minimalGroups: [[SketchTool]] = [[.select], [.line], [.rectangle]]
 
-    static let variants = [fullGroups, compactGroups, minimalGroups]
+    static let variants = [fullGroups, roomyGroups, compactGroups, minimalGroups]
 
     private var toolSize: CGSize { touch ? CGSize(width: 44, height: 44) : CGSize(width: 38, height: 34) }
     private var activeTool: SketchTool? { session.sketchEditor?.tool }
@@ -666,8 +703,10 @@ struct SketchToolbar: View {
     /// Width the bar may use, and the ideal width of each variant (measured, not guessed, so
     /// Dynamic Type and the Done button are accounted for). Not `ViewThatFits`: on iPadOS 26 it
     /// sizes its children on SwiftUI's async renderer, off the main actor these views live on.
+    /// `available` comes from a background spacer, not the bar, so it is the room the viewport
+    /// offers whatever the bar's size.
     @State private var available: CGFloat = 0
-    @State private var idealWidths: [CGFloat] = [0, 0, 0]
+    @State private var idealWidths: [CGFloat] = Array(repeating: 0, count: variants.count)
 
     private var variant: Int {
         guard available > 0 else { return 0 }
@@ -675,19 +714,21 @@ struct SketchToolbar: View {
     }
 
     var body: some View {
-        bar(Self.variants[variant], measuring: false)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
-            .background(alignment: .topLeading) {
-                ZStack(alignment: .topLeading) {
-                    measured(0)
-                    measured(1)
-                    measured(2)
-                }
-                .hidden()
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
+        // As wide as offered and as tall as the bar: a bar wider than its room can't push back.
+        OfferedSpace(fitsContentHeight: true) {
+            bar(Self.variants[variant], measuring: false)
+        }
+        .background {
+            Color.clear.onGeometryChange(for: CGFloat.self) { $0.size.width } action: { available = $0 }
+        }
+        .background(alignment: .topLeading) {
+            ZStack(alignment: .topLeading) {
+                ForEach(Self.variants.indices, id: \.self) { measured($0) }
             }
+            .hidden()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
     }
 
     private func measured(_ i: Int) -> some View {
@@ -702,9 +743,11 @@ struct SketchToolbar: View {
             HStack(spacing: 2) {
                 ForEach(groups.indices, id: \.self) { i in
                     if i > 0 { Theme.hairline.frame(width: 1, height: 24).padding(.horizontal, Theme.Space.xs) }
-                    ForEach(groups[i], id: \.self) { toolButton($0) }
+                    ForEach(groups[i], id: \.self) { tool in
+                        toolButton(tool).automationFrame(measuring ? nil : "sketch-tool.\(tool.rawValue)")
+                    }
                 }
-                if !more.isEmpty { moreMenu(more) }
+                if !more.isEmpty { moreMenu(more, measuring: measuring) }
             }
             if activeTool == .spline || activeTool == .line {
                 Button("Done") {
@@ -773,7 +816,7 @@ struct SketchToolbar: View {
     }
 
     /// The folded tools. Shows the active one when it's in here, so the bar still says which tool is live.
-    private func moreMenu(_ tools: [SketchTool]) -> some View {
+    private func moreMenu(_ tools: [SketchTool], measuring: Bool) -> some View {
         let current = activeTool.flatMap { tools.contains($0) ? $0 : nil }
         return Menu {
             ForEach(tools, id: \.self) { tool in
@@ -798,6 +841,10 @@ struct SketchToolbar: View {
         .help("More shapes")
         .accessibilityLabel("More shapes")
         .accessibilityValue(current?.title ?? "")
+        .automationFrame(measuring ? nil : "sketch-more")
+        .background {
+            if !measuring { ForEach(tools, id: \.self) { Color.clear.automationMarker("sketch-folded.\($0.rawValue)") } }
+        }
     }
 }
 

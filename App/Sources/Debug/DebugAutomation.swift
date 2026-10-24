@@ -22,7 +22,11 @@ import UniformTypeIdentifiers
 /// document (see `AutomationEditor`). Window captures there come from outside:
 /// each step logs `snapshot <name>` and holds still for `iPadScreenshotPause`
 /// so a script can run `simctl io screenshot`. `FILLET_ORIENTATION=landscape`
-/// lays out at landscape size; `FILLET_WIDTH=700` narrows the editor to a Split View width.
+/// lays out at the 12.9" landscape size; `FILLET_WIDTH=700` narrows the editor to a Split View width.
+///
+/// Every step also checks the layout against the window: the editor is exactly as wide as
+/// its window, the tool strip and timeline sit inside it, and in sketch mode every sketch
+/// tool is either visible in the viewport or folded into "More shapes".
 @MainActor
 enum DebugAutomation {
     static var isEnabled: Bool { ProcessInfo.processInfo.environment["FILLET_AUTOMATION"] != nil }
@@ -48,9 +52,10 @@ enum DebugAutomation {
     }
 
     /// iPadOS 26 refuses programmatic rotation in windowed mode, so `FILLET_ORIENTATION=landscape`
-    /// lays the editor out at the 13" landscape size and scales it down to fit the portrait screen.
+    /// lays the editor out at the 12.9" landscape size (the owner's iPad Pro, 1366 × 1024 pt) and
+    /// scales it down to fit the portrait screen.
     static var simulatedLandscape: CGSize? {
-        ProcessInfo.processInfo.environment["FILLET_ORIENTATION"] == "landscape" ? CGSize(width: 1376, height: 1032) : nil
+        ProcessInfo.processInfo.environment["FILLET_ORIENTATION"] == "landscape" ? CGSize(width: 1366, height: 1024) : nil
     }
 
     /// Time each step holds still for an external `simctl io screenshot`.
@@ -342,6 +347,71 @@ enum DebugAutomation {
         check(safe.insetBy(dx: -1, dy: -1).contains(box), "\(what) (\(Int(box.minX)),\(Int(box.minY)) \(Int(box.width))×\(Int(box.height)) in \(Int(safe.minX)),\(Int(safe.minY)) \(Int(safe.width))×\(Int(safe.height)))")
     }
 
+    /// Width of the window the editor lays out in: the simulated landscape or Split View width
+    /// on the iPad, else the real window.
+    private static var windowWidth: CGFloat? {
+        #if os(macOS)
+        NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 })?.contentView?.bounds.width
+        #else
+        if let landscape = simulatedLandscape { return landscape.width }
+        if let forcedWidth { return forcedWidth }
+        return deviceWindowWidth
+        #endif
+    }
+
+    #if os(iOS)
+    private static var deviceWindowWidth: CGFloat? {
+        UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows).first(where: \.isKeyWindow)?.bounds.width
+    }
+    #endif
+
+    /// A recorded frame in the points the editor lays out in. Frames are global (named coordinate
+    /// spaces don't reach into the navigation stack's hosting controller), and global coordinates
+    /// include the simulated landscape's scale-down.
+    private static func layoutFrame(_ name: String) -> CGRect? {
+        guard let rect = frames[name]?.rect else { return nil }
+        #if os(iOS)
+        if let landscape = simulatedLandscape, let device = deviceWindowWidth, device > 0 {
+            let scale = landscape.width / device
+            return CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
+        }
+        #endif
+        return rect
+    }
+
+    /// Nothing widens the editor past its window, the tool strip and timeline sit inside it, and
+    /// in sketch mode every sketch tool is reachable: visible in the viewport, or in "More shapes".
+    private static func checkLayout(_ session: DesignSession, _ step: String) {
+        guard let window = windowWidth, let content = layoutFrame("editor-content") else {
+            check(false, "\(step): editor and window measured"); return
+        }
+        check(abs(content.width - window) <= 1 && content.minX >= -1,
+              "\(step): editor \(Int(content.minX))…\(Int(content.maxX)) pt in a \(Int(window)) pt window")
+        for name in ["tool-strip", "timeline"] {
+            guard let f = layoutFrame(name) else { check(false, "\(step): \(name) measured"); continue }
+            check(f.minX >= -0.5 && f.maxX <= window + 0.5, "\(step): \(name) spans \(Int(f.minX))…\(Int(f.maxX)) of \(Int(window))")
+        }
+        guard session.sketchEditor != nil else { return }
+        // The viewport clips its overlays, so a tool counts as visible only inside the viewport.
+        guard let viewport = layoutFrame("viewport")?.intersection(CGRect(x: 0, y: -1e6, width: window, height: 2e6)) else {
+            check(false, "\(step): viewport measured"); return
+        }
+        func inside(_ r: CGRect) -> Bool { r.minX >= viewport.minX - 0.5 && r.maxX <= viewport.maxX + 0.5 }
+        var visible: [String] = [], folded: [String] = [], unreachable: [String] = []
+        for tool in SketchTool.allCases {
+            if let f = layoutFrame("sketch-tool.\(tool.rawValue)"), inside(f) {
+                visible.append(tool.rawValue)
+            } else if markers["sketch-folded.\(tool.rawValue)", default: 0] > 0, let more = layoutFrame("sketch-more"), inside(more) {
+                folded.append(tool.rawValue)
+            } else {
+                unreachable.append(tool.rawValue)
+            }
+        }
+        check(unreachable.isEmpty, "\(step): sketch tools \(visible.count) on the bar, \(folded.count) in More shapes"
+              + (unreachable.isEmpty ? "" : ", unreachable: \(unreachable.joined(separator: ", "))"))
+    }
+
     private static func log(_ s: String) {
         print("[automation] \(s)")
         let url = outputDirectory.appendingPathComponent("log.txt")
@@ -423,7 +493,12 @@ enum DebugAutomation {
     /// How many views carrying each `automationMarker` are currently on screen.
     static var markers: [String: Int] = [:]
 
+    /// Where each view carrying an `automationFrame` is, in window coordinates, while it's on
+    /// screen. The token tells a view's own entry from that of a newer view with the same name.
+    static var frames: [String: (token: UUID, rect: CGRect)] = [:]
+
     private static func snap(_ session: DesignSession, _ name: String) async {
+        checkLayout(session, name)
         let size = CGSize(width: max(session.viewSize.width, 400), height: max(session.viewSize.height, 300))
         if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2,
                                                  appearance: snapshotAppearance) {
@@ -530,7 +605,36 @@ struct AutomationEditor: View {
 #endif
 #endif
 
+#if DEBUG
+/// Records the view's frame in `DebugAutomation.frames` while it's on screen.
+private struct AutomationFrame: ViewModifier {
+    let name: String?
+    @State private var token = UUID()
+
+    func body(content: Content) -> some View {
+        content
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rect in
+                if let name { DebugAutomation.frames[name] = (token, rect) }
+            }
+            .onDisappear {
+                if let name, DebugAutomation.frames[name]?.token == token { DebugAutomation.frames[name] = nil }
+            }
+    }
+}
+#endif
+
 extension View {
+    /// Debug builds record where views with this tag are (see `DebugAutomation.frames`), so the
+    /// automation can check the layout against the window. Nil records nothing (e.g. for copies
+    /// of a view that are only measured).
+    func automationFrame(_ name: String?) -> some View {
+        #if DEBUG
+        modifier(AutomationFrame(name: name))
+        #else
+        self
+        #endif
+    }
+
     /// Debug builds count views with this marker while they're on screen (see `DebugAutomation.markers`),
     /// so the automation can check what the hierarchy really shows (e.g. one Finish sketch button).
     func automationMarker(_ name: String) -> some View {
