@@ -85,10 +85,16 @@ extension DesignSession {
         // A fillet's or chamfer's edges are gone from its result, so resolving them there lands on
         // whatever edge is nearest (after a widening, one inside a pocket). They are drawn dashed
         // from the edges the evaluator resolved instead (`edgeHighlights`).
-        case .shell(let s):
-            for ref in s.removeFaces { if let i = model.resolve(ref) { targets.insert(.face(body: ref.body.feature, index: i)) } }
+        // A shell's removed faces are openings in its result, so there is nothing to highlight there
+        // either; the inspector lists them.
         case .layFlat(let l):
-            if let i = model.resolve(l.face) { targets.insert(.face(body: l.body.feature, index: i)) }
+            // Lay flat only moves the body, so face numbering is unchanged: resolve against the
+            // pre-feature body (where the stored signature was taken) and highlight that index.
+            if let before = model.bodyBefore(l.body)?.shape,
+                let i = ReferenceResolver.resolve(l.face.signature, in: before.faceInfos)
+            {
+                targets.insert(.face(body: l.body.feature, index: i))
+            }
         default: break
         }
         return targets
