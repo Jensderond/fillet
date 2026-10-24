@@ -32,8 +32,9 @@ public actor ModelEvaluator {
 
     public init() {}
 
-    /// Evaluates all active features of the document.
-    public func evaluate(_ document: Document) -> EvaluatedModel {
+    /// Evaluates all active features of the document. When `before` names a
+    /// feature, the bodies just before it are returned in `bodiesBefore`.
+    public func evaluate(_ document: Document, before: UUID? = nil) -> EvaluatedModel {
         let table = document.parameterTable
         var hasher = Hasher()
         hasher.combine(table.values.mapValues { [$0.value, Double($0.dimension.hashValue)] })
@@ -44,7 +45,9 @@ public actor ModelEvaluator {
         var newCache: [CacheEntry] = []
         newCache.reserveCapacity(active.count)
 
+        var bodiesBefore: [EvaluatedBody]?
         for (i, feature) in active.enumerated() {
+            if feature.id == before { bodiesBefore = state.bodies }
             var h = Hasher()
             h.combine(key)
             h.combine(feature)
@@ -66,6 +69,7 @@ public actor ModelEvaluator {
         model.sketches = state.sketches
         model.status = state.status
         model.meshes = displayMeshes(for: state.bodies)
+        model.bodiesBefore = bodiesBefore
         for f in document.features where model.status[f.id] == nil {
             model.status[f.id] = .inactive
         }

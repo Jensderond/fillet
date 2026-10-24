@@ -47,6 +47,29 @@ public struct EvaluatedModel: Sendable {
     public var parameters: ParameterTable
     /// Display tessellation per body (empty mesh when tessellation failed).
     public var meshes: [BodyRef: Mesh] = [:]
+    /// Bodies as they were just before the feature passed as `before:` to
+    /// `ModelEvaluator.evaluate` (the geometry a feature being edited picks from).
+    public var bodiesBefore: [EvaluatedBody]?
+
+    /// The pre-feature version of a body (falls back to the current one).
+    public func bodyBefore(_ ref: BodyRef) -> EvaluatedBody? {
+        bodiesBefore?.first { $0.ref == ref } ?? body(ref)
+    }
+
+    /// Maps an edge picked on the displayed (post-feature) body back to a
+    /// persistent reference on the pre-feature body.
+    public func edgeRefBefore(body ref: BodyRef, displayedEdge index: Int) -> EdgeRef? {
+        guard let shown = body(ref)?.shape.edgeInfoIfValid(index), let before = bodyBefore(ref)?.shape else { return nil }
+        guard let i = ReferenceResolver.resolve(EdgeSignature(shown), in: before.edgeInfos) else { return nil }
+        return EdgeRef(body: ref, signature: EdgeSignature(before.edgeInfo(i)))
+    }
+
+    /// Maps a face picked on the displayed body back to the pre-feature body.
+    public func faceRefBefore(body ref: BodyRef, displayedFace index: Int) -> FaceRef? {
+        guard let shown = body(ref)?.shape.faceInfoIfValid(index), let before = bodyBefore(ref)?.shape else { return nil }
+        guard let i = ReferenceResolver.resolve(FaceSignature(shown), in: before.faceInfos) else { return nil }
+        return FaceRef(body: ref, signature: FaceSignature(before.faceInfo(i)))
+    }
 
     public init(parameters: ParameterTable) { self.parameters = parameters }
 
