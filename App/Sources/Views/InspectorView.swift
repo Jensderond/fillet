@@ -450,15 +450,18 @@ struct ThemeSegmented<Value: Hashable>: View {
                 Button {
                     if !selected { onChange(option.value) }
                 } label: {
+                    // The chosen segment is a solid slate plate with the surface colour for text:
+                    // 5.8:1 against the track (7.7:1 with Increase Contrast), so the state reads
+                    // from the plate itself, not only from the weight of the text.
                     Text(option.title)
                         .font(Theme.body.weight(selected ? .semibold : .medium))
-                        .foregroundStyle(selected ? Theme.ink : Theme.inkSecondary)
+                        .foregroundStyle(selected ? Theme.raised : Theme.inkSecondary)
                         .lineLimit(1)
                         .minimumScaleFactor(0.75)
                         .padding(.horizontal, Theme.Space.xs)
                         .frame(maxWidth: .infinity, minHeight: (touch ? 44 : 32) - 4)
                         .background(RoundedRectangle(cornerRadius: Theme.Radius.control - 2, style: .continuous)
-                            .fill(selected ? Theme.hairlineStrong : .clear))
+                            .fill(selected ? Theme.inkSecondary : .clear))
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(PressableStyle())
