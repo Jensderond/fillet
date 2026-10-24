@@ -29,7 +29,7 @@ struct SketchInspector: View {
     #if os(iOS)
     static let drawingHint = "Draw with Apple Pencil. Turn on finger drawing in the toolbar to draw with a finger. Use the Select tool and tap a shape to type exact dimensions."
     #else
-    static let drawingHint = "Click and drag to draw. Use the Select tool and click a shape to type exact dimensions."
+    static let drawingHint = "Click points to draw. Use the Select tool and click a shape to type exact dimensions."
     #endif
 
     /// One selected shape titles itself ("Circle"); otherwise the section needs a name.
@@ -128,11 +128,9 @@ struct ShapeDimensions: View {
                         .font(Theme.caption.monospacedDigit()).foregroundStyle(Theme.inkSecondary)
                 }
             case .rectangle(let anchor, let position, let width, let height, let angle):
-                Picker("Anchor", selection: Binding(get: { anchor }, set: { update(.rectangle(anchor: $0, position: position, width: width, height: height, angle: angle)) })) {
-                    Text("Corner").tag(RectangleAnchor.corner)
-                    Text("Center").tag(RectangleAnchor.center)
+                ThemeSegmented("Anchor", selection: anchor, options: [(.corner, "Corner"), (.center, "Center")]) {
+                    update(.rectangle(anchor: $0, position: position, width: width, height: height, angle: angle))
                 }
-                .pickerStyle(.segmented)
                 ExprField(label: "Width", value: width, evaluator: evaluator) { update(.rectangle(anchor: anchor, position: position, width: $0, height: height, angle: angle)) }
                 ExprField(label: "Height", value: height, evaluator: evaluator) { update(.rectangle(anchor: anchor, position: position, width: width, height: $0, angle: angle)) }
                 PointField(label: anchor == .corner ? "Corner" : "Center", value: position, evaluator: evaluator) { update(.rectangle(anchor: anchor, position: $0, width: width, height: height, angle: angle)) }

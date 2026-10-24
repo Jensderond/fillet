@@ -115,9 +115,12 @@ extension DesignSession {
         var overlay = SketchOverlay(plane: evaluated.plane)
         let editor = sketchEditor?.sketch == sketchID ? sketchEditor : nil
 
+        // The revolve axis chosen from the sketch's lines shows as picked.
+        var axisLine: UUID?
+        if case .revolve(let r) = editingFeature?.kind, case .sketchLine(let id) = r.axis { axisLine = id }
         for shape in evaluated.source.shapes {
             var style: SketchCurveStyle = shape.construction ? .construction : .normal
-            if editor?.selectedShapes.contains(shape.id) == true { style = .selected }
+            if editor?.selectedShapes.contains(shape.id) == true || shape.id == axisLine { style = .selected }
             else if hover == .sketchShape(sketch: sketchID, shape: shape.id) { style = .hover }
             for line in evaluated.curves[shape.id] ?? [] {
                 overlay.curves.append(SketchCurve(shapeID: shape.id, points: line, style: style))

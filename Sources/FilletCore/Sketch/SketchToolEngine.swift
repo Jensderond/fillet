@@ -20,29 +20,30 @@ public enum SketchTool: String, CaseIterable, Hashable, Sendable {
         }
     }
 
-    /// Hint shown while the tool is active, given how many points are placed.
-    public func hint(placed: Int) -> String {
+    /// Hint shown while the tool is active, given how many points are placed. `verb` is the
+    /// platform's pointing word: "Tap" on iPad, "Click" with a pointer.
+    public func hint(placed: Int, verb: String = "Tap") -> String {
         switch (self, placed) {
-        case (.select, _): "Tap shapes to select them"
-        case (.line, 0): "Tap or drag to start a line"
-        case (.line, _): "Tap the next point — tap the first point or Done to finish"
-        case (.rectangle, 0): "Drag or tap the first corner"
-        case (.rectangle, _): "Tap the opposite corner"
-        case (.centerRectangle, 0): "Tap the center"
-        case (.centerRectangle, _): "Tap a corner"
-        case (.circle, 0): "Tap the center"
-        case (.circle, _): "Tap a point on the circle"
-        case (.arc, 0): "Tap the start point"
-        case (.arc, 1): "Tap the end point"
-        case (.arc, _): "Tap a point the arc passes through"
-        case (.polygon, 0): "Tap the center"
-        case (.polygon, _): "Tap a corner"
-        case (.slot, 0): "Tap the first end center"
-        case (.slot, 1): "Tap the second end center"
-        case (.slot, _): "Tap to set the width"
-        case (.spline, 0): "Tap the first point"
-        case (.spline, _): "Tap more points — Done to finish"
-        case (.point, _): "Tap to place a point"
+        case (.select, _): "\(verb) shapes to select them"
+        case (.line, 0): "\(verb) or drag to start a line"
+        case (.line, _): "\(verb) the next point. Done or the first point ends the line"
+        case (.rectangle, 0): "\(verb) or drag from the first corner"
+        case (.rectangle, _): "\(verb) the opposite corner"
+        case (.centerRectangle, 0): "\(verb) the center"
+        case (.centerRectangle, _): "\(verb) a corner"
+        case (.circle, 0): "\(verb) the center"
+        case (.circle, _): "\(verb) a point on the circle"
+        case (.arc, 0): "\(verb) the start point"
+        case (.arc, 1): "\(verb) the end point"
+        case (.arc, _): "\(verb) a point the arc passes through"
+        case (.polygon, 0): "\(verb) the center"
+        case (.polygon, _): "\(verb) a corner"
+        case (.slot, 0): "\(verb) the center of one end"
+        case (.slot, 1): "\(verb) the center of the other end"
+        case (.slot, _): "\(verb) to set the width"
+        case (.spline, 0): "\(verb) the first point"
+        case (.spline, _): "\(verb) more points, then Done"
+        case (.point, _): "\(verb) to place a point"
         }
     }
 }
@@ -102,6 +103,7 @@ public struct SketchToolEngine: Sendable {
     }
 
     public var hint: String { tool.hint(placed: points.count) }
+    public func hint(verb: String) -> String { tool.hint(placed: points.count, verb: verb) }
     public var isIdle: Bool { points.isEmpty }
 
     // MARK: Input

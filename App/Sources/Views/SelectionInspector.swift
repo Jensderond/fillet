@@ -271,6 +271,6 @@ private struct ActionRow: View {
         .buttonStyle(PressableStyle())
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: hovering)
-        .hoverHighlight()
+        .hoverHighlight(ownsPointerHover: true)
     }
 }

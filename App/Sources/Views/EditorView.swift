@@ -198,9 +198,11 @@ struct EditorContent: View {
                         .transition(.panel(from: .top, reduceMotion: reduceMotion))
                 }
                 if let hint = currentHint {
+                    // Crossfades when the kind of hint changes (sketch, picking, getting started);
+                    // within one, the text swaps instantly: it changes with every click.
                     HintPill(text: hint.text, symbol: hint.symbol)
                         .dynamicTypeSize(...Theme.TypeLimit.chrome)
-                        .blurCrossfade(hint.text)
+                        .blurCrossfade(hint.context)
                         .padding(.trailing, Self.cubeClearance)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
@@ -254,25 +256,25 @@ struct EditorContent: View {
         }
     }
 
-    private var currentHint: (text: String, symbol: String)? {
+    private var currentHint: (text: String, symbol: String, context: String)? {
+        let pick = Theme.Copy.pick
         if let editor = session.sketchEditor {
             // Tools are icon-only and touch has no tooltips, so the hint names the live tool.
             let title = editor.tool.title  // menu titles are Title Case; app copy is sentence case
             let name = title.prefix(1) + title.dropFirst().lowercased()
-            return ("\(name) · \(editor.engine.hint)", editor.tool == .select ? "cursorarrow" : "pencil.tip")
+            return ("\(name) · \(editor.engine.hint(verb: pick))", editor.tool == .select ? "cursorarrow" : "pencil.tip", "sketch")
         }
-        let pick = Theme.Copy.pick
         switch session.pickMode {
-        case .regions: return ("\(pick) the profiles to use", "hand.tap")
-        case .edges: return ("\(pick) edges to add or remove them", "hand.tap")
-        case .faces: return ("\(pick) faces to remove them", "hand.tap")
-        case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap")
-        case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap")
+        case .regions: return ("\(pick) the profiles to use", "hand.tap", "pick")
+        case .edges: return ("\(pick) edges to add or remove them", "hand.tap", "pick")
+        case .faces: return ("\(pick) faces to remove them", "hand.tap", "pick")
+        case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap", "pick")
+        case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap", "pick")
         default: break
         }
         // Without the always-visible inspector (narrow layouts), the empty document still needs a first step.
         if layout != .regular, session.document.features.isEmpty, session.editing == nil {
-            return ("Start with Sketch to draw a profile on the bed", "pencil.and.outline")
+            return ("Start with Sketch to draw a profile on the bed", "pencil.and.outline", "start")
         }
         return nil
     }
@@ -412,7 +414,7 @@ struct ToolStrip: View {
                             if !busy { session.startSketch() }
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-                        .hoverHighlight()
+                        .hoverHighlight(ownsPointerHover: true)
                         .help("New sketch on the selected face, or on the bed (⇧⌘K)")
                     }
                     ToolCluster {
@@ -429,7 +431,7 @@ struct ToolStrip: View {
                             ToolLabel("Primitive", "cube", active: session.editingKind == "primitive", disabled: busy)
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
-                        .hoverHighlight()
+                        .hoverHighlight(ownsPointerHover: true)
                         .help(busyReason ?? "Box, cylinder, sphere, cone or torus")
                         ToolButton("Import", "square.and.arrow.down", unavailable: busyReason) { session.importRequested = true }
                     }
@@ -511,7 +513,8 @@ struct ToolLabel: View {
     /// Disabled is shown with colour, not opacity, so it can't stack with the system Menu
     /// dimming, and the active tool keeps its accent ("you are here") while others are off.
     private var dimmed: Bool { (!isEnabled || disabled) && !active }
-    private var dimmedInk: Color { Theme.inkTertiary.opacity(0.6) }
+    /// Full tertiary ink (3.85:1): clearly off, without turning the strip into ghost text.
+    private var dimmedInk: Color { Theme.inkTertiary }
 
     var body: some View {
         VStack(spacing: Theme.Space.xs) {
@@ -581,7 +584,7 @@ struct ToolButton: View {
         .help(unavailable.map { "\(title). \($0)" } ?? title)
         .accessibilityValue(unavailable == nil ? "" : "Unavailable")
         .accessibilityHint(unavailable ?? "")
-        .hoverHighlight()
+        .hoverHighlight(ownsPointerHover: true)
         .popover(isPresented: $explaining, arrowEdge: .bottom) {
             ToolReason(title: title, reason: unavailable ?? "")
         }

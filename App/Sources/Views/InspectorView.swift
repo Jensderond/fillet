@@ -208,20 +208,13 @@ struct FeatureInspector: View {
         OperationPicker(operation: e.operation) { var x = e; x.operation = $0; set(.extrude(x)) }
         ExprField(label: "Distance", value: e.distance, evaluator: ev) { var x = e; x.distance = $0; set(.extrude(x)) }
         Labeled("Direction") {
-            Picker("Direction", selection: Binding(
-                get: { e.symmetric ? 1 : (e.back == nil ? 0 : 2) },
-                set: { mode in
-                    var x = e
-                    x.symmetric = mode == 1
-                    x.back = mode == 2 ? (e.back ?? 5) : nil
-                    set(.extrude(x))
-                })) {
-                Text("One side").tag(0)
-                Text("Symmetric").tag(1)
-                Text("Two sides").tag(2)
+            ThemeSegmented("Direction", selection: e.symmetric ? 1 : (e.back == nil ? 0 : 2),
+                           options: [(0, "One side"), (1, "Symmetric"), (2, "Two sides")]) { mode in
+                var x = e
+                x.symmetric = mode == 1
+                x.back = mode == 2 ? (e.back ?? 5) : nil
+                set(.extrude(x))
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: .infinity)
         }
         if let back = e.back, !e.symmetric {
             ExprField(label: "Back", value: back, evaluator: ev) { var x = e; x.back = $0; set(.extrude(x)) }
@@ -248,8 +241,9 @@ struct FeatureInspector: View {
                 set: { var x = r; x.axis = $0; set(.revolve(x)) })) {
                 Text("Sketch X").tag(RevolveAxis.x)
                 Text("Sketch Y").tag(RevolveAxis.y)
-                ForEach(sketchLines(r.sketch), id: \.self) { id in
-                    Text("Line \(id.uuidString.prefix(4))").tag(RevolveAxis.sketchLine(id))
+                // Lines by their place in the sketch; the chosen one is highlighted in the viewport.
+                ForEach(Array(sketchLines(r.sketch).enumerated()), id: \.element) { i, id in
+                    Text("Line \(i + 1)").tag(RevolveAxis.sketchLine(id))
                 }
             }
         }
@@ -272,7 +266,7 @@ struct FeatureInspector: View {
             var x = f; x.size = $0
             set(fillet ? .fillet(x) : .chamfer(x))
         }
-        Hint(fillet ? "Tip: a 0.5–1 mm fillet on the bottom edges helps parts come off the bed; chamfers print overhang-free."
+        Hint(fillet ? "Tip: a 0.5–1 mm fillet on bottom edges helps parts release; chamfers print without supports."
                     : "Chamfers on bottom edges print without supports.")
     }
 
@@ -323,15 +317,10 @@ struct FeatureInspector: View {
             var x = c; x.tools = []; set(.combine(x))
         }
         Labeled("Operation") {
-            Picker("Operation", selection: Binding(
-                get: { c.operation },
-                set: { var x = c; x.operation = $0; set(.combine(x)) })) {
-                Text("Join").tag(Operation.join)
-                Text("Cut").tag(Operation.cut)
-                Text("Intersect").tag(Operation.intersect)
+            ThemeSegmented("Operation", selection: c.operation,
+                           options: [(.join, "Join"), (.cut, "Cut"), (.intersect, "Intersect")]) { op in
+                var x = c; x.operation = op; set(.combine(x))
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: .infinity)
         }
         Toggle("Keep tool bodies", isOn: Binding(get: { c.keepTools }, set: { var x = c; x.keepTools = $0; set(.combine(x)) }))
     }
@@ -362,18 +351,12 @@ struct FeatureInspector: View {
             var x = p; x.bodies = []; set(.pattern(x))
         }
         Labeled("Type") {
-            Picker("Type", selection: Binding(
-                get: { if case .linear = p.layout { 0 } else { 1 } },
-                set: { t in
-                    var x = p
-                    x.layout = t == 0 ? .linear(direction: .x, count: 3, spacing: 20) : .circular(axis: .z, count: 6, angle: 360)
-                    set(.pattern(x))
-                })) {
-                Text("Linear").tag(0)
-                Text("Circular").tag(1)
+            ThemeSegmented("Type", selection: { if case .linear = p.layout { 0 } else { 1 } }(),
+                           options: [(0, "Linear"), (1, "Circular")]) { t in
+                var x = p
+                x.layout = t == 0 ? .linear(direction: .x, count: 3, spacing: 20) : .circular(axis: .z, count: 6, angle: 360)
+                set(.pattern(x))
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: .infinity)
         }
         switch p.layout {
         case .linear(let dir, let count, let spacing):
@@ -404,16 +387,69 @@ struct Labeled<Content: View>: View {
     }
 }
 
+/// Fillet's segmented control: equal-width segments on a raised track, the chosen one in ink
+/// on a stronger plate. Unlike the system control it follows Dynamic Type, matches widths
+/// across rows, and is 32 pt with a pointer and 44 pt on touch.
+struct ThemeSegmented<Value: Hashable>: View {
+    let label: String
+    let selection: Value
+    let options: [(value: Value, title: String)]
+    let onChange: (Value) -> Void
+    @Environment(\.touchTargets) private var touch
+
+    init(_ label: String, selection: Value, options: [(Value, String)], onChange: @escaping (Value) -> Void) {
+        self.label = label
+        self.selection = selection
+        self.options = options.map { (value: $0.0, title: $0.1) }
+        self.onChange = onChange
+    }
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options, id: \.value) { option in
+                let selected = option.value == selection
+                Button {
+                    if !selected { onChange(option.value) }
+                } label: {
+                    Text(option.title)
+                        .font(Theme.body.weight(selected ? .semibold : .medium))
+                        .foregroundStyle(selected ? Theme.ink : Theme.inkSecondary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                        .padding(.horizontal, Theme.Space.xs)
+                        .frame(maxWidth: .infinity, minHeight: (touch ? 44 : 32) - 4)
+                        .background(RoundedRectangle(cornerRadius: Theme.Radius.control - 2, style: .continuous)
+                            .fill(selected ? Theme.hairlineStrong : .clear))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .hoverHighlight(cornerRadius: Theme.Radius.control - 2)
+                .accessibilityLabel(option.title)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+        .padding(2)
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.raised))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).strokeBorder(Theme.hairline))
+        .frame(maxWidth: .infinity)
+        .animation(Theme.Motion.hover, value: selection)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
+    }
+}
+
 /// Guidance or a printing tip, quiet enough to ignore.
 struct Hint: View {
-    let text: String
+    let text: Text
     var symbol = "lightbulb.min"
-    init(_ text: String, symbol: String = "lightbulb.min") { self.text = text; self.symbol = symbol }
+    init(_ text: String, symbol: String = "lightbulb.min") { self.text = Text(text); self.symbol = symbol }
+    /// Styled text, e.g. with an expression in the value face.
+    init(text: Text, symbol: String = "lightbulb.min") { self.text = text; self.symbol = symbol }
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
             Image(systemName: symbol).foregroundStyle(Theme.inkTertiary).accessibilityHidden(true)
-            Text(text).fixedSize(horizontal: false, vertical: true)
+            text.fixedSize(horizontal: false, vertical: true)
         }
         .font(Theme.caption)
         .foregroundStyle(Theme.inkSecondary)
@@ -465,15 +501,9 @@ struct OperationPicker: View {
     let onChange: (Operation) -> Void
     var body: some View {
         Labeled("Operation") {
-            // Text only: segmented controls on iPad show just the image for Label items.
-            Picker("Operation", selection: Binding(get: { operation }, set: { onChange($0) })) {
-                Text("New").tag(Operation.newBody)
-                Text("Join").tag(Operation.join)
-                Text("Cut").tag(Operation.cut)
-                Text("Intersect").tag(Operation.intersect)
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: .infinity)
+            ThemeSegmented("Operation", selection: operation,
+                           options: [(.newBody, "New"), (.join, "Join"), (.cut, "Cut"), (.intersect, "Intersect")],
+                           onChange: onChange)
         }
     }
 }
@@ -499,16 +529,11 @@ struct AxisPicker: View {
     let onChange: (AxisRef) -> Void
     var body: some View {
         Labeled("Axis") {
-            Picker("Axis", selection: Binding(
-                get: { if case .edge = axis { 3 } else { axis == .x ? 0 : axis == .y ? 1 : 2 } },
-                set: { onChange([AxisRef.x, .y, .z][min($0, 2)]) })) {
-                Text("X").tag(0)
-                Text("Y").tag(1)
-                Text("Z").tag(2)
-                if case .edge = axis { Text("Edge").tag(3) }
+            let isEdge = { if case .edge = axis { true } else { false } }()
+            ThemeSegmented("Axis", selection: isEdge ? 3 : axis == .x ? 0 : axis == .y ? 1 : 2,
+                           options: [(0, "X"), (1, "Y"), (2, "Z")] + (isEdge ? [(3, "Edge")] : [])) {
+                onChange([AxisRef.x, .y, .z][min($0, 2)])
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: .infinity)
         }
     }
 }

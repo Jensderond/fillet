@@ -78,7 +78,7 @@ struct ExprField: View {
         .shadow(color: focused ? Theme.fillet.opacity(0.25) : .clear, radius: 4)
         .contentShape(Rectangle())
         .onTapGesture { focused = true }
-        .hoverHighlight()
+        .hoverHighlight(ownsPointerHover: true)
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: focused)
     }

@@ -194,6 +194,7 @@ private struct CubeButton: View {
     let help: String
     let appearance: ViewportAppearance
     let action: () -> Void
+    @State private var hovering = false
 
     /// 44 pt touch targets on iPad.
     #if os(iOS) || os(visionOS)
@@ -212,6 +213,10 @@ private struct CubeButton: View {
         .buttonStyle(.plain)
         .foregroundStyle(appearance.chipInk)
         .background(appearance.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+            .fill(appearance.chipInk.opacity(hovering ? 0.08 : 0)).allowsHitTesting(false))
+        .onHover { hovering = $0 }
+        .animation(.easeOut(duration: 0.12), value: hovering)
         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(appearance.chipEdge))
         #if os(iOS) || os(visionOS)
         .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 8, style: .continuous))

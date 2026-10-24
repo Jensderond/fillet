@@ -108,7 +108,7 @@ struct BrowserRow<Trailing: View>: View {
         .opacity(dimmed ? 0.5 : 1)
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: hovering)
-        .hoverHighlight()
+        .hoverHighlight(ownsPointerHover: true)
     }
 }
 
@@ -119,7 +119,8 @@ struct ParametersSection: View {
     var body: some View {
         PanelSection("Parameters") {
             if session.document.parameters.isEmpty {
-                Hint("Name a value once, then type its name in any dimension, like width / 2 + wall.", symbol: "function")
+                Hint(text: Text("Name a value, then use it in any field: \(Text("width / 2 + wall").font(Theme.caption.monospaced()).foregroundStyle(Theme.ink))"),
+                     symbol: "function")
             }
             VStack(spacing: Theme.Space.s) {
                 ForEach(session.document.parameters) { p in

@@ -130,7 +130,7 @@ struct TimelineView: View {
                 dropTarget: dropTarget == index)
         }
         .buttonStyle(PressableStyle())
-        .hoverHighlight()
+        .hoverHighlight(ownsPointerHover: true)
         // Hovering a step highlights the body it made, like Fusion's timeline.
         .onHover { inside in
             hoverBody(of: feature, inside)
@@ -435,7 +435,7 @@ struct PlaybackButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .foregroundStyle(isEnabled ? Theme.ink : Theme.inkTertiary.opacity(0.6))
+            .foregroundStyle(isEnabled ? Theme.ink : Theme.inkTertiary)
             .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(configuration.isPressed ? Theme.hairline : .clear))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(Theme.Motion.press, value: configuration.isPressed)

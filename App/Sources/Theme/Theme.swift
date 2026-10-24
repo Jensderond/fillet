@@ -182,45 +182,68 @@ extension Color {
 
 // MARK: - Button styles
 
-/// Solid burnt-orange action with a white label ("Done", "Finish sketch").
+/// Solid burnt-orange action with a white label ("Done", "Finish sketch"). Darkens a touch
+/// under the pointer and a little more when pressed.
 struct PrimaryButtonStyle: ButtonStyle {
-    @Environment(\.isEnabled) private var isEnabled
-    @Environment(\.touchTargets) private var touch
+    func makeBody(configuration: Configuration) -> some View { Styled(configuration: configuration) }
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(Theme.body.weight(.semibold))
-            .foregroundStyle(.white)
-            .padding(.horizontal, Theme.Space.l)
-            .frame(minHeight: Theme.Metrics.button(touch: touch))
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .fill(Theme.filletFill.opacity(isEnabled ? 1 : 0.4))
-                    .brightness(configuration.isPressed ? -0.08 : 0))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(Theme.Motion.press, value: configuration.isPressed)
+    private struct Styled: View {
+        let configuration: Configuration
+        @State private var hovering = false
+        @Environment(\.isEnabled) private var isEnabled
+        @Environment(\.touchTargets) private var touch
+
+        var body: some View {
+            configuration.label
+                .font(Theme.body.weight(.semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, Theme.Space.l)
+                .frame(minHeight: Theme.Metrics.button(touch: touch))
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                        .fill(Theme.filletFill.opacity(isEnabled ? 1 : 0.4))
+                        .brightness(configuration.isPressed ? -0.08 : hovering && isEnabled ? -0.04 : 0))
+                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .onHover { hovering = $0 }
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .animation(Theme.Motion.press, value: configuration.isPressed)
+                .animation(Theme.Motion.hover, value: hovering)
+        }
     }
 }
 
-/// Quiet raised action ("Cancel", "Clear").
+/// Quiet raised action ("Cancel", "Clear"), with a hairline wash under the pointer.
 struct SecondaryButtonStyle: ButtonStyle {
     var role: ButtonRole?
-    @Environment(\.touchTargets) private var touch
 
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(Theme.body.weight(.medium))
-            .foregroundStyle(role == .destructive ? Theme.dangerInk : Theme.ink)
-            .padding(.horizontal, Theme.Space.m)
-            .frame(minHeight: Theme.Metrics.button(touch: touch))
-            .background(
-                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .fill(configuration.isPressed ? Theme.hairline : Theme.raised))
-            .overlay(
-                RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .strokeBorder(Theme.hairlineStrong, lineWidth: 1))
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(Theme.Motion.press, value: configuration.isPressed)
+    func makeBody(configuration: Configuration) -> some View { Styled(configuration: configuration, role: role) }
+
+    private struct Styled: View {
+        let configuration: Configuration
+        let role: ButtonRole?
+        @State private var hovering = false
+        @Environment(\.touchTargets) private var touch
+
+        var body: some View {
+            configuration.label
+                .font(Theme.body.weight(.medium))
+                .foregroundStyle(role == .destructive ? Theme.dangerInk : Theme.ink)
+                .padding(.horizontal, Theme.Space.m)
+                .frame(minHeight: Theme.Metrics.button(touch: touch))
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                        .fill(Theme.raised)
+                        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                            .fill(configuration.isPressed || hovering ? Theme.hairline : .clear)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                        .strokeBorder(Theme.hairlineStrong, lineWidth: 1))
+                .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+                .onHover { hovering = $0 }
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .animation(Theme.Motion.press, value: configuration.isPressed)
+                .animation(Theme.Motion.hover, value: hovering)
+        }
     }
 }
 
@@ -355,6 +378,28 @@ extension EnvironmentValues {
     @Entry var touchTargets: Bool = Theme.Metrics.prefersTouch
 }
 
+#if os(macOS)
+/// The Mac's hover feedback: a hairline plate behind the control while the pointer is over it.
+private struct PointerHoverPlate: ViewModifier {
+    let cornerRadius: CGFloat
+    let enabled: Bool
+    @State private var hovering = false
+    @Environment(\.isEnabled) private var isEnabled
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .background(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(hovering && isEnabled ? Theme.hairline : .clear))
+                .onHover { hovering = $0 }
+                .animation(Theme.Motion.hover, value: hovering)
+        } else {
+            content
+        }
+    }
+}
+#endif
+
 /// Floating chrome (toasts, the sketch toolbar): one shadow, a hairline edge, and in dark
 /// mode a faint top highlight, since a black shadow alone disappears on dark panels.
 struct FloatingElevation: ViewModifier {
@@ -383,13 +428,15 @@ extension View {
         modifier(FloatingElevation(cornerRadius: cornerRadius))
     }
 
-    /// Pointer-only hover feedback (no false positives from touch), shaped like the control's background.
-    func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.control) -> some View {
+    /// Pointer-only hover feedback (no false positives from touch), shaped like the control's
+    /// background: the system highlight on iPad, a hairline plate on the Mac. Views that draw
+    /// their own hover state pass `ownsPointerHover` so the Mac doesn't stack a second one.
+    func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.control, ownsPointerHover: Bool = false) -> some View {
         #if os(iOS)
         self.contentShape(.hoverEffect, RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .hoverEffect(.highlight)
         #else
-        self
+        modifier(PointerHoverPlate(cornerRadius: cornerRadius, enabled: !ownsPointerHover))
         #endif
     }
 
