@@ -729,6 +729,7 @@ public final class ViewportRenderer: NSObject {
             g.fill = pal.bedFill.linear
             g.minor = pal.bedMinor.linear
             g.major = pal.bedMajor.linear
+            g.axes = SIMD4(0, 1, 0, 0)
             // The sketch grid replaces the bed grid while sketching.
             g.params = sketchGrid ? SIMD4(0, 0, 0, 1) : SIMD4(10, 50, 0, 1)
             drawGrid(enc, &g)
@@ -743,15 +744,20 @@ public final class ViewportRenderer: NSObject {
                 let lift = max(bb.min.z, 0)
                 let height = max(size.z, 1e-3)
                 guard bb.min.z < height * 0.5 + 1, bb.max.z > 0 else { continue }
-                var sd = ShadowDraw()
-                sd.center = SIMD4(Float(bb.center.x), Float(bb.center.y), 0, 0)
-                sd.halfSize = SIMD4(Float(size.x / 2), Float(size.y / 2), 0, 0)
-                let margin = max(min(size.x, size.y) * 0.18 + height * 0.12, 1.5)
-                sd.params = SIMD4(Float(margin), Float(1 - min(lift / (height * 0.5 + 1), 1)), 0, 0)
-                sd.color = pal.shadow.linear
-                enc.setVertexBytes(&sd, length: MemoryLayout<ShadowDraw>.stride, index: 2)
-                enc.setFragmentBytes(&sd, length: MemoryLayout<ShadowDraw>.stride, index: 2)
-                enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+                let contact = Float(1 - min(lift / (height * 0.5 + 1), 1))
+                let soft = max(min(size.x, size.y) * 0.18 + height * 0.12, 1.5)
+                // Two layers: a wide soft penumbra, then a tight dark line where the part meets
+                // the bed, so it sits on the sheet instead of floating over it.
+                for (margin, strength) in [(soft, Float(0.6)), (max(height * 0.15, 1.2), Float(1))] {
+                    var sd = ShadowDraw()
+                    sd.center = SIMD4(Float(bb.center.x), Float(bb.center.y), 0, 0)
+                    sd.halfSize = SIMD4(Float(size.x / 2), Float(size.y / 2), 0, 0)
+                    sd.params = SIMD4(Float(margin), contact * strength, 0, 0)
+                    sd.color = pal.shadow.linear
+                    enc.setVertexBytes(&sd, length: MemoryLayout<ShadowDraw>.stride, index: 2)
+                    enc.setFragmentBytes(&sd, length: MemoryLayout<ShadowDraw>.stride, index: 2)
+                    enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4)
+                }
             }
         }
         if plateSegCount > 0, let buf = plateSegs {

@@ -76,10 +76,11 @@ enum DebugAutomation {
         #if os(macOS)
         if let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }) {
             window.setFrame(NSRect(x: 40, y: 40, width: 1600, height: 1000), display: true)
-            // Frontmost and key, so SwiftUI updates and draws it like a window in use
-            // (an occluded window gets its view updates late) and the undo state is the window's.
-            NSApp.activate(ignoringOtherApps: true)
-            window.makeKeyAndOrderFront(nil)
+            // In front and key, so it draws like a window in use and the undo state is the window's.
+            if window.isZoomed { window.zoom(nil) }
+            window.setFrame(NSRect(x: 40, y: 40, width: 1600, height: 1000), display: true)
+            window.orderFrontRegardless()
+            window.makeKey()
         }
         #endif
         try? await Task.sleep(for: .milliseconds(300))
@@ -255,6 +256,12 @@ enum DebugAutomation {
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         #if os(macOS)
         if ProcessInfo.processInfo.environment["FILLET_AUTOMATION_KEEP_OPEN"] == nil {
+            // A scratch document: quit without a save prompt, and without leaving an autosave
+            // that the next launch would restore.
+            for document in NSDocumentController.shared.documents {
+                document.updateChangeCount(.changeCleared)
+                document.close()
+            }
             NSApp.terminate(nil)
         }
         #endif
@@ -424,6 +431,13 @@ enum DebugAutomation {
         log("snapshot \(name)")
         try? await Task.sleep(for: iPadScreenshotPause)
         #else
+        // Window management may resize an activated window; captures compare at 1600 × 1000.
+        if let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }),
+            window.frame.size != CGSize(width: 1600, height: 1000)
+        {
+            window.setFrame(NSRect(x: 40, y: 40, width: 1600, height: 1000), display: true)
+            await settle(session)
+        }
         // The frame view (content view's superview) includes the title bar and the window toolbar.
         if let content = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 200 })?.contentView,
             let view = content.superview ?? Optional(content),
@@ -444,7 +458,7 @@ enum DebugAutomation {
                 }
                 // Where the Metal view sits in the window (bottom-left origin), for compositing the captures.
                 let r = mtk.convert(mtk.bounds, to: nil)
-                log("geometry \(name): \(Int(r.minX)) \(Int(r.minY)) \(Int(r.width)) \(Int(r.height)) session.viewSize=\(session.viewSize) content=\(content.bounds.size)")
+                log("geometry \(name): \(Int(r.minX)) \(Int(r.minY)) \(Int(r.width)) \(Int(r.height)) session.viewSize=\(session.viewSize) content=\(content.bounds.size) window=\(content.window?.frame ?? .zero) style=\(content.window?.styleMask.rawValue ?? 0)")
             }
         }
         log("snapshot \(name)")

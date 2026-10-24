@@ -169,6 +169,23 @@ extension ViewportAppearance {
             : Color(.sRGB, red: 0x1D / 255, green: 0x2B / 255, blue: 0x45 / 255)
     }
     var chipEdge: Color { self == .dark ? .white.opacity(0.11) : Color(.sRGB, red: 0x1D / 255, green: 0x2B / 255, blue: 0x45 / 255).opacity(0.11) }
+
+    /// View-cube face fill: the app's raised surface for a face turned to the viewer, easing
+    /// to the panel and chrome neutrals as it turns away (shading without grey plastic).
+    func cubeFace(facing: Double) -> Color {
+        let t = min(max(facing, 0), 1)
+        let (near, far): ((Double, Double, Double), (Double, Double, Double)) = self == .dark
+            ? ((0x2A, 0x33, 0x44), (0x1A, 0x20, 0x2C))   // raised+ … chrome
+            : ((0xFF, 0xFF, 0xFF), (0xDD, 0xE3, 0xEB))   // raised … a step below chrome
+        func mix(_ a: Double, _ b: Double) -> Double { (b + (a - b) * t) / 255 }
+        return Color(.sRGB, red: mix(near.0, far.0), green: mix(near.1, far.1), blue: mix(near.2, far.2))
+    }
+
+    /// Cube edges in ink, like the drawing's line work.
+    var cubeEdge: Color { chipInk.opacity(self == .dark ? 0.45 : 0.55) }
+
+    /// The face under the pointer: the fillet orange wash ("this is what a click does").
+    var cubeHover: Color { Color(.sRGB, red: 0xF2 / 255, green: 0x6B / 255, blue: 0x1D / 255).opacity(self == .dark ? 0.28 : 0.16) }
 }
 
 struct ViewCubeOverlay: View {
@@ -235,6 +252,7 @@ public struct ViewCube: View {
     let onFace: (Camera.StandardView) -> Void
     let onCorner: (Double, Double) -> Void
     var size: CGFloat = 84
+    @State private var hoveredFace: Camera.StandardView?
 
     public init(camera: Camera, appearance: ViewportAppearance, onFace: @escaping (Camera.StandardView) -> Void,
                 onCorner: @escaping (Double, Double) -> Void) {
@@ -277,7 +295,8 @@ public struct ViewCube: View {
 
     public var body: some View {
         let cam = camera
-        let dark = appearance == .dark
+        let look = appearance
+        let hovered = hoveredFace
         Canvas { ctx, sz in
             let back = cam.back
             let visible = Self.faces.filter { $0.normal.dot(back) > 0.02 }.sorted { $0.normal.dot(back) < $1.normal.dot(back) }
@@ -287,14 +306,14 @@ public struct ViewCube: View {
                 path.addLines(pts)
                 path.closeSubpath()
                 let facing = face.normal.dot(back)
-                let shade = dark ? 0.24 + 0.16 * facing : 0.80 + 0.16 * facing
-                ctx.fill(path, with: .color(Color(white: shade).opacity(0.94)))
-                ctx.stroke(path, with: .color(dark ? .white.opacity(0.22) : .black.opacity(0.22)), lineWidth: 1)
+                ctx.fill(path, with: .color(look.cubeFace(facing: facing)))
+                if face.view == hovered { ctx.fill(path, with: .color(look.cubeHover)) }
+                ctx.stroke(path, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
                 if facing > 0.3 {
                     let c = Self.project(face.normal, camera: cam, size: sz.width)
                     ctx.opacity = min(1, (facing - 0.3) * 2.5)
                     ctx.draw(Text(face.label).font(.system(size: 10, weight: .semibold).width(.condensed))
-                                .foregroundStyle(dark ? .white : .black.opacity(0.75)),
+                                .foregroundStyle(look.chipInk),
                              at: c)
                     ctx.opacity = 1
                 }
@@ -312,6 +331,12 @@ public struct ViewCube: View {
         .frame(width: size, height: size)
         .contentShape(Rectangle())
         .onTapGesture(coordinateSpace: .local) { loc in tap(loc) }
+        .onContinuousHover(coordinateSpace: .local) { phase in
+            switch phase {
+            case .active(let p): hoveredFace = face(at: p)
+            case .ended: hoveredFace = nil
+            }
+        }
         .accessibilityElement()
         .accessibilityLabel("View cube")
         .accessibilityActions {
@@ -327,6 +352,23 @@ public struct ViewCube: View {
     #else
     static let cornerHitRadius: CGFloat = 10
     #endif
+
+    /// The visible face under a point (corners excluded), for hover.
+    private func face(at loc: CGPoint) -> Camera.StandardView? {
+        let back = camera.back
+        for d in Self.cornerDirs where d.dot(back) > 0.2 {
+            let p = Self.project(d, camera: camera, size: size)
+            if hypot(p.x - loc.x, p.y - loc.y) < Self.cornerHitRadius { return nil }
+        }
+        let visible = Self.faces.filter { $0.normal.dot(back) > 0.02 }.sorted { $0.normal.dot(back) > $1.normal.dot(back) }
+        for face in visible {
+            var path = Path()
+            path.addLines(face.corners.map { Self.project($0, camera: camera, size: size) })
+            path.closeSubpath()
+            if path.contains(loc) { return face.view }
+        }
+        return nil
+    }
 
     private func tap(_ loc: CGPoint) {
         let back = camera.back

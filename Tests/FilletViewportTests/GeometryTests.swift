@@ -164,8 +164,9 @@ struct RendererTests {
         scene.selection = [.face(body: id, index: 2)]
         let selected = try #require(renderer.snapshot(scene: scene, camera: cam, size: CGSize(width: 100, height: 100), scale: 1))
         let a = pixel(plain, x: 50, y: 50), b = pixel(selected, x: 50, y: 50)
-        #expect(abs(a.x - a.z) < 20)       // neutral grey
+        #expect(abs(a.x - a.z) < 36)       // slate grey: only a hint of the ink's blue
         #expect(b.z > b.x + 40)            // blue
+        #expect(b.z - b.x > a.z - a.x + 30) // and clearly bluer than the plain body
     }
 
     @Test func overhangTintSkipsBedFaces() throws {

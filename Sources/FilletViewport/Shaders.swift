@@ -369,7 +369,7 @@ struct GridDraw {
     float4 major;
     float4 params;       // x minor spacing, y major spacing, z fade radius (0 = none), w line width (pt)
     float4 fadeCenter;   // xyz
-    float4 axes;         // x = draw u/v axis lines through origin (1/0)
+    float4 axes;         // x = draw u/v axis lines through origin (1/0), y = thin out when seen from behind
     float4 axisUColor;
     float4 axisVColor;
 };
@@ -428,6 +428,8 @@ fragment float4 grid_fragment(GridOut in [[stage_in]],
     float3 V = U.eye.w > 0.5 ? normalize(U.eye.xyz - in.world) : -U.forward.xyz;
     float3 N = normalize(cross(G.axisU.xyz, G.axisV.xyz));
     c.a *= smoothstep(0.0, 0.12, abs(dot(V, N)));
+    // An opaque sheet seen from underneath would hide the model: from below it's tracing paper.
+    if (G.axes.y > 0.5 && dot(V, N) < 0.0) c.a *= 0.22;
     if (c.a <= 0.001) discard_fragment();
     return c;
 }

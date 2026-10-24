@@ -29,8 +29,9 @@ public struct ViewportColor: Hashable, Codable, Sendable {
 
     public static let white = ViewportColor(1, 1, 1)
     public static let black = ViewportColor(0, 0, 0)
-    /// Neutral light-grey default body colour.
-    public static let defaultBody = ViewportColor(hex: 0xC9CDD3)
+    /// Default body colour: a grey a step towards the icon's navy ink, so the part reads as the
+    /// drawing's subject against the cream bed (and the selection blue and overhang red stay distinct).
+    public static let defaultBody = ViewportColor(hex: 0xBAC3D3)
     /// Accent blue used for selection.
     public static let accent = ViewportColor(hex: 0x1F7BFF)
     /// Translucent blue used for "new body / join" previews.
