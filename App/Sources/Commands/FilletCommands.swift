@@ -60,6 +60,13 @@ struct FilletCommands: Commands {
                 .keyboardShortcut(bare("x"))
             Button("Finish Sketch") { session?.finishSketch() }
                 .keyboardShortcut(.return, modifiers: [.command])
+            #if os(iOS)
+            // `onKeyPress` needs focus the editor never has on iPad; a key command always reaches it.
+            // (Mac uses onExitCommand, which follows the responder chain.)
+            Divider()
+            Button("Cancel") { session?.escape() }
+                .keyboardShortcut(.escape, modifiers: [])
+            #endif
         }
     }
 

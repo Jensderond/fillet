@@ -1,6 +1,5 @@
 import SwiftUI
 
-@main
 struct FilletApp: App {
     init() {
         #if DEBUG && os(macOS)
@@ -15,3 +14,16 @@ struct FilletApp: App {
         .commands { FilletCommands() }
     }
 }
+
+#if DEBUG && os(iOS)
+/// Debug iPad builds can launch straight into an editor for the automation (no document browser).
+@main
+enum FilletLauncher {
+    @MainActor static func main() {
+        if DebugAutomation.isEnabled { AutomationApp.main() } else { FilletApp.main() }
+    }
+}
+#else
+@main
+extension FilletApp {}
+#endif

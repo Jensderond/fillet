@@ -14,6 +14,7 @@ struct ExprField: View {
     @State private var error: String?
     @State private var hovering = false
     @FocusState private var focused: Bool
+    @Environment(\.touchTargets) private var touch
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -67,7 +68,7 @@ struct ExprField: View {
             }
         }
         .padding(.horizontal, Theme.Space.m)
-        .frame(minHeight: 32)
+        .frame(minHeight: touch ? 44 : 32)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.raised))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
@@ -75,6 +76,7 @@ struct ExprField: View {
         .shadow(color: focused ? Theme.fillet.opacity(0.25) : .clear, radius: 4)
         .contentShape(Rectangle())
         .onTapGesture { focused = true }
+        .hoverHighlight()
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: focused)
     }

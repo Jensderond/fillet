@@ -308,6 +308,35 @@ struct BlurCrossfade: ViewModifier {
     }
 }
 
+/// Edge fades on a horizontal `ScrollView`, shown only on the side that has more content.
+struct OverflowFade: ViewModifier {
+    var width: CGFloat
+    @State private var more = Edges()
+
+    struct Edges: Equatable {
+        var leading = false
+        var trailing = false
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .scrollIndicators(.never)
+            .onScrollGeometryChange(for: Edges.self) { g in
+                Edges(leading: g.contentOffset.x > 1,
+                      trailing: g.contentOffset.x + g.containerSize.width < g.contentSize.width - 1)
+            } action: { _, edges in more = edges }
+            .mask {
+                HStack(spacing: 0) {
+                    LinearGradient(colors: [more.leading ? .clear : .black, .black], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: width)
+                    Color.black
+                    LinearGradient(colors: [.black, more.trailing ? .clear : .black], startPoint: .leading, endPoint: .trailing)
+                        .frame(width: width)
+                }
+            }
+    }
+}
+
 private struct BlurModifier: ViewModifier {
     let radius: CGFloat
     func body(content: Content) -> some View { content.blur(radius: radius) }
@@ -347,14 +376,18 @@ extension View {
         modifier(FloatingElevation(cornerRadius: cornerRadius))
     }
 
-    /// Pointer-only hover feedback (no false positives from touch).
-    func hoverHighlight() -> some View {
+    /// Pointer-only hover feedback (no false positives from touch), shaped like the control's background.
+    func hoverHighlight(cornerRadius: CGFloat = Theme.Radius.control) -> some View {
         #if os(iOS)
-        self.hoverEffect(.highlight)
+        self.contentShape(.hoverEffect, RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .hoverEffect(.highlight)
         #else
         self
         #endif
     }
+
+    /// Fades the edges of a horizontal scroll view while there's more to scroll that way.
+    func overflowFade(width: CGFloat = Theme.Space.l) -> some View { modifier(OverflowFade(width: width)) }
 
     func blurCrossfade(_ value: String) -> some View { modifier(BlurCrossfade(value: value)) }
 }

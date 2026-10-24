@@ -1,16 +1,28 @@
-#if DEBUG && os(macOS)
+#if DEBUG
+#if os(macOS)
 import AppKit
 import MetalKit
+#else
+import UIKit
+#endif
 import FilletCore
 import FilletKernel
 import FilletViewport
+import ImageIO
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Debug-only end-to-end scenario: launch with `FILLET_AUTOMATION=1` and the
 /// app opens a new document, drives a realistic workflow through the same
 /// session entry points the UI uses (tool events with real camera rays, taps
 /// with pick targets, inspector updates), and writes a snapshot of the
 /// viewport and the window after every step to `$TMPDIR/fillet-automation/`.
+///
+/// On iPad (simulator) the app opens straight into an editor on an in-memory
+/// document (see `AutomationEditor`). Window captures there come from outside:
+/// each step logs `snapshot <name>` and holds still for `iPadScreenshotPause`
+/// so a script can run `simctl io screenshot`. `FILLET_ORIENTATION=landscape`
+/// lays out at landscape size; `FILLET_WIDTH=700` narrows the editor to a Split View width.
 @MainActor
 enum DebugAutomation {
     static var isEnabled: Bool { ProcessInfo.processInfo.environment["FILLET_AUTOMATION"] != nil }
@@ -22,12 +34,28 @@ enum DebugAutomation {
         return dir
     }()
 
+    #if os(macOS)
     static func launch() {
         guard isEnabled else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             NSDocumentController.shared.newDocument(nil)
         }
     }
+    #else
+    /// Editor width for a Split View check (`FILLET_WIDTH`), nil for the full window.
+    static var forcedWidth: CGFloat? {
+        ProcessInfo.processInfo.environment["FILLET_WIDTH"].flatMap(Double.init).map { CGFloat($0) }
+    }
+
+    /// iPadOS 26 refuses programmatic rotation in windowed mode, so `FILLET_ORIENTATION=landscape`
+    /// lays the editor out at the 13" landscape size and scales it down to fit the portrait screen.
+    static var simulatedLandscape: CGSize? {
+        ProcessInfo.processInfo.environment["FILLET_ORIENTATION"] == "landscape" ? CGSize(width: 1376, height: 1032) : nil
+    }
+
+    /// Time each step holds still for an external `simctl io screenshot`.
+    static let iPadScreenshotPause: Duration = .seconds(3)
+    #endif
 
     private static var ran = false
     /// The editor's viewport controller, to compare its live (animated) camera with the session's.
@@ -36,16 +64,20 @@ enum DebugAutomation {
     static func run(_ session: DesignSession) async {
         guard isEnabled, !ran else { return }
         ran = true
+        #if os(macOS)
         switch ProcessInfo.processInfo.environment["FILLET_APPEARANCE"] {
         case "light": NSApp.appearance = NSAppearance(named: .aqua)
         case "dark": NSApp.appearance = NSAppearance(named: .darkAqua)
         default: break
         }
+        #endif
         log("output: \(outputDirectory.path)")
         try? await Task.sleep(for: .seconds(1))
+        #if os(macOS)
         if let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }) {
             window.setFrame(NSRect(x: 40, y: 40, width: 1600, height: 1000), display: true)
         }
+        #endif
         try? await Task.sleep(for: .milliseconds(300))
         await settle(session)
         await snap(session, "01-empty")
@@ -70,7 +102,9 @@ enum DebugAutomation {
         await settle(session)
         await snap(session, "02-sketch")
         check(session.model.sketches.values.first?.regions?.count == 2, "sketch has 2 regions")
+        #if os(macOS)
         await typeIntoDimensionField(session)
+        #endif
 
         // Extrude the plate (not the hole).
         session.startExtrude()
@@ -175,9 +209,11 @@ enum DebugAutomation {
 
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
+        #if os(macOS)
         if ProcessInfo.processInfo.environment["FILLET_AUTOMATION_KEEP_OPEN"] == nil {
             NSApp.terminate(nil)
         }
+        #endif
     }
 
     // MARK: Helpers
@@ -226,6 +262,7 @@ enum DebugAutomation {
         session.viewportToolHover(ViewportToolEvent(ray: session.camera.ray(at: screen, viewSize: size), location: screen, pointer: .mouse))
     }
 
+    #if os(macOS)
     /// Typing into a focused dimension field must reach the field, not the bare-letter
     /// sketch tool shortcuts ("l" = line, "." = point), and Backspace must not delete the shape.
     private static func typeIntoDimensionField(_ session: DesignSession) async {
@@ -259,12 +296,17 @@ enum DebugAutomation {
         NSDocumentController.shared.document(for: window)?.updateChangeCount(.changeCleared)
         await settle(session)
     }
+    #endif
 
     private static func snap(_ session: DesignSession, _ name: String) async {
         let size = CGSize(width: max(session.viewSize.width, 400), height: max(session.viewSize.height, 300))
         if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2) {
             write(image, name + "-viewport")
         }
+        #if os(iOS)
+        log("snapshot \(name)")
+        try? await Task.sleep(for: iPadScreenshotPause)
+        #else
         if let view = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil && $0.frame.width > 200 })?.contentView,
             let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
         {
@@ -287,15 +329,16 @@ enum DebugAutomation {
             }
         }
         log("snapshot \(name)")
+        #endif
     }
 
     private static func write(_ image: CGImage, _ name: String) {
-        let rep = NSBitmapImageRep(cgImage: image)
-        try? rep.representation(using: .png, properties: [:])?.write(to: outputDirectory.appendingPathComponent(name + ".png"))
+        let url = outputDirectory.appendingPathComponent(name + ".png")
+        guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.png.identifier as CFString, 1, nil) else { return }
+        CGImageDestinationAddImage(dest, image, nil)
+        CGImageDestinationFinalize(dest)
     }
 }
-
-private protocol MTKViewMarker {}
 
 extension DesignSession {
     /// The sketch the extrude being edited uses.
@@ -304,4 +347,41 @@ extension DesignSession {
         return nil
     }
 }
+#if os(iOS)
+/// The app the iPad automation launches instead of `FilletApp` (see `FilletLauncher`).
+struct AutomationApp: App {
+    var body: some Scene {
+        WindowGroup { AutomationEditor() }
+            .commands { FilletCommands() }
+    }
+}
+
+/// The automation's iPad window: an editor on a fresh in-memory document, skipping the document browser.
+struct AutomationEditor: View {
+    @State private var document = FilletDocument()
+
+    var body: some View {
+        if let size = DebugAutomation.simulatedLandscape {
+            GeometryReader { proxy in
+                editor
+                    .frame(width: size.width, height: size.height)
+                    .scaleEffect(proxy.size.width / size.width, anchor: .topLeading)
+            }
+            .background(Color.black)
+            .ignoresSafeArea()
+        } else {
+            editor
+                .frame(width: DebugAutomation.forcedWidth)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.black)
+        }
+    }
+
+    private var editor: some View {
+        NavigationStack {
+            EditorView(document: $document, fileURL: nil)
+        }
+    }
+}
+#endif
 #endif

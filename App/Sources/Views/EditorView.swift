@@ -36,32 +36,73 @@ struct EditorView: View {
     }
 }
 
+/// How the editor arranges its panels for the width it has.
+enum EditorLayout: Equatable {
+    /// 1100 pt and up: browser and inspector are columns; the inspector always shows.
+    case regular
+    /// 760–1100 pt: the browser floats over the viewport; the inspector is a column when needed.
+    case medium
+    /// Under 760 pt: the browser floats; the inspector docks under the viewport.
+    case compact
+
+    init(width: CGFloat) {
+        self = width >= 1100 ? .regular : width >= 760 ? .medium : .compact
+    }
+}
+
 struct EditorContent: View {
     @Bindable var session: DesignSession
     let fileURL: URL?
 
     @State private var controller = ViewportController()
+    /// The user's browser preference at regular width. Narrower widths override it
+    /// with `browserOverlay` and never write to it.
     @State private var showBrowser = true
+    @State private var browserOverlay = false
+    @State private var width: CGFloat = 1400
+    @State private var viewportWidth: CGFloat = 800
     @State private var showUpdating = false
     @AppStorage("fingerDraws") private var fingerDraws = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    private var layout: EditorLayout { EditorLayout(width: width) }
+
+    /// At regular width the inspector always shows, so the viewport (and the model in it)
+    /// doesn't jump 320 pt as the selection changes, and the empty document gets its starter.
     private var showInspector: Bool {
-        session.editing != nil || session.sketchEditor != nil || !session.selection.isEmpty || !session.model.bodies.isEmpty
+        layout == .regular || session.editing != nil || session.sketchEditor != nil || !session.selection.isEmpty
+            || !session.model.bodies.isEmpty
     }
+
+    private var browserVisible: Binding<Bool> { layout == .regular ? $showBrowser : $browserOverlay }
 
     var body: some View {
         VStack(spacing: 0) {
-            ToolStrip(session: session, showBrowser: $showBrowser)
+            ToolStrip(session: session, showBrowser: browserVisible)
             HStack(spacing: 0) {
-                if showBrowser {
+                if layout == .regular, showBrowser {
                     BrowserView(session: session)
                         .frame(width: 252)
                         .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
                         .transition(.panel(from: .leading, reduceMotion: reduceMotion))
                 }
-                viewport
-                if showInspector {
+                VStack(spacing: 0) {
+                    viewport
+                        .overlay(alignment: .leading) {
+                            if layout != .regular, browserOverlay {
+                                BrowserView(session: session)
+                                    .frame(width: 252)
+                                    .overlay(alignment: .trailing) { Theme.hairline.frame(width: 1) }
+                                    .shadow(color: .black.opacity(0.16), radius: 16, x: 4)
+                                    .transition(.panel(from: .leading, reduceMotion: reduceMotion))
+                            }
+                        }
+                    if layout == .compact, showInspector {
+                        InspectorDrawer(session: session)
+                            .transition(.panel(from: .bottom, reduceMotion: reduceMotion))
+                    }
+                }
+                if layout != .compact, showInspector {
                     InspectorView(session: session)
                         .frame(width: 320)
                         .overlay(alignment: .leading) { Theme.hairline.frame(width: 1) }
@@ -70,10 +111,18 @@ struct EditorContent: View {
             }
             .animation(Theme.Motion.enter, value: showInspector)
             .animation(Theme.Motion.enter, value: showBrowser)
+            .animation(Theme.Motion.enter, value: browserOverlay)
+            .animation(Theme.Motion.enter, value: layout)
             TimelineView(session: session)
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { width = $0 }
+        // A floating browser gives way to the inspector rather than covering the viewport twice.
+        .onChange(of: showInspector) { _, shown in if shown, layout != .regular { browserOverlay = false } }
         .background(Theme.chrome)
         .tint(Theme.fillet)
+        #if os(macOS)
+        .frame(minWidth: 900, minHeight: 600)
+        #endif
         .navigationTitle(session.documentName ?? fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -84,19 +133,14 @@ struct EditorContent: View {
         .onDeleteCommand {
             if session.sketchEditor != nil { session.deleteSelectedSketchShapes() }
         }
-        .onExitCommand { escape() }
-        #else
-        .onKeyPress(.escape) {
-            escape()
-            return .handled
-        }
+        .onExitCommand { session.escape() }
         #endif
         .focusedSceneValue(\.session, session)
         .focusedSceneValue(\.viewport, controller)
         .fileImporter(isPresented: $session.importRequested, allowedContentTypes: [.step]) { result in
             if case .success(let url) = result { session.importSTEP(from: url) }
         }
-        #if DEBUG && os(macOS)
+        #if DEBUG
         .task {
             DebugAutomation.controller = controller
             await DebugAutomation.run(session)
@@ -128,7 +172,9 @@ struct EditorContent: View {
 
             VStack(spacing: Theme.Space.m) {
                 if session.sketchEditor != nil {
+                    // Centred, and kept clear of the view cube (84 pt + margins) on both sides.
                     SketchToolbar(session: session, fingerDraws: $fingerDraws)
+                        .frame(maxWidth: max(viewportWidth - 2 * 112, 300))
                         .transition(.panel(from: .top, reduceMotion: reduceMotion))
                 }
                 if let hint = currentHint {
@@ -165,6 +211,7 @@ struct EditorContent: View {
             }
         }
         .clipped()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { viewportWidth = $0 }
     }
 
     private var currentHint: (text: String, symbol: String)? {
@@ -178,21 +225,13 @@ struct EditorContent: View {
         case .faces: return ("\(pick) faces to remove them", "hand.tap")
         case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap")
         case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap")
-        default: return nil
+        default: break
         }
-    }
-
-    private func escape() {
-        if var editor = session.sketchEditor, !editor.engine.isIdle {
-            editor.engine.cancel()
-            session.sketchEditor = editor
-        } else if session.sketchEditor != nil {
-            session.finishSketch()
-        } else if session.editing != nil {
-            session.cancelEdit()
-        } else {
-            session.selection = []
+        // Without the always-visible inspector (narrow layouts), the empty document still needs a first step.
+        if layout != .regular, session.document.features.isEmpty, session.editing == nil {
+            return ("Start with Sketch to draw a profile on the bed", "pencil.and.outline")
         }
+        return nil
     }
 }
 
@@ -218,6 +257,7 @@ struct HintPill: View {
 struct Toast: View {
     let message: ToastMessage
     let dismiss: () -> Void
+    @Environment(\.touchTargets) private var touch
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -227,10 +267,11 @@ struct Toast: View {
             Text(message.text).font(Theme.body).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
             Button(action: dismiss) {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.inkTertiary)
-                    .frame(width: 22, height: 22)
+                    .frame(width: touch ? 44 : 22, height: touch ? 44 : 22)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .hoverHighlight()
             .accessibilityLabel("Dismiss")
         }
         .padding(.leading, Theme.Space.l).padding(.trailing, Theme.Space.xs).padding(.vertical, Theme.Space.s)
@@ -252,7 +293,7 @@ struct ToolStrip: View {
         let busy = session.isBusyEditing
         HStack(spacing: Theme.Space.s) {
             ToolButton("Browser", "sidebar.left", active: showBrowser, toggle: true) { showBrowser.toggle() }
-            ScrollView(.horizontal, showsIndicators: false) {
+            ScrollView(.horizontal) {
                 HStack(spacing: Theme.Space.s) {
                     ToolCluster {
                         // Menus aren't `.disabled` as a whole (the system dims their labels a second
@@ -270,6 +311,7 @@ struct ToolStrip: View {
                             if !busy { session.startSketch() }
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                        .hoverHighlight()
                         .help("New sketch on the selected face, or on the bed (⇧⌘K)")
                     }
                     ToolCluster {
@@ -287,6 +329,7 @@ struct ToolStrip: View {
                             ToolLabel("Primitive", "cube", active: session.editingKind == "primitive", disabled: busy)
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
+                        .hoverHighlight()
                         ToolButton("Import", "square.and.arrow.down") { session.importRequested = true }
                             .disabled(busy)
                     }
@@ -312,6 +355,7 @@ struct ToolStrip: View {
                 }
                 .padding(.vertical, 1)
             }
+            .overflowFade()
             Spacer(minLength: 0)
         }
         .padding(.horizontal, Theme.Space.s)
@@ -427,42 +471,36 @@ struct ToolButton: View {
 
 // MARK: - Sketch toolbar
 
-/// Drawing tools floating at the top of the viewport in sketch mode.
+/// Drawing tools floating at the top of the viewport in sketch mode. When the full bar
+/// doesn't fit (iPad portrait, Split View) the tools scroll and Finish stays in view.
 struct SketchToolbar: View {
     @Bindable var session: DesignSession
     @Binding var fingerDraws: Bool
+    @Environment(\.touchTargets) private var touch
 
     private let tools: [(SketchTool, String)] = [
         (.select, "cursorarrow"), (.line, "line.diagonal"), (.rectangle, "rectangle"),
-        (.centerRectangle, "rectangle.center.inset.filled"), (.circle, "circle"),
-        (.arc, "point.topleft.down.to.point.bottomright.curvepath"),
+        (.centerRectangle, "plus.rectangle"), (.circle, "circle"),
+        (.arc, "circle.bottomhalf.filled"),
         (.polygon, "hexagon"), (.slot, "capsule"), (.spline, "scribble"), (.point, "smallcircle.filled.circle"),
     ]
 
+    private var toolSize: CGSize { touch ? CGSize(width: 44, height: 44) : CGSize(width: 38, height: 34) }
+
     var body: some View {
+        ViewThatFits(in: .horizontal) {
+            bar(scrolling: false).fixedSize()
+            bar(scrolling: true)
+        }
+    }
+
+    private func bar(scrolling: Bool) -> some View {
         HStack(spacing: Theme.Space.s) {
-            HStack(spacing: 2) {
-                ForEach(tools, id: \.0) { tool, symbol in
-                    let active = session.sketchEditor?.tool == tool
-                    Button {
-                        // Tool switches are frequent (and keyboard-driven too): no animation.
-                        session.sketchEditor?.engine.setTool(tool)
-                    } label: {
-                        Image(systemName: symbol)
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(active ? Theme.filletInk : Theme.ink)
-                            .frame(width: 38, height: 34)
-                            .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                                .fill(active ? Theme.filletSoft : .clear))
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(PressableStyle())
-                    .help("\(tool.title) (\(String(tool.shortcut.character).uppercased()))")
-                    .accessibilityLabel(tool.title)
-                    .accessibilityAddTraits(active ? .isSelected : [])
-                    .hoverHighlight()
-                    if tool == .select { Theme.hairline.frame(width: 1, height: 24).padding(.horizontal, Theme.Space.xs) }
-                }
+            if scrolling {
+                ScrollView(.horizontal) { toolButtons }
+                    .overflowFade()
+            } else {
+                toolButtons
             }
             if session.sketchEditor?.tool == .spline || session.sketchEditor?.tool == .line {
                 Button("Done") {
@@ -470,6 +508,7 @@ struct SketchToolbar: View {
                     session.addSketchShapes(shapes)
                 }
                 .buttonStyle(SecondaryButtonStyle())
+                .fixedSize()
                 .help("End the line chain or spline")
             }
             #if os(iOS)
@@ -478,12 +517,13 @@ struct SketchToolbar: View {
                 Image(systemName: "hand.draw")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundStyle(Theme.ink)
-                    .frame(width: 38, height: 34)
+                    .frame(width: toolSize.width, height: toolSize.height)
                     .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                         .fill(fingerDraws ? Theme.hairlineStrong : .clear))
                     .contentShape(Rectangle())
             }
             .buttonStyle(PressableStyle())
+            .hoverHighlight()
             .help("Draw with finger instead of Apple Pencil")
             .accessibilityLabel("Draw with finger")
             .accessibilityAddTraits(fingerDraws ? .isSelected : [])
@@ -494,10 +534,36 @@ struct SketchToolbar: View {
                 Label("Finish sketch", systemImage: "checkmark").fixedSize()
             }
             .buttonStyle(PrimaryButtonStyle())
+            .fixedSize()
         }
-        .fixedSize()
         .padding(Theme.Space.s)
         .floatingElevation(cornerRadius: Theme.Radius.control + Theme.Space.s)
+    }
+
+    private var toolButtons: some View {
+        HStack(spacing: 2) {
+            ForEach(tools, id: \.0) { tool, symbol in
+                let active = session.sketchEditor?.tool == tool
+                Button {
+                    // Tool switches are frequent (and keyboard-driven too): no animation.
+                    session.sketchEditor?.engine.setTool(tool)
+                } label: {
+                    Image(systemName: symbol)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(active ? Theme.filletInk : Theme.ink)
+                        .frame(width: toolSize.width, height: toolSize.height)
+                        .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                            .fill(active ? Theme.filletSoft : .clear))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(PressableStyle())
+                .help("\(tool.title) (\(String(tool.shortcut.character).uppercased()))")
+                .accessibilityLabel(tool.title)
+                .accessibilityAddTraits(active ? .isSelected : [])
+                .hoverHighlight()
+                if tool == .select { Theme.hairline.frame(width: 1, height: 24).padding(.horizontal, Theme.Space.xs) }
+            }
+        }
     }
 }
 

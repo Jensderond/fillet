@@ -170,15 +170,26 @@ private struct CubeButton: View {
     let help: String
     let action: () -> Void
 
+    /// 44 pt touch targets on iPad.
+    #if os(iOS) || os(visionOS)
+    static let side: CGFloat = 44
+    #else
+    static let side: CGFloat = 32
+    #endif
+
     var body: some View {
         Button(action: action) {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .medium))
-                .frame(width: 32, height: 32)
+                .frame(width: Self.side, height: Self.side)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        #if os(iOS) || os(visionOS)
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .hoverEffect(.highlight)
+        #endif
         .help(help)
         .accessibilityLabel(help)
     }
@@ -276,12 +287,19 @@ public struct ViewCube: View {
         }
     }
 
+    /// Corners are small; a fingertip needs a wider catch than the pointer.
+    #if os(iOS) || os(visionOS)
+    static let cornerHitRadius: CGFloat = 18
+    #else
+    static let cornerHitRadius: CGFloat = 10
+    #endif
+
     private func tap(_ loc: CGPoint) {
         let back = camera.back
         // Corners first (iso views from that corner).
         for d in Self.cornerDirs where d.dot(back) > 0.2 {
             let p = Self.project(d, camera: camera, size: size)
-            if hypot(p.x - loc.x, p.y - loc.y) < 10 {
+            if hypot(p.x - loc.x, p.y - loc.y) < Self.cornerHitRadius {
                 let n = d.normalized
                 onCorner(atan2(n.x, -n.y), asin(n.z))
                 return

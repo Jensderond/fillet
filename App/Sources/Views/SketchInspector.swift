@@ -42,14 +42,21 @@ struct SketchInspector: View {
     }
 
     @ViewBuilder private func options(_ editor: SketchEditor) -> some View {
-        Picker("Snap to grid", selection: Binding(
-            get: { editor.gridSize },
-            set: { session.sketchEditor?.gridSize = $0 })) {
-            Text("Off").tag(0.0)
-            Text("0.1 mm").tag(0.1)
-            Text("0.5 mm").tag(0.5)
-            Text("1 mm").tag(1.0)
-            Text("5 mm").tag(5.0)
+        // Explicit label: an iPad menu picker shows only its value.
+        HStack {
+            Text("Snap to grid").foregroundStyle(Theme.ink)
+            Spacer(minLength: Theme.Space.s)
+            Picker("Snap to grid", selection: Binding(
+                get: { editor.gridSize },
+                set: { session.sketchEditor?.gridSize = $0 })) {
+                Text("Off").tag(0.0)
+                Text("0.1 mm").tag(0.1)
+                Text("0.5 mm").tag(0.5)
+                Text("1 mm").tag(1.0)
+                Text("5 mm").tag(5.0)
+            }
+            .labelsHidden()
+            .fixedSize()
         }
         Toggle("Draw construction lines", isOn: Binding(
             get: { editor.engine.construction },

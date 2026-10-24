@@ -29,6 +29,12 @@ struct SelectionInspector: View {
         // Nothing is active here, so the chip is ink, not orange.
         InspectorHeader(symbol: "printer", title: "Print check", subtitle: session.document.printerPreset.name, tint: Theme.inkSecondary)
         if session.model.bodies.isEmpty {
+            if session.document.features.isEmpty {
+                Button { session.startSketch() } label: {
+                    Label("Start a sketch on the bed", systemImage: "pencil.and.outline").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(PrimaryButtonStyle())
+            }
             Hint("Start with Sketch in the toolbar, draw a profile on the bed, then Extrude it.", symbol: "pencil.and.outline")
         } else if let a = session.printAnalysis {
             VStack(spacing: 0) {

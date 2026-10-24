@@ -21,12 +21,61 @@ struct InspectorView: View {
                 }
                 .padding(Theme.Space.l)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // System controls (toggles, steppers, menu pickers) follow the panel's type and
+                // ink rather than the platform defaults (17 pt and the orange tint on iPad).
+                .font(Theme.body)
+                .tint(Theme.ink)
             }
-            if session.sketchEditor == nil, session.editingFeature != nil {
+            if session.sketchEditor != nil {
+                SketchFooter(finish: session.finishSketch)
+            } else if session.editingFeature != nil {
                 InspectorFooter(cancel: session.cancelEdit, done: session.commitEdit)
             }
         }
         .background(Theme.panel)
+    }
+}
+
+/// The inspector docked under the viewport at compact widths. The grabber switches between
+/// a short panel that keeps the model in view and a tall one for long forms. (A system sheet
+/// would be a centred form sheet on iPad at these widths and cover the model being picked.)
+struct InspectorDrawer: View {
+    @Bindable var session: DesignSession
+    @State private var expanded = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Button { expanded.toggle() } label: {
+                Capsule().fill(Theme.hairlineStrong)
+                    .frame(width: 36, height: 5)
+                    .frame(maxWidth: .infinity, minHeight: Theme.Space.l + Theme.Space.s)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(expanded ? "Make inspector shorter" : "Make inspector taller")
+            InspectorView(session: session)
+        }
+        .frame(height: expanded ? 560 : 340)
+        .background(Theme.panel)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 1) }
+        .animation(Theme.Motion.enter, value: expanded)
+    }
+}
+
+/// Finish, pinned to the bottom of the inspector in sketch mode (the counterpart of Cancel / Done).
+/// ⌘↩ lives in the Sketch menu, so the button carries no shortcut of its own.
+struct SketchFooter: View {
+    let finish: () -> Void
+
+    var body: some View {
+        Button(action: finish) {
+            Label("Finish sketch", systemImage: "checkmark").frame(maxWidth: .infinity)
+        }
+        .buttonStyle(PrimaryButtonStyle())
+        .padding(.horizontal, Theme.Space.l)
+        .padding(.vertical, Theme.Space.m)
+        .background(Theme.panel)
+        .overlay(alignment: .top) { Theme.hairline.frame(height: 1) }
     }
 }
 

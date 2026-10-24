@@ -14,6 +14,7 @@ struct TimelineView: View {
     @State private var dropTarget: Int?
     @Namespace private var markerSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.touchTargets) private var touch
 
     static let stationWidth: CGFloat = 70
 
@@ -90,7 +91,7 @@ struct TimelineView: View {
         Button(action: action) {
             Image(systemName: symbol)
                 .font(.system(size: 12, weight: .semibold))
-                .frame(width: 30, height: 30)
+                .frame(width: touch ? 44 : 30, height: touch ? 44 : 30)
                 .contentShape(Rectangle())
         }
         .buttonStyle(PlaybackButtonStyle())
@@ -113,6 +114,7 @@ struct TimelineView: View {
                 dropTarget: dropTarget == index)
         }
         .buttonStyle(PressableStyle())
+        .hoverHighlight()
         .help(failed.map { "\(feature.name): \($0)" } ?? "\(feature.name). \(Theme.Copy.pick) to edit.")
         .accessibilityLabel("Step \(index + 1), \(feature.name)\(failed != nil ? ", failed" : "")")
         .draggable("feature:\(feature.id.uuidString)") {

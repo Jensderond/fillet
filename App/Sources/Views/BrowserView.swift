@@ -4,6 +4,7 @@ import SwiftUI
 /// Left sidebar: bodies, sketches and named parameters.
 struct BrowserView: View {
     @Bindable var session: DesignSession
+    @Environment(\.touchTargets) private var touch
 
     private var sketches: [Feature] {
         session.document.activeFeatures.filter { if case .sketch = $0.kind { true } else { false } }
@@ -29,10 +30,11 @@ struct BrowserView: View {
                                         Image(systemName: hidden ? "eye.slash" : "eye")
                                             .font(.system(size: 12, weight: .medium))
                                             .foregroundStyle(hidden ? Theme.inkTertiary : Theme.inkSecondary)
-                                            .frame(width: 26, height: 26)
+                                            .frame(width: touch ? 44 : 26, height: touch ? 44 : 26)
                                             .contentShape(Rectangle())
                                     }
                                     .buttonStyle(PressableStyle())
+                                    .hoverHighlight()
                                     .help(hidden ? "Show \(body.name)" : "Hide \(body.name)")
                                     .accessibilityLabel(hidden ? "Show \(body.name)" : "Hide \(body.name)")
                                 }
@@ -75,6 +77,7 @@ struct BrowserRow<Trailing: View>: View {
     let action: () -> Void
 
     @State private var hovering = false
+    @Environment(\.touchTargets) private var touch
 
     var body: some View {
         HStack(spacing: Theme.Space.s) {
@@ -98,7 +101,7 @@ struct BrowserRow<Trailing: View>: View {
         }
         .padding(.leading, Theme.Space.s)
         .padding(.trailing, Theme.Space.xs)
-        .frame(minHeight: 32)
+        .frame(minHeight: touch ? 44 : 32)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
             .fill(isActive ? Theme.filletSoft : selected ? Theme.selectSoft : hovering ? Theme.hairline : .clear))
         .opacity(dimmed ? 0.5 : 1)
@@ -146,6 +149,7 @@ struct ParameterRow: View {
     @State private var name = ""
     @State private var nameError: String?
     @FocusState private var nameFocused: Bool
+    @Environment(\.touchTargets) private var touch
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
@@ -167,9 +171,10 @@ struct ParameterRow: View {
                     session.perform("Delete Parameter") { $0.parameters.removeAll { $0.id == parameter.id } }
                 } label: {
                     Image(systemName: "trash").font(.system(size: 11)).foregroundStyle(Theme.inkTertiary)
-                        .frame(width: 24, height: 24).contentShape(Rectangle())
+                        .frame(width: touch ? 44 : 24, height: touch ? 44 : 24).contentShape(Rectangle())
                 }
                 .buttonStyle(PressableStyle())
+                .hoverHighlight()
                 .help("Delete \(parameter.name)")
                 .accessibilityLabel("Delete \(parameter.name)")
             }

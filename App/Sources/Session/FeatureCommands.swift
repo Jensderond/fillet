@@ -64,6 +64,21 @@ extension DesignSession {
         editing?.snapshot = document
     }
 
+    /// Escape, from the keyboard on both platforms: cancel the stroke in progress, then
+    /// leave sketch mode, then cancel the feature being edited, then clear the selection.
+    func escape() {
+        if var editor = sketchEditor, !editor.engine.isIdle {
+            editor.engine.cancel()
+            sketchEditor = editor
+        } else if sketchEditor != nil {
+            finishSketch()
+        } else if editing != nil {
+            cancelEdit()
+        } else {
+            selection = []
+        }
+    }
+
     // MARK: Solid features
 
     /// The sketch an extrude/revolve should use: the open one, the newest unused one, or the newest.
