@@ -1,0 +1,31 @@
+{
+  "fill" : {
+    "linear-gradient" : [
+      "srgb:0.18431,0.41961,0.94118,1.00000",
+      "srgb:0.07059,0.21176,0.65098,1.00000"
+    ],
+    "orientation" : {
+      "start" : { "x" : 0.5, "y" : 0 },
+      "stop" : { "x" : 0.5, "y" : 1 }
+    }
+  },
+  "groups" : [
+    {
+      "layers" : [
+        { "image-name" : "part.png", "name" : "part", "glass" : true }
+      ],
+      "shadow" : { "kind" : "neutral", "opacity" : 0.5 },
+      "translucency" : { "enabled" : false, "value" : 0.5 }
+    },
+    {
+      "layers" : [
+        { "image-name" : "background.png", "name" : "grid", "glass" : false }
+      ],
+      "shadow" : { "kind" : "none", "opacity" : 0.5 },
+      "translucency" : { "enabled" : false, "value" : 0.5 }
+    }
+  ],
+  "supported-platforms" : {
+    "squares" : "shared"
+  }
+}
