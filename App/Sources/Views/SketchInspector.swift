@@ -5,6 +5,7 @@ import SwiftUI
 /// Sketch mode: tool options and exact dimensions of the selected shape.
 struct SketchInspector: View {
     @Bindable var session: DesignSession
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     private var ev: Evaluator { session.model.parameters.evaluator }
 
@@ -82,15 +83,23 @@ struct SketchInspector: View {
             Text("\(shapes.count) shapes selected").font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
         }
         if !shapes.isEmpty {
-            HStack(spacing: Theme.Space.s) {
-                Button { session.toggleConstructionOfSelection() } label: { Label("Construction", systemImage: "line.diagonal") }
-                    .buttonStyle(SecondaryButtonStyle())
-                Spacer(minLength: 0)
-                Button(role: .destructive) { session.deleteSelectedSketchShapes() } label: { Label("Delete", systemImage: "trash") }
-                    .buttonStyle(SecondaryButtonStyle(role: .destructive))
-                    // ⌘⌫, the platform "delete object" chord: a bare ⌫ key equivalent could
-                    // compete with a focused field. Plain ⌫ still works on Mac via onDeleteCommand.
-                    .keyboardShortcut(.delete, modifiers: .command)
+            // Side by side, or at accessibility sizes stacked at full width, where two buttons
+            // in a row would break "Construction" mid-word.
+            let stacked = typeSize.isAccessibilitySize
+            let row = stacked ? AnyLayout(VStackLayout(spacing: Theme.Space.s)) : AnyLayout(HStackLayout(spacing: Theme.Space.s))
+            row {
+                Button { session.toggleConstructionOfSelection() } label: {
+                    Label("Construction", systemImage: "line.diagonal").frame(maxWidth: stacked ? .infinity : nil)
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                if !stacked { Spacer(minLength: 0) }
+                Button(role: .destructive) { session.deleteSelectedSketchShapes() } label: {
+                    Label("Delete", systemImage: "trash").frame(maxWidth: stacked ? .infinity : nil)
+                }
+                .buttonStyle(SecondaryButtonStyle(role: .destructive))
+                // ⌘⌫, the platform "delete object" chord: a bare ⌫ key equivalent could
+                // compete with a focused field. Plain ⌫ still works on Mac via onDeleteCommand.
+                .keyboardShortcut(.delete, modifiers: .command)
             }
         }
     }

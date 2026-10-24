@@ -204,9 +204,13 @@ private struct CheckRow: View {
     let title: String
     let detail: String
     var action: (String, () -> Void)?
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
-        HStack(spacing: Theme.Space.m) {
+        // At accessibility sizes the action goes under the text, which keeps the full width
+        // instead of wrapping word by word beside it.
+        let stacked = typeSize.isAccessibilitySize
+        HStack(alignment: stacked ? .firstTextBaseline : .center, spacing: Theme.Space.m) {
             Image(systemName: state == .ok ? "checkmark.circle.fill" : state == .warn ? "exclamationmark.triangle.fill" : "xmark.octagon.fill")
                 .font(.system(size: 15))
                 .foregroundStyle(state == .ok ? Theme.ok : state == .warn ? Theme.warn : Theme.danger)
@@ -214,9 +218,12 @@ private struct CheckRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
                 Text(detail).font(Theme.caption.monospacedDigit()).foregroundStyle(Theme.inkSecondary)
+                if stacked, let action {
+                    Button(action.0, action: action.1).buttonStyle(InlineButtonStyle()).padding(.top, Theme.Space.xs)
+                }
             }
             Spacer(minLength: 0)
-            if let action {
+            if !stacked, let action {
                 Button(action.0, action: action.1).buttonStyle(InlineButtonStyle())
             }
         }
