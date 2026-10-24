@@ -38,7 +38,10 @@ public struct ViewportPalette: Hashable, Sendable {
     public var sketchPointRing: ViewportColor
     public var sketchGridMinor: ViewportColor
     public var sketchGridMajor: ViewportColor
+    /// Closed sketch regions: a quiet neutral wash, so blue keeps meaning "picked".
     public var regionFill: ViewportColor
+    /// A region picked as a profile (Extrude, Revolve); hover is a lighter wash of the same blue.
+    public var regionPickedFill: ViewportColor
     public var handle: ViewportColor
     public var measure: ViewportColor
     /// Halo behind picked edges, so the blue reads over any surface.
@@ -83,7 +86,9 @@ public struct ViewportPalette: Hashable, Sendable {
         // The icon's graph-paper ruling, so blue only means "picked".
         sketchGridMinor: ViewportColor(hex: 0x4F8FB0, alpha: 0.10),
         sketchGridMajor: ViewportColor(hex: 0x4F8FB0, alpha: 0.22),
-        regionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.10),
+        // Ink at 6 %: a pencil-shaded area on the paper.
+        regionFill: ViewportColor(hex: 0x1D2B45, alpha: 0.06),
+        regionPickedFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.34),
         handle: ViewportColor(hex: 0x1A73FF),
         measure: ViewportColor(hex: 0x2B2F36),
         edgeHalo: ViewportColor(hex: 0xFFFFFF, alpha: 0.9),
@@ -120,7 +125,9 @@ public struct ViewportPalette: Hashable, Sendable {
         sketchPointRing: ViewportColor(hex: 0x16181C),
         sketchGridMinor: ViewportColor(hex: 0x8FB6D8, alpha: 0.10),
         sketchGridMajor: ViewportColor(hex: 0x8FB6D8, alpha: 0.22),
-        regionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.14),
+        // The light paper's cream at 8 %: chalk on the blueprint, not a blue slab.
+        regionFill: ViewportColor(hex: 0xF5EFE0, alpha: 0.08),
+        regionPickedFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.48),
         handle: ViewportColor(hex: 0x3B8BFF),
         measure: ViewportColor(hex: 0xE6E8EC),
         edgeHalo: ViewportColor(hex: 0x10141C, alpha: 0.85),

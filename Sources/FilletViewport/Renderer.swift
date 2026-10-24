@@ -801,10 +801,9 @@ public final class ViewportRenderer: NSObject {
             enc.setRenderPipelineState(pRegion)
             enc.setDepthStencilState(dsAlways)
             var d = RegionDraw()
-            let f = pal.regionFill
-            d.c0 = f.linear
-            d.c1 = pal.hover.withAlpha(min(f.a * 2.2, 1)).linear
-            d.c2 = f.withAlpha(min(f.a * 3.4, 1)).linear
+            d.c0 = pal.regionFill.linear
+            d.c1 = pal.hover.withAlpha(min(pal.regionPickedFill.a * 0.65, 1)).linear
+            d.c2 = pal.regionPickedFill.linear
             enc.setVertexBuffer(rb, offset: 0, index: 0)
             enc.setVertexBytes(&d, length: MemoryLayout<RegionDraw>.stride, index: 2)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: regionVertCount)
