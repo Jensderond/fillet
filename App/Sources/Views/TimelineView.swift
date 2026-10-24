@@ -6,12 +6,16 @@ import SwiftUI
 /// Every feature is a station at an even interval with a numbered tick. Tap a
 /// station to change it; later steps replay. Drag stations to reorder (refused
 /// when a step would land before something it uses). The orange caliper is the
-/// rollback marker; steps past it are hatched like a section view.
+/// rollback marker: it follows the finger along the ruler, snapping to stations;
+/// steps past it are hatched like a section view.
 struct TimelineView: View {
     @Bindable var session: DesignSession
     @State private var renaming: UUID?
     @State private var newName = ""
     @State private var dropTarget: Int?
+    /// Where the caliper is while it's being dragged (a station boundary), nil otherwise.
+    @State private var markerDrag: Int?
+    @State private var visibleWidth: CGFloat = 0
     @Namespace private var markerSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.touchTargets) private var touch
@@ -27,7 +31,7 @@ struct TimelineView: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
                     ZStack(alignment: .bottomLeading) {
-                        RulerTicks(count: doc.features.count, stationWidth: Self.stationWidth)
+                        RulerTicks(count: doc.features.count, stationWidth: Self.stationWidth, minWidth: visibleWidth - 8)
                         HStack(spacing: 0) {
                             if doc.features.isEmpty {
                                 emptyState
@@ -41,10 +45,12 @@ struct TimelineView: View {
                             Color.clear.frame(width: 48, height: 60)
                                 .dropDestination(for: String.self) { items, _ in drop(items, at: doc.features.count) }
                         }
+                        .coordinateSpace(.named("ruler"))
                         .animation(reduceMotion ? nil : Theme.Motion.move, value: markerIndex)
                     }
                     .padding(.horizontal, 4)
                 }
+                .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { visibleWidth = $0 }
                 .onChange(of: doc.features.count) { _, _ in
                     withAnimation(Theme.Motion.enter) { proxy.scrollTo("marker", anchor: .trailing) }
                 }
@@ -115,8 +121,17 @@ struct TimelineView: View {
         }
         .buttonStyle(PressableStyle())
         .hoverHighlight()
+        // Hovering a step highlights the body it made, like Fusion's timeline.
+        .onHover { inside in hoverBody(of: feature, inside) }
         .help(failed.map { "\(feature.name): \($0)" } ?? "\(feature.name). \(Theme.Copy.pick) to edit.")
-        .accessibilityLabel("Step \(index + 1), \(feature.name)\(failed != nil ? ", failed" : "")")
+        .accessibilityLabel("Step \(index + 1), \(feature.name)")
+        .accessibilityValue(stateDescription(feature, index: index, failure: failed))
+        .accessibilityAddTraits(session.editing?.feature == feature.id ? .isSelected : [])
+        .accessibilityActions {
+            if index > 0 { Button("Move earlier") { move(feature, to: index - 1) } }
+            if index < doc.features.count - 1 { Button("Move later") { move(feature, to: index + 1) } }
+            Button("Roll back to here") { session.moveRollbackMarker(to: index + 1 >= doc.features.count ? nil : index + 1) }
+        }
         .draggable("feature:\(feature.id.uuidString)") {
             IconChip(symbol: feature.kind.symbol, tint: Theme.filletInk, size: 34)
         }
@@ -145,17 +160,71 @@ struct TimelineView: View {
         }
     }
 
-    /// The rollback caliper: drag it onto a step to roll back to just after that step.
+    /// The rollback caliper. It follows the finger or pointer 1:1 along the ruler, snaps
+    /// to the station boundaries with a selection tick, and settles there on release.
     private var marker: some View {
-        // Zero layout width keeps the ruler graduations aligned with the stations.
-        Color.clear
+        let count = doc.features.count
+        // Zero layout width keeps the ruler graduations aligned with the stations; while
+        // dragging, the caliper is drawn offset rather than moved in the stack.
+        return Color.clear
             .frame(width: 0, height: 64)
-            .overlay { RollbackCaliper() }
+            .overlay {
+                RollbackCaliper(hitWidth: touch ? 44 : 28)
+                    .offset(x: CGFloat((markerDrag ?? markerIndex) - markerIndex) * Self.stationWidth)
+                    .highPriorityGesture(
+                        DragGesture(minimumDistance: 2, coordinateSpace: .named("ruler"))
+                            .onChanged { value in
+                                markerDrag = min(max(Int((value.location.x / Self.stationWidth).rounded()), 0), count)
+                            }
+                            .onEnded { _ in
+                                guard let target = markerDrag else { return }
+                                markerDrag = nil
+                                if target != markerIndex { session.moveRollbackMarker(to: target >= count ? nil : target) }
+                            })
+                    .sensoryFeedback(.selection, trigger: markerDrag) { _, new in new != nil }
+            }
             .matchedGeometryEffect(id: "marker", in: markerSpace)
             .id("marker")
-            .draggable("rollback") { RollbackCaliper() }
-            .help("Rollback marker — drag onto a step to see the model at that point")
-            .accessibilityLabel("Rollback marker after step \(markerIndex)")
+            .help("Rollback marker. Drag it along the ruler to see the model at an earlier step.")
+            .accessibilityElement()
+            .accessibilityLabel("Rollback marker")
+            .accessibilityValue(markerIndex >= count ? "after the last step, \(count) of \(count)" : "after step \(markerIndex) of \(count)")
+            .accessibilityAdjustableAction { direction in
+                switch direction {
+                case .increment where markerIndex < count:
+                    session.moveRollbackMarker(to: markerIndex + 1 >= count ? nil : markerIndex + 1)
+                case .decrement where markerIndex > 0:
+                    session.moveRollbackMarker(to: markerIndex - 1)
+                default: break
+                }
+            }
+    }
+
+    /// VoiceOver state of a step: editing, rolled back, suppressed, failed.
+    private func stateDescription(_ feature: Feature, index: Int, failure: String?) -> String {
+        var parts: [String] = []
+        if session.editing?.feature == feature.id { parts.append("editing") }
+        if index >= markerIndex { parts.append("rolled back") }
+        if feature.suppressed { parts.append("suppressed") }
+        if let failure { parts.append("failed: \(failure)") }
+        return parts.joined(separator: ", ")
+    }
+
+    /// Reorders a step, explaining a refusal (a step can't move before something it uses).
+    private func move(_ feature: Feature, to index: Int) {
+        if !session.moveFeature(feature.id, to: index) {
+            session.message = .error("\(feature.name) can't move there: it uses an earlier step")
+        }
+    }
+
+    private func hoverBody(of feature: Feature, _ inside: Bool) {
+        let ids = [feature.id] + feature.referencedFeatures.sorted { $0.uuidString < $1.uuidString }
+        guard let body = ids.lazy.map(BodyRef.init).first(where: { session.model.body($0) != nil }) else { return }
+        if inside {
+            session.hover = .body(body)
+        } else if session.hover == .body(body) {
+            session.hover = nil
+        }
     }
 
     private func open(_ feature: Feature) {
@@ -166,14 +235,10 @@ struct TimelineView: View {
         }
     }
 
-    /// Handles a drop of a step (reorder) or the marker (rollback) before `index`.
+    /// Handles a drop of a step before `index` (reorder).
     private func drop(_ items: [String], at index: Int) -> Bool {
         dropTarget = nil
         guard let item = items.first else { return false }
-        if item == "rollback" {
-            session.moveRollbackMarker(to: index + 1 >= doc.features.count ? nil : index + 1)
-            return true
-        }
         guard item.hasPrefix("feature:"), let id = UUID(uuidString: String(item.dropFirst(8))),
             let from = doc.index(of: id)
         else { return false }
@@ -199,7 +264,7 @@ private struct StationLabel: View {
     @State private var hovering = false
 
     var body: some View {
-        VStack(spacing: 4) {
+        VStack(spacing: Theme.Space.xs) {
             ZStack(alignment: .topTrailing) {
                 Image(systemName: feature.kind.symbol)
                     .font(.system(size: 15, weight: .semibold))
@@ -223,12 +288,12 @@ private struct StationLabel: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
         }
-        .frame(width: TimelineView.stationWidth, height: 54, alignment: .top)
-        .padding(.bottom, 10)
+        .frame(width: TimelineView.stationWidth, height: 50, alignment: .top)
+        .padding(.bottom, 14)
+        // Rolled back: hatched, slate icon, secondary label; no opacity, so the name stays legible.
         .background(alignment: .center) {
-            if rolledBack { SectionHatch().opacity(0.6) }
+            if rolledBack { SectionHatch().opacity(0.5) }
         }
-        .opacity(rolledBack ? 0.5 : 1)
         .overlay(alignment: .leading) {
             if dropTarget { Capsule().fill(Theme.fillet).frame(width: 2.5, height: 44) }
         }
@@ -239,7 +304,8 @@ private struct StationLabel: View {
 
     private var iconColor: Color {
         if failure != nil { return Theme.danger }
-        return editing ? Theme.filletInk : Theme.ink
+        if editing { return Theme.filletInk }
+        return rolledBack ? Theme.inkTertiary : Theme.ink
     }
 
     private var chipFill: Color {
@@ -259,6 +325,8 @@ private struct StationLabel: View {
 private struct RulerTicks: View {
     let count: Int
     let stationWidth: CGFloat
+    /// The ruler runs at least the visible width, so it never stops mid-panel.
+    var minWidth: CGFloat = 0
 
     var body: some View {
         Canvas { context, size in
@@ -273,19 +341,22 @@ private struct RulerTicks: View {
             var i = 0
             while x <= size.width {
                 let major = i % 5 == 0
+                // A numbered station gets a short tick with its number centred on it; unnumbered
+                // major graduations (past the last step) keep the long tick.
+                let numbered = major && i / 5 < count
                 var tick = Path()
                 tick.move(to: CGPoint(x: x + stationWidth / 2, y: baseline))
-                tick.addLine(to: CGPoint(x: x + stationWidth / 2, y: baseline - (major ? 7 : 3)))
+                tick.addLine(to: CGPoint(x: x + stationWidth / 2, y: baseline - (major && !numbered ? 7 : 3)))
                 context.stroke(tick, with: ink, lineWidth: major ? 1.2 : 0.8)
-                if major, i / 5 < count {
+                if numbered {
                     let label = Text("\(i / 5 + 1)").font(Theme.micro).foregroundStyle(Theme.inkSecondary)
-                    context.draw(label, at: CGPoint(x: x + stationWidth / 2 + 6, y: baseline - 6), anchor: .leading)
+                    context.draw(label, at: CGPoint(x: x + stationWidth / 2, y: baseline - 9), anchor: .center)
                 }
                 x += minor
                 i += 1
             }
         }
-        .frame(width: max(CGFloat(count) * TimelineView.stationWidth + 80, 200), height: 64)
+        .frame(width: max(CGFloat(count) * stationWidth + 80, 200, minWidth), height: 64)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
@@ -310,6 +381,8 @@ private struct SectionHatch: View {
 
 /// The orange caliper used as rollback marker.
 private struct RollbackCaliper: View {
+    var hitWidth: CGFloat = 28
+
     var body: some View {
         VStack(spacing: 0) {
             RoundedRectangle(cornerRadius: 3, style: .continuous)
@@ -322,7 +395,8 @@ private struct RollbackCaliper: View {
         }
         .frame(width: 16, height: 64)
         .shadow(color: Theme.fillet.opacity(0.35), radius: 4)
-        .contentShape(Rectangle().inset(by: -6))
+        .frame(width: hitWidth)
+        .contentShape(Rectangle())
     }
 }
 

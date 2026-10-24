@@ -192,6 +192,15 @@ enum DebugAutomation {
             check(session.model.status.values.allSatisfy { if case .failed = $0 { false } else { true } }, "all features ok after widening")
         }
 
+        // Roll back to after the first extrude (the later steps hatch), then play to the end again.
+        session.moveRollbackMarker(to: 2)
+        await settle(session)
+        await snap(session, "10-rolled-back")
+        check(session.document.activeFeatureCount == 2 && session.model.bodies.count == 1, "rolled back to step 2")
+        session.moveRollbackMarker(to: nil)
+        await settle(session)
+        check(session.document.activeFeatureCount == session.document.features.count, "rolled forward to the end")
+
         // Export.
         do {
             let data = try await session.exportData(.threeMF)
