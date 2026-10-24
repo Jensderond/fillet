@@ -14,7 +14,7 @@ struct SketchInspector: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
             if let editor = session.sketchEditor {
                 InspectorHeader(
                     symbol: "pencil.and.outline", title: session.editingFeature?.name ?? "Sketch",
@@ -22,7 +22,6 @@ struct SketchInspector: View {
                     error: session.model.error(for: editor.sketch))
                 PanelSection("Drawing") { options(editor) }
                 PanelSection(selectedTitle(editor)) { selectedShapes(editor) }
-                    .padding(.top, 2)
             }
         }
     }
@@ -70,7 +69,7 @@ struct SketchInspector: View {
             Text("\(shapes.count) shapes selected").font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
         }
         if !shapes.isEmpty {
-            HStack(spacing: 8) {
+            HStack(spacing: Theme.Space.s) {
                 Button { session.toggleConstructionOfSelection() } label: { Label("Construction", systemImage: "line.diagonal") }
                     .buttonStyle(SecondaryButtonStyle())
                 Spacer(minLength: 0)
@@ -95,12 +94,12 @@ struct ShapeDimensions: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
             HStack {
                 Text(shape.kind.typeName.capitalized).font(Theme.sectionTitle).foregroundStyle(Theme.ink)
                 if shape.construction {
                     Text("Construction").font(Theme.caption.weight(.medium)).foregroundStyle(Theme.inkSecondary)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .padding(.horizontal, Theme.Space.s).padding(.vertical, 2)
                         .background(Capsule().strokeBorder(Theme.hairlineStrong, style: StrokeStyle(lineWidth: 1, dash: [3, 2])))
                 }
             }

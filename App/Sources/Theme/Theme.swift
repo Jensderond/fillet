@@ -14,27 +14,37 @@ enum Theme {
 
     /// Text and line work.
     static let ink = Color(light: 0x1D2B45, dark: 0xE4E9F2)
-    static let inkSecondary = Color(light: 0x5A6680, dark: 0x9AA5B8)
-    static let inkTertiary = Color(light: 0x8A93A6, dark: 0x6C7689)
-    /// Window chrome behind panels.
-    static let chrome = Color(light: 0xE9EDF2, dark: 0x121519)
+    /// Secondary text: labels, subtitles, units. The quietest colour text may use.
+    static let inkSecondary = Color(light: 0x5A6680, dark: 0x9AA5B8, highContrastLight: 0x48536B, highContrastDark: 0xB8C1D0)
+    /// Non-text marks only (icons, ruler ticks, hatching): 3:1 against the panels, too faint for text.
+    static let inkTertiary = Color(light: 0x737D93, dark: 0x7F8AA0, highContrastLight: 0x5E687E, highContrastDark: 0x9AA4B8)
+    /// Window chrome behind panels. Dark neutrals lean towards the icon's navy.
+    static let chrome = Color(light: 0xE9EDF2, dark: 0x10141C)
     /// Sidebars and inspector.
-    static let panel = Color(light: 0xF6F7F9, dark: 0x1B1F25)
+    static let panel = Color(light: 0xF6F7F9, dark: 0x171C26)
     /// Fields, cards and floating controls.
-    static let raised = Color(light: 0xFFFFFF, dark: 0x252A32)
-    static let hairline = Color(light: 0x1D2B45, dark: 0xFFFFFF).opacity(0.11)
-    static let hairlineStrong = Color(light: 0x1D2B45, dark: 0xFFFFFF).opacity(0.2)
+    static let raised = Color(light: 0xFFFFFF, dark: 0x212836)
+    static let hairline = Color(light: 0x1D2B45, dark: 0xFFFFFF, opacity: 0.11, highContrastOpacity: 0.30)
+    static let hairlineStrong = Color(light: 0x1D2B45, dark: 0xFFFFFF, opacity: 0.2, highContrastOpacity: 0.45)
 
-    /// The fillet orange: active state and primary actions.
+    /// The fillet orange, for marks: caliper, active underline, focus ring, drop bar.
     static let fillet = Color(hex: 0xF26B1D)
     static let filletSoft = Color(hex: 0xF26B1D).opacity(0.14)
-    /// Model selection (matches the viewport's selection colour).
-    static let select = Color(hex: 0x1F7BFF)
-    static let selectSoft = Color(hex: 0x1F7BFF).opacity(0.13)
+    /// Burnt orange behind white labels (primary buttons): 4.5:1 with white.
+    static let filletFill = Color(hex: 0xC94F0B)
+    /// Orange text and glyphs (the active tool, the step being edited).
+    static let filletInk = Color(light: 0xC94F0B, dark: 0xFF8A3D)
+    /// Model selection; the same blue as the viewport's selection.
+    static let select = Color(light: 0x1A73FF, dark: 0x3B8BFF)
+    static let selectSoft = select.opacity(0.13)
+    /// Blue text ("Clear" on a picked card).
+    static let selectInk = Color(light: 0x0B5CD5, dark: 0x4C93FF)
     static let danger = Color(hex: 0xE5484D)
     static let dangerSoft = Color(hex: 0xE5484D).opacity(0.12)
+    /// Error text, also on `dangerSoft`.
+    static let dangerInk = Color(light: 0xC42B31, dark: 0xFF6369)
     static let ok = Color(hex: 0x2E9E6A)
-    static let warn = Color(hex: 0xD9940F)
+    static let warn = Color(light: 0xA86E00, dark: 0xD9940F)
 
     // MARK: Shape
 
@@ -42,6 +52,28 @@ enum Theme {
         static let control: CGFloat = 8
         static let card: CGFloat = 12
         static let floating: CGFloat = 14
+    }
+
+    /// Spacing on a 4 pt grid.
+    enum Space {
+        static let xs: CGFloat = 4
+        static let s: CGFloat = 8
+        static let m: CGFloat = 12
+        static let l: CGFloat = 16
+        static let xl: CGFloat = 24
+    }
+
+    /// Hit targets. Touch gets 44 pt everywhere; the pointer keeps the denser Mac sizes.
+    enum Metrics {
+        static func target(touch: Bool) -> CGFloat { touch ? 44 : 32 }
+        static func targetCompact(touch: Bool) -> CGFloat { touch ? 44 : 28 }
+        /// Text buttons (Done, Cancel, Finish sketch).
+        static func button(touch: Bool) -> CGFloat { touch ? 44 : 34 }
+        #if os(iOS)
+        static let prefersTouch = true
+        #else
+        static let prefersTouch = false
+        #endif
     }
 
     // MARK: Motion
@@ -64,16 +96,21 @@ enum Theme {
 
     // MARK: Type
 
-    /// Technical-drawing labels for tools and timeline steps.
+    /// Technical-drawing face at an explicit size (splash artwork only; UI uses `label` and `micro`).
     static func condensed(_ size: CGFloat, _ weight: Font.Weight = .medium) -> Font {
         .system(size: size, weight: weight).width(.condensed)
     }
 
+    /// Seven sizes in total: title, section title, body, value, caption, and the two condensed labels.
     static let title = Font.system(size: 17, weight: .semibold)
     static let sectionTitle = Font.system(size: 13, weight: .semibold)
     static let body = Font.system(size: 13)
-    static let caption = Font.system(size: 11.5)
+    static let caption = Font.system(size: 11)
     static let value = Font.system(size: 13, weight: .medium).monospacedDigit()
+    /// Condensed technical label: tool names, timeline steps.
+    static let label = Font.system(size: 11, weight: .medium).width(.condensed)
+    /// Smallest condensed label: ruler numbers, view-cube faces.
+    static let micro = Font.system(size: 10, weight: .semibold).width(.condensed)
 }
 
 // MARK: - Colour helpers
@@ -84,16 +121,26 @@ extension Color {
                   blue: Double(hex & 0xFF) / 255, opacity: 1)
     }
 
-    /// A colour that follows the light/dark appearance.
-    init(light: UInt32, dark: UInt32) {
+    /// A colour that follows the light/dark appearance and, optionally, Increase Contrast.
+    init(light: UInt32, dark: UInt32, highContrastLight: UInt32? = nil, highContrastDark: UInt32? = nil,
+         opacity: Double = 1, highContrastOpacity: Double? = nil) {
+        func components(dark isDark: Bool, high: Bool) -> (r: Double, g: Double, b: Double, a: Double) {
+            let hex = high ? (isDark ? highContrastDark ?? dark : highContrastLight ?? light) : (isDark ? dark : light)
+            return (Double((hex >> 16) & 0xFF) / 255, Double((hex >> 8) & 0xFF) / 255, Double(hex & 0xFF) / 255,
+                    high ? highContrastOpacity ?? opacity : opacity)
+        }
         #if canImport(UIKit)
         self.init(uiColor: UIColor { traits in
-            UIColor(Color(hex: traits.userInterfaceStyle == .dark ? dark : light))
+            let c = components(dark: traits.userInterfaceStyle == .dark, high: traits.accessibilityContrast == .high)
+            return UIColor(red: c.r, green: c.g, blue: c.b, alpha: c.a)
         })
         #else
         self.init(nsColor: NSColor(name: nil) { appearance in
-            let isDark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
-            return NSColor(Color(hex: isDark ? dark : light))
+            let match = appearance.bestMatch(from: [.aqua, .darkAqua, .accessibilityHighContrastAqua, .accessibilityHighContrastDarkAqua])
+            let isDark = match == .darkAqua || match == .accessibilityHighContrastDarkAqua
+            let high = match == .accessibilityHighContrastAqua || match == .accessibilityHighContrastDarkAqua
+            let c = components(dark: isDark, high: high)
+            return NSColor(srgbRed: c.r, green: c.g, blue: c.b, alpha: c.a)
         })
         #endif
     }
@@ -101,19 +148,20 @@ extension Color {
 
 // MARK: - Button styles
 
-/// Solid fillet-orange action ("Done", "Finish sketch").
+/// Solid burnt-orange action with a white label ("Done", "Finish sketch").
 struct PrimaryButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled
+    @Environment(\.touchTargets) private var touch
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .semibold))
+            .font(Theme.body.weight(.semibold))
             .foregroundStyle(.white)
-            .padding(.horizontal, 14)
-            .frame(minHeight: 34)
+            .padding(.horizontal, Theme.Space.l)
+            .frame(minHeight: Theme.Metrics.button(touch: touch))
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
-                    .fill(Theme.fillet.opacity(isEnabled ? 1 : 0.4))
+                    .fill(Theme.filletFill.opacity(isEnabled ? 1 : 0.4))
                     .brightness(configuration.isPressed ? -0.08 : 0))
             .scaleEffect(configuration.isPressed ? 0.97 : 1)
             .animation(Theme.Motion.press, value: configuration.isPressed)
@@ -123,13 +171,14 @@ struct PrimaryButtonStyle: ButtonStyle {
 /// Quiet raised action ("Cancel", "Clear").
 struct SecondaryButtonStyle: ButtonStyle {
     var role: ButtonRole?
+    @Environment(\.touchTargets) private var touch
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(role == .destructive ? Theme.danger : Theme.ink)
-            .padding(.horizontal, 12)
-            .frame(minHeight: 34)
+            .font(Theme.body.weight(.medium))
+            .foregroundStyle(role == .destructive ? Theme.dangerInk : Theme.ink)
+            .padding(.horizontal, Theme.Space.m)
+            .frame(minHeight: Theme.Metrics.button(touch: touch))
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                     .fill(configuration.isPressed ? Theme.hairline : Theme.raised))
@@ -143,10 +192,10 @@ struct SecondaryButtonStyle: ButtonStyle {
 
 /// Text-only action inside cards ("Clear", "Add parameter").
 struct InlineButtonStyle: ButtonStyle {
-    var tint: Color = Theme.fillet
+    var tint: Color = Theme.filletInk
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.system(size: 12, weight: .semibold))
+            .font(Theme.body.weight(.semibold))
             .foregroundStyle(tint)
             .opacity(configuration.isPressed ? 0.6 : 1)
             .contentShape(Rectangle())
@@ -166,7 +215,7 @@ struct PanelSection<Content: View>: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
             if let title {
                 Text(title).font(Theme.sectionTitle).foregroundStyle(Theme.ink)
             }
@@ -183,7 +232,7 @@ struct Card<Content: View>: View {
 
     var body: some View {
         content
-            .padding(12)
+            .padding(Theme.Space.m)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(
                 RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
@@ -197,7 +246,7 @@ struct Card<Content: View>: View {
 /// Small rounded-square icon badge used for features and tools.
 struct IconChip: View {
     let symbol: String
-    var tint: Color = Theme.fillet
+    var tint: Color = Theme.filletInk
     var size: CGFloat = 30
 
     var body: some View {
@@ -251,7 +300,40 @@ private struct BlurModifier: ViewModifier {
     func body(content: Content) -> some View { content.blur(radius: radius) }
 }
 
+extension EnvironmentValues {
+    /// Touch-sized (44 pt) hit targets: on for iPad, off for the Mac pointer.
+    /// The debug iPad-layout render turns it on to check the touch layout on a Mac.
+    @Entry var touchTargets: Bool = Theme.Metrics.prefersTouch
+}
+
+/// Floating chrome (toasts, the sketch toolbar): one shadow, a hairline edge, and in dark
+/// mode a faint top highlight, since a black shadow alone disappears on dark panels.
+struct FloatingElevation: ViewModifier {
+    var cornerRadius: CGFloat = Theme.Radius.floating
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background(shape.fill(Theme.raised))
+            .overlay(shape.strokeBorder(Theme.hairline))
+            .overlay(alignment: .top) {
+                if colorScheme == .dark {
+                    shape.strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+                        .mask(LinearGradient(colors: [.white, .clear], startPoint: .top, endPoint: .init(x: 0.5, y: 0.25)))
+                        .allowsHitTesting(false)
+                }
+            }
+            .shadow(color: .black.opacity(colorScheme == .dark ? 0.35 : 0.12), radius: 16, y: 6)
+    }
+}
+
 extension View {
+    /// Raised fill, hairline edge and the floating shadow.
+    func floatingElevation(cornerRadius: CGFloat = Theme.Radius.floating) -> some View {
+        modifier(FloatingElevation(cornerRadius: cornerRadius))
+    }
+
     /// Pointer-only hover feedback (no false positives from touch).
     func hoverHighlight() -> some View {
         #if os(iOS)

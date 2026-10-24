@@ -7,14 +7,14 @@ struct SelectionInspector: View {
     @Bindable var session: DesignSession
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
             if session.selection.isEmpty {
                 summary
             } else {
                 InspectorHeader(
                     symbol: "cursorarrow.rays", title: session.selection.count == 1 ? "Selection" : "\(session.selection.count) selected",
                     subtitle: session.selection.count == 2 ? nil : "Pick two items to measure between them")
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: Theme.Space.s) {
                     ForEach(Array(session.selection.prefix(4).enumerated()), id: \.offset) { _, item in
                         describe(item)
                     }
@@ -46,7 +46,7 @@ struct SelectionInspector: View {
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.hairline))
 
             PanelSection("Material") {
-                Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 6) {
+                Grid(alignment: .leading, horizontalSpacing: Theme.Space.l, verticalSpacing: Theme.Space.s) {
                     row("Volume", "\(fmt(a.volume / 1000)) cm³")
                     row("PLA, solid", "\(fmt(a.grams(.pla))) g")
                     row("Bodies", "\(session.model.bodies.count)")
@@ -88,20 +88,20 @@ struct SelectionInspector: View {
 
     @ViewBuilder private var distance: some View {
         if let d = session.selectionDistance {
-            HStack(spacing: 10) {
+            HStack(spacing: Theme.Space.m) {
                 Image(systemName: "ruler").foregroundStyle(Theme.select)
                 Text("Distance").font(Theme.body).foregroundStyle(Theme.inkSecondary)
                 Spacer()
-                Text("\(fmt(d)) mm").font(.system(size: 17, weight: .semibold).monospacedDigit()).foregroundStyle(Theme.ink)
+                Text("\(fmt(d)) mm").font(Theme.title.monospacedDigit()).foregroundStyle(Theme.ink)
             }
-            .padding(12)
+            .padding(Theme.Space.m)
             .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.selectSoft))
         }
     }
 
     @ViewBuilder private var actions: some View {
         PanelSection("Next") {
-            VStack(spacing: 6) {
+            VStack(spacing: Theme.Space.s) {
                 if !session.selectedEdges.isEmpty {
                     ActionRow(symbol: "rectangle.roundedtop", title: "Fillet edges") { session.startEdgeFeature(fillet: true) }
                     ActionRow(symbol: "skew", title: "Chamfer edges") { session.startEdgeFeature(fillet: false) }
@@ -116,7 +116,7 @@ struct SelectionInspector: View {
             }
             Button("Clear selection") { session.selection = [] }
                 .buttonStyle(InlineButtonStyle(tint: Theme.inkSecondary))
-                .padding(.top, 2)
+                .padding(.top, Theme.Space.xs)
         }
     }
 
@@ -182,7 +182,7 @@ private struct CheckRow: View {
     var action: (String, () -> Void)?
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Space.m) {
             Image(systemName: state == .ok ? "checkmark.circle.fill" : state == .warn ? "exclamationmark.triangle.fill" : "xmark.octagon.fill")
                 .font(.system(size: 15))
                 .foregroundStyle(state == .ok ? Theme.ok : state == .warn ? Theme.warn : Theme.danger)
@@ -195,8 +195,8 @@ private struct CheckRow: View {
                 Button(action.0, action: action.1).buttonStyle(InlineButtonStyle())
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
+        .padding(.horizontal, Theme.Space.m)
+        .padding(.vertical, Theme.Space.m)
     }
 }
 
@@ -207,7 +207,7 @@ private struct MeasureRow: View {
     let detail: String
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Space.m) {
             IconChip(symbol: symbol, tint: Theme.select, size: 28)
             VStack(alignment: .leading, spacing: 1) {
                 Text(title).font(Theme.body.weight(.semibold)).foregroundStyle(Theme.ink)
@@ -224,17 +224,18 @@ private struct ActionRow: View {
     let title: String
     let action: () -> Void
     @State private var hovering = false
+    @Environment(\.touchTargets) private var touch
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.fillet).frame(width: 20)
+            HStack(spacing: Theme.Space.m) {
+                Image(systemName: symbol).font(.system(size: 14, weight: .semibold)).foregroundStyle(Theme.filletInk).frame(width: 20)
                 Text(title).font(Theme.body.weight(.medium)).foregroundStyle(Theme.ink)
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.inkTertiary)
             }
-            .padding(.horizontal, 12)
-            .frame(minHeight: 38)
+            .padding(.horizontal, Theme.Space.m)
+            .frame(minHeight: max(38, Theme.Metrics.target(touch: touch)))
             .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                 .fill(hovering ? Theme.raised : Theme.raised.opacity(0.6)))
             .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)

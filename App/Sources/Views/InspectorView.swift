@@ -10,7 +10,7 @@ struct InspectorView: View {
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: Theme.Space.xl) {
                     if session.sketchEditor != nil {
                         SketchInspector(session: session)
                     } else if let feature = session.editingFeature {
@@ -19,7 +19,7 @@ struct InspectorView: View {
                         SelectionInspector(session: session)
                     }
                 }
-                .padding(16)
+                .padding(Theme.Space.l)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             if session.sketchEditor == nil, session.editingFeature != nil {
@@ -41,9 +41,9 @@ struct InspectorHeader: View {
     @State private var text = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 10) {
-                IconChip(symbol: symbol, tint: error == nil ? Theme.fillet : Theme.danger, size: 34)
+        VStack(alignment: .leading, spacing: Theme.Space.m) {
+            HStack(spacing: Theme.Space.m) {
+                IconChip(symbol: symbol, tint: error == nil ? Theme.filletInk : Theme.dangerInk, size: 34)
                 VStack(alignment: .leading, spacing: 1) {
                     if let onRename {
                         TextField("Name", text: $text)
@@ -57,7 +57,7 @@ struct InspectorHeader: View {
                         Text(title).font(Theme.title).foregroundStyle(Theme.ink)
                     }
                     if let subtitle {
-                        Text(subtitle).font(Theme.caption).foregroundStyle(Theme.inkTertiary)
+                        Text(subtitle).font(Theme.caption).foregroundStyle(Theme.inkSecondary)
                     }
                 }
             }
@@ -67,8 +67,8 @@ struct InspectorHeader: View {
                     Text(error).fixedSize(horizontal: false, vertical: true)
                 }
                 .font(Theme.body)
-                .foregroundStyle(Theme.danger)
-                .padding(10)
+                .foregroundStyle(Theme.dangerInk)
+                .padding(Theme.Space.m)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.dangerSoft))
                 .transition(.opacity.animation(Theme.Motion.hover))
@@ -83,7 +83,7 @@ struct InspectorFooter: View {
     let done: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Space.s) {
             Button("Cancel", action: cancel)
                 .buttonStyle(SecondaryButtonStyle())
                 .keyboardShortcut(.cancelAction)
@@ -93,8 +93,8 @@ struct InspectorFooter: View {
             .buttonStyle(PrimaryButtonStyle())
             .keyboardShortcut(.defaultAction)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
+        .padding(.horizontal, Theme.Space.l)
+        .padding(.vertical, Theme.Space.m)
         .background(Theme.panel)
         .overlay(alignment: .top) { Theme.hairline.frame(height: 1) }
     }
@@ -109,12 +109,12 @@ struct FeatureInspector: View {
     private var ev: Evaluator { session.model.parameters.evaluator }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: Theme.Space.xl) {
             InspectorHeader(
                 symbol: feature.kind.symbol, title: feature.name, subtitle: feature.kind.subtitle,
                 error: session.model.error(for: feature.id),
                 onRename: { name in session.updateEditing { $0.name = name } })
-            content
+            VStack(alignment: .leading, spacing: Theme.Space.m) { content }
         }
     }
 
@@ -335,7 +335,7 @@ struct Labeled<Content: View>: View {
     init(_ label: String, @ViewBuilder content: () -> Content) { self.label = label; self.content = content() }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
             Text(label).font(Theme.caption.weight(.semibold)).foregroundStyle(Theme.inkSecondary)
             content.labelsHidden()
         }
@@ -349,7 +349,7 @@ struct Hint: View {
     init(_ text: String, symbol: String = "lightbulb.min") { self.text = text; self.symbol = symbol }
 
     var body: some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
             Image(systemName: symbol).foregroundStyle(Theme.inkTertiary)
             Text(text).fixedSize(horizontal: false, vertical: true)
         }
@@ -367,7 +367,7 @@ struct SelectionCount: View {
     let clear: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Space.m) {
             Image(systemName: count > 0 ? "checkmark.circle.fill" : "hand.tap")
                 .font(.system(size: 16, weight: .semibold))
                 .foregroundStyle(count > 0 ? Theme.select : Theme.inkTertiary)
@@ -380,10 +380,10 @@ struct SelectionCount: View {
             }
             Spacer(minLength: 0)
             if count > 0 {
-                Button("Clear", action: clear).buttonStyle(InlineButtonStyle(tint: Theme.select))
+                Button("Clear", action: clear).buttonStyle(InlineButtonStyle(tint: Theme.selectInk))
             }
         }
-        .padding(12)
+        .padding(Theme.Space.m)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
             .fill(count > 0 ? Theme.selectSoft : Theme.raised.opacity(0.5)))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous)
@@ -398,7 +398,7 @@ struct OperationPicker: View {
     let onChange: (Operation) -> Void
     var body: some View {
         Labeled("Operation") {
-            Picker("Operation", selection: Binding(get: { operation }, set: onChange)) {
+            Picker("Operation", selection: Binding(get: { operation }, set: { onChange($0) })) {
                 Label("New", systemImage: "cube").tag(Operation.newBody)
                 Label("Join", systemImage: "plus.square").tag(Operation.join)
                 Label("Cut", systemImage: "minus.square").tag(Operation.cut)

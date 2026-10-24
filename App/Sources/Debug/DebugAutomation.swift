@@ -236,17 +236,19 @@ enum DebugAutomation {
             view.cacheDisplay(in: view.bounds, to: rep)
             if let image = rep.cgImage { write(image, name + "-window") }
         }
-        if name == "02a-drawing", let content = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 })?.contentView {
+        if let content = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 })?.contentView {
             func find(_ v: NSView) -> NSView? {
                 if v is MTKView { return v }
                 for s in v.subviews { if let f = find(s) { return f } }
                 return nil
             }
             if let mtk = find(content) {
-                if let live = controller?.liveCamera {
+                if name == "02a-drawing", let live = controller?.liveCamera {
                     log("camera: session yaw=\(session.camera.yaw) pitch=\(session.camera.pitch) dist=\(session.camera.distance) target=\(session.camera.target) | live yaw=\(live.yaw) pitch=\(live.pitch) dist=\(live.distance) target=\(live.target)")
                 }
-                log("geometry: session.viewSize=\(session.viewSize) mtk.bounds=\(mtk.bounds.size) mtk.inWindow=\(mtk.convert(mtk.bounds, to: nil)) content=\(content.bounds.size)")
+                // Where the Metal view sits in the window (bottom-left origin), for compositing the captures.
+                let r = mtk.convert(mtk.bounds, to: nil)
+                log("geometry \(name): \(Int(r.minX)) \(Int(r.minY)) \(Int(r.width)) \(Int(r.height)) session.viewSize=\(session.viewSize) content=\(content.bounds.size)")
             }
         }
         log("snapshot \(name)")

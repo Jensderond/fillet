@@ -125,7 +125,7 @@ struct EditorContent: View {
                 })
                 .ignoresSafeArea(.container, edges: .bottom)
 
-            VStack(spacing: 10) {
+            VStack(spacing: Theme.Space.m) {
                 if session.sketchEditor != nil {
                     SketchToolbar(session: session, fingerDraws: $fingerDraws)
                         .transition(.panel(from: .top, reduceMotion: reduceMotion))
@@ -144,7 +144,7 @@ struct EditorContent: View {
                         }
                 }
             }
-            .padding(14)
+            .padding(Theme.Space.l)
             .animation(Theme.Motion.enter, value: session.sketchEditor != nil)
             .animation(Theme.Motion.enter, value: session.message)
 
@@ -152,10 +152,10 @@ struct EditorContent: View {
                 Label("Updating", systemImage: "arrow.triangle.2.circlepath")
                     .font(Theme.caption.weight(.medium))
                     .foregroundStyle(Theme.inkSecondary)
-                    .padding(.horizontal, 10).padding(.vertical, 5)
+                    .padding(.horizontal, Theme.Space.m).padding(.vertical, Theme.Space.xs)
                     .background(Capsule().fill(Theme.raised))
                     .overlay(Capsule().strokeBorder(Theme.hairline))
-                    .padding(12)
+                    .padding(Theme.Space.m)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                     .transition(.opacity.animation(Theme.Motion.exit))
             }
@@ -200,10 +200,10 @@ struct HintPill: View {
 
     var body: some View {
         Label(text, systemImage: symbol)
-            .font(.system(size: 12.5, weight: .medium))
+            .font(Theme.body.weight(.medium))
             .foregroundStyle(Theme.raised)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 7)
+            .padding(.horizontal, Theme.Space.m)
+            .padding(.vertical, Theme.Space.s)
             .background(Capsule().fill(Theme.ink.opacity(0.88)))
             .accessibilityAddTraits(.updatesFrequently)
     }
@@ -214,8 +214,8 @@ struct Toast: View {
     let dismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "info.circle.fill").foregroundStyle(Theme.fillet)
+        HStack(spacing: Theme.Space.s) {
+            Image(systemName: "info.circle.fill").foregroundStyle(Theme.inkSecondary)
             Text(text).font(Theme.body).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
             Button(action: dismiss) {
                 Image(systemName: "xmark").font(.system(size: 10, weight: .bold)).foregroundStyle(Theme.inkTertiary)
@@ -225,10 +225,8 @@ struct Toast: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Dismiss")
         }
-        .padding(.leading, 14).padding(.trailing, 6).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.floating, style: .continuous).fill(Theme.raised))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.floating, style: .continuous).strokeBorder(Theme.hairline))
-        .shadow(color: .black.opacity(0.12), radius: 14, y: 6)
+        .padding(.leading, Theme.Space.l).padding(.trailing, Theme.Space.xs).padding(.vertical, Theme.Space.s)
+        .floatingElevation()
         .frame(maxWidth: 460)
     }
 }
@@ -242,10 +240,10 @@ struct ToolStrip: View {
     @Binding var showBrowser: Bool
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Space.s) {
             ToolButton("Browser", "sidebar.left", active: showBrowser, toggle: true) { showBrowser.toggle() }
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
+                HStack(spacing: Theme.Space.s) {
                     ToolCluster {
                         Menu {
                             Button("On XY (bed)") { session.startSketch(on: .xy) }
@@ -292,8 +290,8 @@ struct ToolStrip: View {
             Spacer(minLength: 0)
             ToolButton("Fit", "arrow.up.left.and.arrow.down.right") { controller.fitAll() }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
+        .padding(.horizontal, Theme.Space.s)
+        .padding(.vertical, Theme.Space.s)
         .background(Theme.panel)
         .overlay(alignment: .bottom) { Theme.hairline.frame(height: 1) }
     }
@@ -312,9 +310,9 @@ struct ToolCluster<Content: View>: View {
     @ViewBuilder var content: Content
     var body: some View {
         HStack(spacing: 1) { content }
-            .padding(3)
-            .background(RoundedRectangle(cornerRadius: 11, style: .continuous).fill(Theme.raised.opacity(0.55)))
-            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(Theme.hairline))
+            .padding(Theme.Space.xs)
+            .background(RoundedRectangle(cornerRadius: Theme.Radius.control + Theme.Space.xs, style: .continuous).fill(Theme.raised.opacity(0.55)))
+            .overlay(RoundedRectangle(cornerRadius: Theme.Radius.control + Theme.Space.xs, style: .continuous).strokeBorder(Theme.hairline))
     }
 }
 
@@ -334,17 +332,17 @@ struct ToolLabel: View {
         self.title = title; self.symbol = symbol; self.active = active; self.pressed = pressed; self.isToggle = isToggle
     }
 
-    private var accent: Color { isToggle ? Theme.ink : Theme.fillet }
+    private var accent: Color { isToggle ? Theme.ink : Theme.filletInk }
     private var activeFill: Color { isToggle ? Theme.hairlineStrong : Theme.filletSoft }
 
     var body: some View {
-        VStack(spacing: 3) {
+        VStack(spacing: Theme.Space.xs) {
             Image(systemName: symbol)
                 .font(.system(size: 17, weight: .medium))
-                .frame(height: 21)
+                .frame(height: 20)
                 .foregroundStyle(active ? accent : Theme.ink)
             Text(title)
-                .font(Theme.condensed(11, active ? .semibold : .medium))
+                .font(active ? Theme.label.weight(.semibold) : Theme.label)
                 .foregroundStyle(active ? Theme.ink : Theme.inkSecondary)
                 .lineLimit(1)
         }
@@ -410,7 +408,7 @@ struct SketchToolbar: View {
     ]
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Theme.Space.s) {
             HStack(spacing: 2) {
                 ForEach(tools, id: \.0) { tool, symbol in
                     let active = session.sketchEditor?.tool == tool
@@ -420,7 +418,7 @@ struct SketchToolbar: View {
                     } label: {
                         Image(systemName: symbol)
                             .font(.system(size: 16, weight: .medium))
-                            .foregroundStyle(active ? Theme.fillet : Theme.ink)
+                            .foregroundStyle(active ? Theme.filletInk : Theme.ink)
                             .frame(width: 38, height: 34)
                             .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                                 .fill(active ? Theme.filletSoft : .clear))
@@ -431,7 +429,7 @@ struct SketchToolbar: View {
                     .accessibilityLabel(tool.title)
                     .accessibilityAddTraits(active ? .isSelected : [])
                     .hoverHighlight()
-                    if tool == .select { Theme.hairline.frame(width: 1, height: 22).padding(.horizontal, 3) }
+                    if tool == .select { Theme.hairline.frame(width: 1, height: 24).padding(.horizontal, Theme.Space.xs) }
                 }
             }
             if session.sketchEditor?.tool == .spline || session.sketchEditor?.tool == .line {
@@ -458,10 +456,8 @@ struct SketchToolbar: View {
             .buttonStyle(PrimaryButtonStyle())
         }
         .fixedSize()
-        .padding(6)
-        .background(RoundedRectangle(cornerRadius: Theme.Radius.floating, style: .continuous).fill(Theme.raised))
-        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.floating, style: .continuous).strokeBorder(Theme.hairline))
-        .shadow(color: .black.opacity(0.12), radius: 16, y: 6)
+        .padding(Theme.Space.s)
+        .floatingElevation(cornerRadius: Theme.Radius.control + Theme.Space.s)
     }
 }
 

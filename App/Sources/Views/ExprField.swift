@@ -17,7 +17,7 @@ struct ExprField: View {
 
     var body: some View {
         VStack(alignment: .trailing, spacing: 4) {
-            HStack(spacing: 10) {
+            HStack(spacing: Theme.Space.m) {
                 Text(label)
                     .font(Theme.body)
                     .foregroundStyle(Theme.inkSecondary)
@@ -28,13 +28,13 @@ struct ExprField: View {
             if let error {
                 Label(error, systemImage: "exclamationmark.circle.fill")
                     .font(Theme.caption)
-                    .foregroundStyle(Theme.danger)
+                    .foregroundStyle(Theme.dangerInk)
                     .fixedSize(horizontal: false, vertical: true)
                     .transition(.opacity)
             } else if !value.isLiteral, let v = try? evaluator.evaluate(value, as: kind) {
                 Text("= \(Self.format(v)) \(unit)")
                     .font(Theme.caption.monospacedDigit())
-                    .foregroundStyle(Theme.inkTertiary)
+                    .foregroundStyle(Theme.inkSecondary)
             }
         }
         .animation(Theme.Motion.hover, value: error)
@@ -45,7 +45,7 @@ struct ExprField: View {
     }
 
     private var field: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: Theme.Space.s) {
             TextField(label, text: $text)
                 .textFieldStyle(.plain)
                 .font(Theme.value)
@@ -61,10 +61,10 @@ struct ExprField: View {
             if !unit.isEmpty {
                 Text(unit)
                     .font(Theme.caption)
-                    .foregroundStyle(Theme.inkTertiary)
+                    .foregroundStyle(Theme.inkSecondary)
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, Theme.Space.m)
         .frame(minHeight: 32)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.raised))
         .overlay(
@@ -80,7 +80,8 @@ struct ExprField: View {
     private var borderColor: Color {
         if error != nil { return Theme.danger }
         if focused { return Theme.fillet }
-        return hovering ? Theme.hairlineStrong : Theme.hairline
+        // Resting border at hairlineStrong so the field reads as a field, not a label.
+        return hovering ? Theme.inkTertiary.opacity(0.7) : Theme.hairlineStrong
     }
 
     private var unit: String {
@@ -124,7 +125,7 @@ struct PointField: View {
     let onChange: (Point2Expr) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
             Text(label).font(Theme.caption.weight(.semibold)).foregroundStyle(Theme.inkSecondary)
             ExprField(label: "X", value: value.x, evaluator: evaluator) { onChange(Point2Expr($0, value.y)) }
             ExprField(label: "Y", value: value.y, evaluator: evaluator) { onChange(Point2Expr(value.x, $0)) }

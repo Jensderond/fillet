@@ -84,8 +84,9 @@ public struct ViewportPalette: Hashable, Sendable {
         ambient: 0.42, key: 0.62, fill: 0.20, rim: 0.22, specular: 0.10)
 
     public static let dark = ViewportPalette(
-        backgroundTop: ViewportColor(hex: 0x30343B),
-        backgroundBottom: ViewportColor(hex: 0x16181C),
+        // Shifted towards the chrome's navy so the viewport edge doesn't show a hue seam.
+        backgroundTop: ViewportColor(hex: 0x2E3340),
+        backgroundBottom: ViewportColor(hex: 0x151922),
         body: ViewportColor(hex: 0xB9BEC6),
         edge: ViewportColor(hex: 0x0B0C0E, alpha: 0.95),
         accent: ViewportColor(hex: 0x3B8BFF),

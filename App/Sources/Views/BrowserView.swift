@@ -11,7 +11,7 @@ struct BrowserView: View {
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+            VStack(alignment: .leading, spacing: Theme.Space.xl) {
                 PanelSection("Bodies") {
                     if session.model.bodies.isEmpty {
                         Hint("Extrude a sketch to make your first body.", symbol: "cube")
@@ -58,7 +58,7 @@ struct BrowserView: View {
                 }
                 ParametersSection(session: session)
             }
-            .padding(14)
+            .padding(Theme.Space.l)
         }
         .background(Theme.panel)
     }
@@ -76,9 +76,9 @@ struct BrowserRow<Trailing: View>: View {
     @State private var hovering = false
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: Theme.Space.s) {
             Button(action: action) {
-                HStack(spacing: 9) {
+                HStack(spacing: Theme.Space.s) {
                     Image(systemName: symbol)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(selected ? Theme.select : Theme.inkSecondary)
@@ -94,8 +94,8 @@ struct BrowserRow<Trailing: View>: View {
             .buttonStyle(PressableStyle())
             trailing
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 2)
+        .padding(.leading, Theme.Space.s)
+        .padding(.trailing, Theme.Space.xs)
         .frame(minHeight: 32)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
             .fill(selected ? Theme.selectSoft : hovering ? Theme.hairline : .clear))
@@ -115,7 +115,7 @@ struct ParametersSection: View {
             if session.document.parameters.isEmpty {
                 Hint("Name a value once, then type its name in any dimension, like width / 2 + wall.", symbol: "function")
             }
-            VStack(spacing: 10) {
+            VStack(spacing: Theme.Space.s) {
                 ForEach(session.document.parameters) { p in
                     ParameterRow(session: session, parameter: p)
                 }
@@ -146,11 +146,11 @@ struct ParameterRow: View {
     @FocusState private var nameFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: Theme.Space.s) {
+            HStack(spacing: Theme.Space.s) {
                 TextField("name", text: $name)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 12.5, weight: .semibold, design: .monospaced))
+                    .font(Theme.body.weight(.semibold).monospaced())
                     .foregroundStyle(Theme.ink)
                     .autocorrectionDisabled()
                     #if os(iOS)
@@ -176,10 +176,10 @@ struct ParameterRow: View {
                 }
             }
             if let error = nameError ?? session.model.parameters.errors[parameter.id]?.message {
-                Label(error, systemImage: "exclamationmark.circle.fill").font(Theme.caption).foregroundStyle(Theme.danger)
+                Label(error, systemImage: "exclamationmark.circle.fill").font(Theme.caption).foregroundStyle(Theme.dangerInk)
             }
         }
-        .padding(10)
+        .padding(Theme.Space.m)
         .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.raised.opacity(0.6)))
         .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.hairline))
         .onAppear { name = parameter.name }

@@ -21,7 +21,7 @@ struct TimelineView: View {
     private var markerIndex: Int { doc.activeFeatureCount }
 
     var body: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: Theme.Space.s) {
             playback
             ScrollViewReader { proxy in
                 ScrollView(.horizontal, showsIndicators: false) {
@@ -49,9 +49,9 @@ struct TimelineView: View {
                 }
             }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 6)
-        .frame(height: 76)
+        .padding(.horizontal, Theme.Space.s)
+        .padding(.vertical, Theme.Space.s)
+        .frame(height: 80)
         .background(Theme.panel)
         .overlay(alignment: .top) { Theme.hairline.frame(height: 1) }
         .alert("Rename step", isPresented: Binding(get: { renaming != nil }, set: { if !$0 { renaming = nil } })) {
@@ -64,8 +64,8 @@ struct TimelineView: View {
     private var emptyState: some View {
         Label("Steps appear here as you design. Tap one later to change it.", systemImage: "ruler")
             .font(Theme.body)
-            .foregroundStyle(Theme.inkTertiary)
-            .padding(.horizontal, 8)
+            .foregroundStyle(Theme.inkSecondary)
+            .padding(.horizontal, Theme.Space.s)
             .frame(height: 60)
     }
 
@@ -116,7 +116,7 @@ struct TimelineView: View {
         .help(failed.map { "\(feature.name): \($0)" } ?? "\(feature.name) — tap to edit")
         .accessibilityLabel("Step \(index + 1), \(feature.name)\(failed != nil ? ", failed" : "")")
         .draggable("feature:\(feature.id.uuidString)") {
-            IconChip(symbol: feature.kind.symbol, tint: Theme.fillet, size: 34)
+            IconChip(symbol: feature.kind.symbol, tint: Theme.filletInk, size: 34)
         }
         .dropDestination(for: String.self) { items, _ in
             drop(items, at: index)
@@ -215,8 +215,8 @@ private struct StationLabel: View {
                 }
             }
             Text(feature.name)
-                .font(Theme.condensed(10.5, editing ? .semibold : .medium))
-                .foregroundStyle(failure != nil ? Theme.danger : editing ? Theme.ink : Theme.inkSecondary)
+                .font(editing ? Theme.label.weight(.semibold) : Theme.label)
+                .foregroundStyle(failure != nil ? Theme.dangerInk : editing ? Theme.ink : Theme.inkSecondary)
                 .strikethrough(feature.suppressed)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -237,7 +237,7 @@ private struct StationLabel: View {
 
     private var iconColor: Color {
         if failure != nil { return Theme.danger }
-        return editing ? Theme.fillet : Theme.ink
+        return editing ? Theme.filletInk : Theme.ink
     }
 
     private var chipFill: Color {
@@ -276,7 +276,7 @@ private struct RulerTicks: View {
                 tick.addLine(to: CGPoint(x: x + stationWidth / 2, y: baseline - (major ? 7 : 3)))
                 context.stroke(tick, with: ink, lineWidth: major ? 1.2 : 0.8)
                 if major, i / 5 < count {
-                    let label = Text("\(i / 5 + 1)").font(Theme.condensed(8.5, .semibold)).foregroundStyle(Theme.inkTertiary)
+                    let label = Text("\(i / 5 + 1)").font(Theme.micro).foregroundStyle(Theme.inkSecondary)
                     context.draw(label, at: CGPoint(x: x + stationWidth / 2 + 6, y: baseline - 6), anchor: .leading)
                 }
                 x += minor
