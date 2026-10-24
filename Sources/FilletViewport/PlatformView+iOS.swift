@@ -17,6 +17,14 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
     private var lastTwoFingerPan: CGPoint = .zero
     private var lastPinchScale: CGFloat = 1
 
+    // Coasting after a flick: orbit or pan keeps going with decaying velocity until it
+    // stops or a new touch lands. Off under Reduce Motion.
+    private enum Coast { case orbit, pan }
+    private var momentum: Momentum?
+    private var coast: Coast = .orbit
+    private var momentumLink: CADisplayLink?
+    private var momentumTime: CFTimeInterval = 0
+
     // Pencil stroke state.
     private enum PencilMode { case pending, tool, handle, orbit }
     private var pencilTouch: UITouch?
@@ -142,7 +150,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
             switch oneFingerMode {
             case .handle: c.endHandleDrag()
             case .tool: c.toolEnded(at: p, pressure: nil, pointer: .touch, modifiers: modifiers(g))
-            case .orbit: c.endNavigation()
+            case .orbit: startCoasting(.orbit, velocity: g.velocity(in: self), rate: Momentum.orbitRate)
             }
         case .cancelled, .failed:
             switch oneFingerMode {
@@ -159,15 +167,67 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         let p = g.location(in: self)
         switch g.state {
         case .began:
+            stopCoasting()
+            pinchedDuringPan = false
             c.beginPan(at: p)
             lastTwoFingerPan = p
         case .changed:
             c.pan(by: CGSize(width: p.x - lastTwoFingerPan.x, height: p.y - lastTwoFingerPan.y))
             lastTwoFingerPan = p
-        case .ended, .cancelled, .failed:
+        case .ended:
+            // A pinch that ends as a pan shouldn't fling the model away.
+            if pinchedDuringPan { c.endNavigation() } else { startCoasting(.pan, velocity: g.velocity(in: self), rate: Momentum.panRate) }
+        case .cancelled, .failed:
             c.endNavigation()
         default: break
         }
+    }
+
+    /// Two-finger gestures that zoomed don't coast: the pan velocity is the pinch's drift.
+    private var pinchedDuringPan = false
+
+    // MARK: Momentum
+
+    private func startCoasting(_ kind: Coast, velocity v: CGPoint, rate: Double) {
+        guard let c = controller else { return }
+        guard !UIAccessibility.isReduceMotionEnabled,
+              let m = Momentum.flick(SIMD2(Double(v.x), Double(v.y)), decelerationRate: rate) else {
+            c.endNavigation()
+            return
+        }
+        momentum = m
+        coast = kind
+        momentumTime = CACurrentMediaTime()
+        if momentumLink == nil {
+            let link = CADisplayLink(target: self, selector: #selector(stepCoasting(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
+            momentumLink = link
+        }
+    }
+
+    @objc private func stepCoasting(_ link: CADisplayLink) {
+        guard let c = controller, var m = momentum else { stopCoasting(); return }
+        let now = link.targetTimestamp
+        let dt = min(max(now - momentumTime, 0), 1.0 / 30)
+        momentumTime = now
+        let d = m.step(dt)
+        momentum = m
+        let delta = CGSize(width: d.x, height: d.y)
+        switch coast {
+        case .orbit: c.orbit(by: delta)
+        case .pan: c.pan(by: delta)
+        }
+        if m.isFinished { stopCoasting() }
+    }
+
+    /// Ends coasting where it is (a new touch catches the model) and reports the camera.
+    private func stopCoasting() {
+        momentumLink?.invalidate()
+        momentumLink = nil
+        guard momentum != nil else { return }
+        momentum = nil
+        controller?.endNavigation()
     }
 
     @objc private func scrollPan(_ g: UIPanGestureRecognizer) {
@@ -175,6 +235,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         let t = g.translation(in: self)
         switch g.state {
         case .began:
+            stopCoasting()
             c.beginPan(at: g.location(in: self))
             g.setTranslation(.zero, in: self)
         case .changed:
@@ -208,6 +269,8 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         let p = g.location(in: self)
         switch g.state {
         case .began:
+            stopCoasting()
+            pinchedDuringPan = true
             c.beginZoom(at: p)
             lastPinchScale = g.scale
         case .changed:
@@ -243,6 +306,8 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
     // MARK: Apple Pencil (raw touches; gesture recognizers ignore pencil touches)
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // Any new touch catches a coasting model, like a hand on a spinning globe.
+        stopCoasting()
         super.touchesBegan(touches, with: event)
         guard pencilTouch == nil, let t = touches.first(where: { $0.type == .pencil }), let c = controller else { return }
         pencilTouch = t

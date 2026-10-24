@@ -1,5 +1,6 @@
 import FilletCore
 import FilletKernel
+import FilletViewport
 import SwiftUI
 
 /// Right-hand panel: the feature being edited, the open sketch, or the
@@ -28,6 +29,8 @@ struct InspectorView: View {
                 .font(Theme.body)
                 .tint(Theme.ink)
             }
+            // A row cut by a short drawer or panel fades out, so it reads as "more below".
+            .scrollEdgeFade()
             if session.sketchEditor != nil {
                 if showsSketchFooter { SketchFooter(finish: session.finishSketch) }
             } else if session.editingFeature != nil {
@@ -39,29 +42,62 @@ struct InspectorView: View {
     }
 }
 
-/// The inspector docked under the viewport at compact widths. The grabber switches between
-/// a short panel that keeps the model in view and a tall one for long forms. (A system sheet
-/// would be a centred form sheet on iPad at these widths and cover the model being picked.)
+/// The inspector docked under the viewport at compact widths. Drag the grabber between three
+/// heights (just the header and actions, a short panel that keeps the model in view, a tall
+/// one for long forms); a quick flick is enough to move a detent, and a tap toggles short and
+/// tall. (A system sheet would be a centred form sheet on iPad at these widths and cover the
+/// model being picked.)
 struct InspectorDrawer: View {
     @Bindable var session: DesignSession
-    @State private var expanded = false
+    @State private var detent = 340.0
+    /// Live drag distance (points, up = positive) while the grabber is held.
+    @State private var drag = 0.0
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    static let detents = [156.0, 340, 560]
+    private var range: ClosedRange<Double> { Self.detents.first!...Self.detents.last! }
+    private var height: Double { Momentum.rubberBand(detent + drag, in: range) }
 
     var body: some View {
         VStack(spacing: 0) {
-            Button { expanded.toggle() } label: {
-                Capsule().fill(Theme.hairlineStrong)
-                    .frame(width: 36, height: 5)
-                    .frame(maxWidth: .infinity, minHeight: Theme.Space.l + Theme.Space.s)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(expanded ? "Make inspector shorter" : "Make inspector taller")
+            Capsule().fill(Theme.hairlineStrong)
+                .frame(width: 36, height: 5)
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .contentShape(Rectangle())
+                .gesture(DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                    .onChanged { drag = -$0.translation.height }
+                    .onEnded { value in
+                        let released = Momentum.rubberBand(detent - value.translation.height, in: range)
+                        let target = Momentum.restingPoint(from: released, velocity: -value.velocity.height, among: Self.detents)
+                        settle(at: target)
+                    })
+                .onTapGesture { settle(at: detent < Self.detents[2] ? Self.detents[2] : Self.detents[1]) }
+                .accessibilityElement()
+                .accessibilityLabel("Inspector height")
+                .accessibilityValue(detent >= Self.detents[2] ? "Tall" : detent <= Self.detents[0] ? "Header only" : "Short")
+                .accessibilityHint("Swipe up or down to change the height")
+                .accessibilityAdjustableAction { direction in
+                    let i = Self.detents.firstIndex(of: detent) ?? 1
+                    let next = direction == .increment ? min(i + 1, Self.detents.count - 1) : max(i - 1, 0)
+                    settle(at: Self.detents[next])
+                }
             InspectorView(session: session)
         }
-        .frame(height: expanded ? 560 : 340)
+        .frame(height: height)
         .background(Theme.panel)
         .overlay(alignment: .top) { Theme.hairline.frame(height: 1) }
-        .animation(Theme.Motion.enter, value: expanded)
+        .sensoryFeedback(.selection, trigger: detent)
+    }
+
+    /// Springs to a detent from where the finger let go (the height is continuous, so the spring
+    /// picks up from there); cuts under Reduce Motion.
+    private func settle(at target: Double) {
+        var t = Transaction(animation: reduceMotion ? nil : .spring(duration: 0.38, bounce: 0.12))
+        t.disablesAnimations = reduceMotion
+        withTransaction(t) {
+            detent = target
+            drag = 0
+        }
     }
 }
 

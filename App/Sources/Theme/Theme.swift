@@ -367,6 +367,26 @@ struct OverflowFade: ViewModifier {
     }
 }
 
+/// Bottom fade on a vertical `ScrollView`, shown only while content continues below.
+struct BottomFade: ViewModifier {
+    var height: CGFloat
+    @State private var more = false
+
+    func body(content: Content) -> some View {
+        content
+            .onScrollGeometryChange(for: Bool.self) { g in
+                g.contentOffset.y + g.containerSize.height < g.contentSize.height - 1
+            } action: { _, value in more = value }
+            .mask {
+                VStack(spacing: 0) {
+                    Color.black
+                    LinearGradient(colors: [.black, more ? .black.opacity(0.1) : .black], startPoint: .top, endPoint: .bottom)
+                        .frame(height: height)
+                }
+            }
+    }
+}
+
 private struct BlurModifier: ViewModifier {
     let radius: CGFloat
     func body(content: Content) -> some View { content.blur(radius: radius) }
@@ -439,6 +459,9 @@ extension View {
         modifier(PointerHoverPlate(cornerRadius: cornerRadius, enabled: !ownsPointerHover))
         #endif
     }
+
+    /// Fades the bottom of a vertical scroll view while there's more below.
+    func scrollEdgeFade(height: CGFloat = Theme.Space.xl) -> some View { modifier(BottomFade(height: height)) }
 
     /// Fades the edges of a horizontal scroll view while there's more to scroll that way.
     func overflowFade(width: CGFloat = Theme.Space.l) -> some View { modifier(OverflowFade(width: width)) }
