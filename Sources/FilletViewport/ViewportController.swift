@@ -31,6 +31,7 @@ public final class ViewportController {
     @ObservationIgnored private var zoomAnchor: Vec3?
     @ObservationIgnored private var panDepthPoint: Vec3?
     @ObservationIgnored private var dragHandle: (handle: Handle, offset: Double, value: Double)?
+    @ObservationIgnored private(set) var isDraggingTarget = false
 
     public init() {
         renderer = try? ViewportRenderer()
@@ -243,6 +244,37 @@ public final class ViewportController {
     }
 
     func toolCancelled() { delegate?.viewportToolCancelled() }
+
+    // MARK: Dragging picked elements
+
+    /// Starts dragging the element under `p` (the press point of a gesture that has started to
+    /// move) if the delegate wants to. Returns whether a drag began; otherwise the gesture navigates.
+    func beginTargetDrag(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) -> Bool {
+        guard let delegate, let hit = pick(at: p, pointer: pointer, filter: filter) else { return false }
+        let event = toolEvent(at: p, pressure: nil, pointer: pointer, modifiers: modifiers, hit: hit)
+        guard delegate.viewportShouldBeginDrag(target: hit.target, event: event) else { return false }
+        renderer?.cancelAnimation()
+        isDraggingTarget = true
+        return true
+    }
+
+    func dragTarget(to p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
+        guard isDraggingTarget else { return }
+        // What lies under the pointer doesn't matter mid-drag: skip the pick.
+        delegate?.viewportDragMoved(toolEvent(at: p, pressure: nil, pointer: pointer, modifiers: modifiers, hit: .some(nil)))
+    }
+
+    func endTargetDrag(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
+        guard isDraggingTarget else { return }
+        isDraggingTarget = false
+        delegate?.viewportDragEnded(toolEvent(at: p, pressure: nil, pointer: pointer, modifiers: modifiers, hit: .some(nil)))
+    }
+
+    func cancelTargetDrag() {
+        guard isDraggingTarget else { return }
+        isDraggingTarget = false
+        delegate?.viewportDragCancelled()
+    }
 
     // MARK: Handles
 

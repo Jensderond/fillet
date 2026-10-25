@@ -3,7 +3,8 @@ import AppKit
 import MetalKit
 
 /// MTKView with Mac mouse/trackpad handling:
-/// - left click: pick; left drag with a tool: tool; left drag otherwise: orbit
+/// - left click: pick; left drag with a tool: tool; left drag on an element the delegate lets
+///   you drag (`viewportShouldBeginDrag`): drag it; left drag otherwise: orbit
 /// - right drag or option-left drag: orbit; middle drag or shift-right drag: pan
 /// - scroll wheel: zoom at the cursor; trackpad two-finger scroll: pan
 ///   (⌘/⌥ + scroll zooms); pinch: zoom; rotate: spin around Z
@@ -11,7 +12,7 @@ import MetalKit
 final class ViewportNSView: MTKView {
     weak var controller: ViewportController?
 
-    private enum DragMode { case none, pendingClick, orbit, pan, tool, handle }
+    private enum DragMode { case none, pendingClick, orbit, pan, tool, handle, target }
     private var mode: DragMode = .none
     private var downPoint: CGPoint = .zero
     private var lastPoint: CGPoint = .zero
@@ -97,15 +98,21 @@ final class ViewportNSView: MTKView {
         switch mode {
         case .pendingClick:
             if hypot(p.x - downPoint.x, p.y - downPoint.y) > 3 {
-                mode = .orbit
-                c.beginOrbit(at: downPoint)
-                lastPoint = downPoint
-                c.orbit(by: delta(p))
+                if c.beginTargetDrag(at: downPoint, pointer: .mouse, modifiers: modifiers(e)) {
+                    mode = .target
+                    c.dragTarget(to: p, pointer: .mouse, modifiers: modifiers(e))
+                } else {
+                    mode = .orbit
+                    c.beginOrbit(at: downPoint)
+                    lastPoint = downPoint
+                    c.orbit(by: delta(p))
+                }
             }
         case .orbit: c.orbit(by: delta(p))
         case .pan: c.pan(by: delta(p))
         case .tool: c.toolMoved(at: p, pressure: nil, pointer: .mouse, modifiers: modifiers(e))
         case .handle: c.dragHandle(to: p)
+        case .target: c.dragTarget(to: p, pointer: .mouse, modifiers: modifiers(e))
         case .none: break
         }
     }
@@ -122,6 +129,7 @@ final class ViewportNSView: MTKView {
         case .orbit, .pan: c.endNavigation()
         case .tool: c.toolEnded(at: p, pressure: nil, pointer: .mouse, modifiers: modifiers(e))
         case .handle: c.endHandleDrag()
+        case .target: c.endTargetDrag(at: p, pointer: .mouse, modifiers: modifiers(e))
         case .none: break
         }
         mode = .none

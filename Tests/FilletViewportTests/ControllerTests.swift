@@ -14,6 +14,9 @@ final class Recorder: ViewportDelegate {
     var handleEnded: Double?
     var toolEvents: [(String, ViewportToolEvent)] = []
     var cameras: [Camera] = []
+    /// Accepts drags of faces (`viewportShouldBeginDrag`).
+    var dragsFaces = false
+    var drags: [(String, ViewportToolEvent?)] = []
 
     func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers) {
         taps.append(target)
@@ -25,6 +28,14 @@ final class Recorder: ViewportDelegate {
     func viewportToolMoved(_ event: ViewportToolEvent) { toolEvents.append(("moved", event)) }
     func viewportToolEnded(_ event: ViewportToolEvent) { toolEvents.append(("ended", event)) }
     func viewportCameraChanged(_ camera: Camera) { cameras.append(camera) }
+    func viewportShouldBeginDrag(target: PickTarget, event: ViewportToolEvent) -> Bool {
+        guard dragsFaces, case .face = target else { return false }
+        drags.append(("began", event))
+        return true
+    }
+    func viewportDragMoved(_ event: ViewportToolEvent) { drags.append(("moved", event)) }
+    func viewportDragEnded(_ event: ViewportToolEvent) { drags.append(("ended", event)) }
+    func viewportDragCancelled() { drags.append(("cancelled", nil)) }
 }
 
 @MainActor
@@ -59,6 +70,31 @@ struct ControllerTests {
         #expect(r.taps.count == 2)
         #expect(r.taps[0] == .face(body: cubeID, index: 2))
         #expect(r.taps[1] == nil)
+    }
+
+    @Test func pressOnADraggableTargetDragsIt() {
+        let (c, r, box) = make()
+        let before = box.camera
+        // Nothing accepts drags yet: the gesture navigates.
+        #expect(!c.beginTargetDrag(at: CGPoint(x: 400, y: 300), pointer: .touch, modifiers: []))
+        r.dragsFaces = true
+        // Empty space is never dragged.
+        #expect(!c.beginTargetDrag(at: CGPoint(x: 20, y: 20), pointer: .touch, modifiers: []))
+        #expect(c.beginTargetDrag(at: CGPoint(x: 400, y: 300), pointer: .touch, modifiers: [.shift]))
+        #expect(c.isDraggingTarget)
+        c.dragTarget(to: CGPoint(x: 420, y: 310), pointer: .touch, modifiers: [])
+        c.endTargetDrag(at: CGPoint(x: 430, y: 320), pointer: .touch, modifiers: [])
+        #expect(!c.isDraggingTarget)
+        #expect(r.drags.map(\.0) == ["began", "moved", "ended"])
+        #expect(r.drags[0].1?.modifiers == [.shift])
+        #expect(r.drags[0].1?.location == CGPoint(x: 400, y: 300))
+        #expect(r.drags[2].1?.location == CGPoint(x: 430, y: 320))
+        // Moves after the end, and a cancel with no drag, report nothing; the camera stayed put.
+        c.dragTarget(to: CGPoint(x: 440, y: 330), pointer: .touch, modifiers: [])
+        c.cancelTargetDrag()
+        #expect(r.drags.count == 3)
+        #expect(box.camera == before)
+        #expect(r.taps.isEmpty)
     }
 
     @Test func hoverReportsChangesOnly() {

@@ -119,6 +119,7 @@ enum DebugAutomation {
         check(session.model.sketches.values.first?.regions?.count == 2, "sketch has 2 regions")
         #if os(macOS)
         await typeIntoDimensionField(session)
+        await dragToMove(session)
         #endif
 
         // Extrude the plate (not the hole).
@@ -517,6 +518,88 @@ enum DebugAutomation {
         // would make terminate wait on a save prompt; this check changed nothing in the model.
         NSDocumentController.shared.document(for: window)?.updateChangeCount(.changeCleared)
         await settle(session)
+    }
+
+    /// Select tool, through the viewport's own mouse handling: press on a shape and drag moves
+    /// it live, snapped to the grid, as one undo step; a click without moving only selects.
+    private static func dragToMove(_ session: DesignSession) async {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }), let content = window.contentView,
+            let sketch = session.sketchEditor?.sketch, let plane = session.model.sketches[sketch]?.plane
+        else { return }
+        func find(_ v: NSView) -> MTKView? {
+            if let m = v as? MTKView { return m }
+            for s in v.subviews { if let f = find(s) { return f } }
+            return nil
+        }
+        guard let mtk = find(content) else { check(false, "viewport found"); return }
+        let toolBefore = session.sketchEditor?.tool ?? .line
+        session.sketchEditor?.engine.setTool(.circle)
+        tap(session, SIMD2(80, 40))
+        tap(session, SIMD2(85, 40))
+        session.sketchEditor?.engine.setTool(.select)
+        session.sketchEditor?.selectedShapes = []
+        await settle(session)
+        guard let circle = session.model.sketches[sketch]?.source.shapes.last?.id else { return }
+        func center() -> SIMD2<Double>? {
+            guard case .sketch(let s)? = session.document.feature(sketch)?.kind,
+                case .circle(let c, _)? = s.shape(circle)?.kind
+            else { return nil }
+            return try? c.evaluate(using: .empty)
+        }
+        func mouse(_ type: NSEvent.EventType, _ p: SIMD2<Double>) {
+            guard let screen = session.camera.project(plane.point(p), viewSize: session.viewSize) else { return }
+            let location = mtk.convert(NSPoint(x: screen.x, y: mtk.bounds.height - screen.y), to: nil)
+            guard let e = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            else { return }
+            switch type {
+            case .leftMouseDown: mtk.mouseDown(with: e)
+            case .leftMouseDragged: mtk.mouseDragged(with: e)
+            default: mtk.mouseUp(with: e)
+            }
+        }
+        // No real events reach the app here, so the window's automatic undo group stays open and
+        // would lump the drag in with earlier edits. A fresh manager that counts steps sees only it.
+        let windowUndo = session.undoManager
+        let undo = StepCountingUndoManager()
+        session.undoManager = undo
+        // Grab the rim of the unselected circle and drag: it selects, then moves by its centre.
+        mouse(.leftMouseDown, SIMD2(85, 40))
+        mouse(.leftMouseDragged, SIMD2(88, 44))
+        mouse(.leftMouseDragged, SIMD2(92, 47))
+        check(session.sketchEditor?.selectedShapes == [circle], "pressing an unselected shape and dragging selects it")
+        check(center() == SIMD2(87, 47), "the shape follows the pointer while dragging (\(String(describing: center())))")
+        check(undo.steps.isEmpty, "no undo step until the drag ends")
+        await settle(session)
+        mouse(.leftMouseDragged, SIMD2(95.3, 50.2))
+        mouse(.leftMouseUp, SIMD2(95.3, 50.2))
+        await settle(session)
+        check(center() == SIMD2(90, 50), "drag moves the circle with its centre snapped to the grid (\(String(describing: center())))")
+        check(undo.steps == ["Move Circle"], "the move is one undo step (\(undo.steps))")
+        undo.undo()
+        await settle(session)
+        check(center() == SIMD2(80, 40), "undo puts the circle back (\(String(describing: center())))")
+        undo.redo()
+        await settle(session)
+        session.undoManager = windowUndo
+        // A click without moving only toggles the selection.
+        mouse(.leftMouseDown, SIMD2(95, 50))
+        mouse(.leftMouseUp, SIMD2(95, 50))
+        await settle(session)
+        check(center() == SIMD2(90, 50) && session.sketchEditor?.selectedShapes.isEmpty == true, "a click without moving only selects")
+        session.sketchEditor?.selectedShapes = [circle]
+        session.deleteSelectedSketchShapes()
+        session.sketchEditor?.engine.setTool(toolBefore)
+        await settle(session)
+    }
+
+    /// Records each undo step as the session names it (one `setActionName` per step).
+    private final class StepCountingUndoManager: UndoManager {
+        var steps: [String] = []
+        override func setActionName(_ actionName: String) {
+            if !isUndoing, !isRedoing { steps.append(actionName) }
+            super.setActionName(actionName)
+        }
     }
     #endif
 

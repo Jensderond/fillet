@@ -72,6 +72,8 @@ public struct SceneBody: Identifiable, Sendable {
 /// How a sketch curve is drawn.
 public enum SketchCurveStyle: UInt8, Hashable, Sendable, CaseIterable {
     case normal = 0, hover, selected, construction, preview
+    /// A selected construction shape: selection blue, still dashed.
+    case selectedConstruction
 }
 
 /// A polyline in sketch-plane coordinates (mm) belonging to one sketch shape.

@@ -11,14 +11,20 @@ enum ModelTool {
 extension DesignSession {
     // MARK: Sketch
 
+    /// The selected face a new sketch would go on, when it's planar.
+    var sketchableFace: (body: BodyRef, ref: FaceRef, plane: Plane)? {
+        guard let (body, face) = selectedFaces.first, let ref = model.faceRef(body: body, face: face),
+            let plane = model.body(body)?.shape.facePlane(face)
+        else { return nil }
+        return (body, ref, plane)
+    }
+
     /// New sketch on the selected planar face, or on the given origin plane.
     func startSketch(on plane: StandardPlane? = nil) {
-        if plane == nil, let (body, face) = selectedFaces.first, let ref = model.faceRef(body: body, face: face),
-            let facePlane = model.body(body)?.shape.facePlane(face)
-        {
-            newSketch(on: .face(ref, fallback: facePlane))
+        if plane == nil, let face = sketchableFace {
+            newSketch(on: .face(face.ref, fallback: face.plane))
             // Frame the face's body footprint, so the new sketch starts where the part is.
-            frameSketch(on: facePlane, bounds: sketchFrameBounds(sketch: nil, plane: facePlane, on: body))
+            frameSketch(on: face.plane, bounds: sketchFrameBounds(sketch: nil, plane: face.plane, on: face.body))
         } else {
             let p = plane ?? .xy
             newSketch(on: .standard(p, offset: 0))
@@ -59,6 +65,49 @@ extension DesignSession {
                 sketch.shapes[i].construction.toggle()
             }
         }
+    }
+
+    // MARK: Moving shapes
+
+    /// A press on a shape with Select that starts to drag. An unselected shape becomes the
+    /// selection (or joins it with `adding`), then every selected shape moves with the pointer.
+    func beginSketchMove(grabbing shape: UUID, point: Int?, at press: SIMD2<Double>, adding: Bool) -> Bool {
+        guard var editor = sketchEditor, editor.tool == .select, editing?.feature == editor.sketch,
+            case .sketch(let sketch) = document.feature(editor.sketch)?.kind, sketch.shape(shape) != nil
+        else { return false }
+        if !editor.selectedShapes.contains(shape) {
+            editor.selectedShapes = adding ? editor.selectedShapes.union([shape]) : [shape]
+        }
+        editor.move = SketchMove(original: sketch, shapes: editor.selectedShapes, grabbed: shape, point: point,
+                                 press: press, using: model.parameters.evaluator)
+        sketchEditor = editor
+        return true
+    }
+
+    /// Shows the shapes at the pointer, like a feature's live edit: no undo step yet.
+    func dragSketchMove(to p: SIMD2<Double>, context: SnapContext) {
+        guard let move = sketchEditor?.move else { return }
+        let moved = move.moved(by: move.offset(to: p, context: context).offset, using: model.parameters.evaluator)
+        updateEditing { $0.kind = .sketch(moved) }
+    }
+
+    /// Drops the shapes: the whole drag becomes one undo step.
+    func endSketchMove(at p: SIMD2<Double>, context: SnapContext) {
+        guard let move = sketchEditor?.move else { return }
+        sketchEditor?.move = nil
+        let offset = move.offset(to: p, context: context).offset
+        // Back to where the drag began without an undo step, then the move as one step.
+        updateEditing { $0.kind = .sketch(move.original) }
+        guard offset != .zero else { return }
+        let moved = move.moved(by: offset, using: model.parameters.evaluator)
+        let name = move.shapes.count == 1 ? move.original.shapes.first { move.shapes.contains($0.id) }?.kind.typeName.capitalized : nil
+        updateSketch("Move \(name ?? "Shapes")") { $0 = moved }
+    }
+
+    func cancelSketchMove() {
+        guard let move = sketchEditor?.move else { return }
+        sketchEditor?.move = nil
+        updateEditing { $0.kind = .sketch(move.original) }
     }
 
     /// Edits the open sketch as an undoable step (sketch mode has no cancel).

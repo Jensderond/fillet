@@ -475,7 +475,8 @@ struct ThemeSegmented<Value: Hashable>: View {
                                 }
                             }
                         }
-                        .contentShape(Rectangle())
+                        // Over the track's rim and into the gaps above and below (see `VerticalBleed`).
+                        .contentShape(VerticalBleed(2 + Theme.Space.xs))
                 }
                 .buttonStyle(PressableStyle())
                 .hoverHighlight(cornerRadius: Theme.Radius.control - 2)

@@ -28,6 +28,10 @@ struct ExprField: View {
                     .lineLimit(1)
                 field
             }
+            // The whole row focuses the field, label and the edge of the gaps around it included,
+            // so a tap near the field doesn't fall through to a neighbouring control (see `VerticalBleed`).
+            .contentShape(VerticalBleed(Theme.Space.xs))
+            .onTapGesture { focused = true }
             if let error {
                 Label(error, systemImage: "exclamationmark.circle.fill")
                     .font(Theme.caption)
@@ -77,8 +81,6 @@ struct ExprField: View {
             RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
                 .strokeBorder(borderColor, lineWidth: focused || error != nil ? 1.5 : 1))
         .shadow(color: focused ? Theme.filletMark.opacity(0.25) : .clear, radius: 4)
-        .contentShape(Rectangle())
-        .onTapGesture { focused = true }
         .hoverHighlight(ownsPointerHover: true)
         .onHover { hovering = $0 }
         .animation(Theme.Motion.hover, value: focused)

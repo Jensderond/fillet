@@ -265,7 +265,7 @@ struct EditorContent: View {
                 }
                 Spacer(minLength: 0)
                 if let message = session.message {
-                    Toast(message: message, run: { session.run($0) }) {
+                    Toast(message: message, run: run) {
                         if session.message == message { session.message = nil }
                     }
                     .transition(.panel(from: .bottom, reduceMotion: reduceMotion))
@@ -310,6 +310,14 @@ struct EditorContent: View {
         case .point, .horizontal, .vertical: session.sketchEditor?.engine.snap
         default: nil
         }
+    }
+
+    /// Toast actions; finger drawing is the editor's setting, the rest are the session's.
+    private func run(_ action: ToastMessage.Action) {
+        guard action == .drawWithFinger else { return session.run(action) }
+        fingerDraws = true
+        // One finger now draws, so say how to get around.
+        session.message = "Finger drawing is on. Drag with two fingers to pan, pinch to zoom."
     }
 
     private var currentHint: (text: String, symbol: String, context: String)? {
@@ -407,7 +415,7 @@ struct Toast: View {
                 .accessibilityHidden(true)
             Text(message.text).font(Theme.body).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
             if let action = message.action {
-                Button("Show") { run(action) }
+                Button(action.title) { run(action) }
                     .buttonStyle(InlineButtonStyle())
                     .frame(minHeight: touch ? 44 : 28)
                     .padding(.leading, Theme.Space.xs)
@@ -450,6 +458,21 @@ struct ToolStrip: View {
         return "Finish \(name) first: Done or Cancel."
     }
 
+    @ViewBuilder private func sketchPlanes(busy: Bool, face: Bool) -> some View {
+        Group {
+            if face { Button("On selected face") { session.startSketch() } }
+            Button("On XY (bed)") { session.startSketch(on: .xy) }
+            Button("On XZ (front)") { session.startSketch(on: .xz) }
+            Button("On YZ (side)") { session.startSketch(on: .yz) }
+        }
+        .disabled(busy)
+    }
+
+    private func sketchLabel(busy: Bool) -> some View {
+        ToolLabel("Sketch", "pencil.and.outline", active: session.sketchEditor != nil, disabled: busy)
+            .automationFrame("tool.Sketch")
+    }
+
     var body: some View {
         let busy = session.isBusyEditing
         HStack(spacing: Theme.Space.s) {
@@ -459,22 +482,20 @@ struct ToolStrip: View {
                     ToolCluster {
                         // Menus aren't `.disabled` as a whole (the system dims their labels a second
                         // time); their items are, and the label draws the same disabled colour as buttons.
-                        Menu {
-                            Group {
-                                Button("On XY (bed)") { session.startSketch(on: .xy) }
-                                Button("On XZ (front)") { session.startSketch(on: .xz) }
-                                Button("On YZ (side)") { session.startSketch(on: .yz) }
+                        // With a planar face selected, a tap sketches on it (the menu stays on long
+                        // press); otherwise a tap asks which origin plane.
+                        Group {
+                            if session.sketchableFace != nil {
+                                Menu { sketchPlanes(busy: busy, face: true) } label: { sketchLabel(busy: busy) } primaryAction: {
+                                    if !busy { session.startSketch() }
+                                }
+                            } else {
+                                Menu { sketchPlanes(busy: busy, face: false) } label: { sketchLabel(busy: busy) }
                             }
-                            .disabled(busy)
-                        } label: {
-                            ToolLabel("Sketch", "pencil.and.outline", active: session.sketchEditor != nil, disabled: busy)
-                                .automationFrame("tool.Sketch")
-                        } primaryAction: {
-                            if !busy { session.startSketch() }
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                         .hoverHighlight(ownsPointerHover: true)
-                        .help("New sketch on the selected face, or on the bed (⇧⌘K)")
+                        .help(session.sketchableFace != nil ? "New sketch on the selected face (⇧⌘K)" : "New sketch on an origin plane")
                     }
                     ToolCluster {
                         ToolButton("Extrude", "square.stack.3d.up", active: session.editingKind == "extrude",

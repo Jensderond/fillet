@@ -24,7 +24,7 @@ public enum SketchTool: String, CaseIterable, Hashable, Sendable {
     /// platform's pointing word: "Tap" on iPad, "Click" with a pointer.
     public func hint(placed: Int, verb: String = "Tap") -> String {
         switch (self, placed) {
-        case (.select, _): "\(verb) shapes to select them"
+        case (.select, _): "\(verb) shapes to select them, drag to move them"
         case (.line, 0): "\(verb) or drag to start a line"
         case (.line, _): "\(verb) the next point. Done or the first point ends the line"
         case (.rectangle, 0): "\(verb) or drag from the first corner"
@@ -65,6 +65,32 @@ public struct SnapContext: Sendable {
     public var gridSize: Double
     public init(points: [SnapPoint], tolerance: Double, gridSize: Double) {
         self.points = points; self.tolerance = tolerance; self.gridSize = gridSize
+    }
+
+    /// Snaps `raw` to the nearest snap point within the tolerance (endpoints, centres and
+    /// points before midpoints and quadrants), otherwise to the grid (or to 0.01 mm with the
+    /// grid off). `extra` adds candidates; `gridStep` overrides the grid step (half steps for
+    /// centre-based sizes).
+    public func snap(_ raw: SIMD2<Double>, extra: [(SIMD2<Double>, SnapKind)] = [], gridStep: Double? = nil)
+        -> (point: SIMD2<Double>, snap: SketchSnap)
+    {
+        func distance(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double {
+            let d = a - b
+            return (d.x * d.x + d.y * d.y).squareRoot()
+        }
+        let candidates = points.map { ($0.position, $0.kind) } + extra
+        let rank: [SnapKind: Int] = [.endpoint: 0, .center: 0, .point: 0, .midpoint: 1, .quadrant: 1]
+        if let best = candidates
+            .filter({ distance($0.0, raw) <= tolerance })
+            .min(by: { (rank[$0.1] ?? 2, distance($0.0, raw)) < (rank[$1.1] ?? 2, distance($1.0, raw)) })
+        {
+            return (best.0, .point(best.1))
+        }
+        if gridSize > 0 {
+            let step = gridStep ?? gridSize
+            return ((raw / step).rounded(.toNearestOrAwayFromZero) * step, .grid)
+        }
+        return ((raw * 100).rounded(.toNearestOrAwayFromZero) / 100, .none)
     }
 }
 
@@ -312,30 +338,15 @@ public struct SketchToolEngine: Sendable {
 
     private mutating func snapped(_ raw: SIMD2<Double>, _ context: SnapContext) -> SIMD2<Double> {
         grid = context.gridSize
-        // 1. Existing geometry (and the chain start, to close a loop).
-        var candidates = context.points.map { ($0.position, $0.kind) }
-        if let s = chainStart { candidates.append((s, .endpoint)) }
-        candidates += points.map { ($0, SnapKind.endpoint) }
-        let rank: [SnapKind: Int] = [.endpoint: 0, .center: 0, .point: 0, .midpoint: 1, .quadrant: 1]
-        if let best = candidates
-            .filter({ distance($0.0, raw) <= context.tolerance })
-            .min(by: { (rank[$0.1] ?? 2, distance($0.0, raw)) < (rank[$1.1] ?? 2, distance($1.0, raw)) })
-        {
-            snap = .point(best.1)
-            return best.0
-        }
-        // 2. Grid.
-        var p = raw
-        snap = .none
-        if context.gridSize > 0 {
-            // Centre-based sizes (centre rectangle, circle, polygon) need half steps for whole-step sizes.
-            let sizing = points.count == 1 && [.centerRectangle, .circle, .polygon].contains(tool)
-            let step = sizing ? context.gridSize / 2 : context.gridSize
-            p = (raw / step).rounded(.toNearestOrAwayFromZero) * step
-            snap = .grid
-        } else {
-            p = (raw * 100).rounded(.toNearestOrAwayFromZero) / 100
-        }
+        // 1. Existing geometry (and the chain start, to close a loop), 2. the grid.
+        var extra: [(SIMD2<Double>, SnapKind)] = chainStart.map { [($0, .endpoint)] } ?? []
+        extra += points.map { ($0, SnapKind.endpoint) }
+        // Centre-based sizes (centre rectangle, circle, polygon) need half steps for whole-step sizes.
+        let sizing = points.count == 1 && [.centerRectangle, .circle, .polygon].contains(tool)
+        let snapped = context.snap(raw, extra: extra, gridStep: sizing ? context.gridSize / 2 : nil)
+        var p = snapped.point
+        snap = snapped.snap
+        if case .point = snap { return p }
         // 3. Horizontal / vertical with the previous point.
         if let last = points.last {
             if abs(raw.y - last.y) <= context.tolerance {

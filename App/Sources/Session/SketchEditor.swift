@@ -12,6 +12,8 @@ struct SketchEditor {
     var gridSize: Double = 1
     /// The drawing tool Apple Pencil's double tap returns to from Select.
     var lastDrawingTool: SketchTool = .line
+    /// Shapes being dragged with the Select tool.
+    var move: SketchMove?
 
     init(sketch: UUID) { self.sketch = sketch }
 

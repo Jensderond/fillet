@@ -356,7 +356,9 @@ public final class ViewportRenderer: NSObject {
                 if c.closed, let f = pts.first { pts.append(f) }
                 polylines.append(pts)
                 var st = c.style
-                if st != .construction && st != .preview {
+                if st == .construction, scene.selection.contains(.sketchShape(c.shapeID)) {
+                    st = .selectedConstruction
+                } else if st != .construction && st != .preview && st != .selectedConstruction {
                     if scene.selection.contains(.sketchShape(c.shapeID)) { st = .selected }
                     else if hover == .sketchShape(c.shapeID), st == .normal { st = .hover }
                 }
@@ -816,7 +818,8 @@ public final class ViewportRenderer: NSObject {
                 LineStyle(pal.hover, width: 2.6),
                 LineStyle(pal.accent, width: 3.0),
                 LineStyle(pal.sketchConstruction, width: 1.6, dashed: true),
-                LineStyle(pal.sketchPreview, width: 2.2))
+                LineStyle(pal.sketchPreview, width: 2.2),
+                LineStyle(pal.accent, width: 2.4, dashed: true))
             d.stateCount = UInt32(sketchCurveCount)
             d.dashPeriod = U.viewport.w * U.viewport.z * 10
             enc.setVertexBuffer(sb, offset: 0, index: 0)

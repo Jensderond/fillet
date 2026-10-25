@@ -55,10 +55,20 @@ public protocol ViewportDelegate: AnyObject {
     /// A handle is being dragged; `value` is the new (clamped) handle value.
     func viewportHandleDragged(id: String, value: Double)
     func viewportHandleDragEnded(id: String, value: Double)
+    /// A press on `target` started moving while no tool takes the input. Return true to drag
+    /// it (`viewportDragMoved` / `Ended` / `Cancelled` follow) instead of navigating. `event`
+    /// is the press. A press that doesn't move stays a tap.
+    func viewportShouldBeginDrag(target: PickTarget, event: ViewportToolEvent) -> Bool
+    func viewportDragMoved(_ event: ViewportToolEvent)
+    func viewportDragEnded(_ event: ViewportToolEvent)
+    func viewportDragCancelled()
     /// The camera settled after a gesture or animation (also written to the binding).
     func viewportCameraChanged(_ camera: Camera)
     /// Apple Pencil double tap or squeeze (by convention: switch between the current tool and the last one).
     func viewportPencilToolSwitch()
+    /// A finger orbited or tapped while the active tool wanted input and `fingerDraws` is off:
+    /// someone may be trying to draw without Apple Pencil.
+    func viewportFingerMissedTool()
 }
 
 public extension ViewportDelegate {
@@ -72,8 +82,13 @@ public extension ViewportDelegate {
     func viewportToolCancelled() {}
     func viewportHandleDragged(id: String, value: Double) {}
     func viewportHandleDragEnded(id: String, value: Double) {}
+    func viewportShouldBeginDrag(target: PickTarget, event: ViewportToolEvent) -> Bool { false }
+    func viewportDragMoved(_ event: ViewportToolEvent) {}
+    func viewportDragEnded(_ event: ViewportToolEvent) {}
+    func viewportDragCancelled() {}
     func viewportCameraChanged(_ camera: Camera) {}
     func viewportPencilToolSwitch() {}
+    func viewportFingerMissedTool() {}
 }
 
 /// Viewport behaviour switches.

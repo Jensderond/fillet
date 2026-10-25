@@ -126,7 +126,9 @@ extension DesignSession {
         if case .revolve(let r) = editingFeature?.kind, case .sketchLine(let id) = r.axis { axisLine = id }
         for shape in evaluated.source.shapes {
             var style: SketchCurveStyle = shape.construction ? .construction : .normal
-            if editor?.selectedShapes.contains(shape.id) == true || shape.id == axisLine { style = .selected }
+            // Selected construction stays dashed: a shape just drawn is selected, and solid blue hid
+            // that "Draw construction lines" had made it construction.
+            if editor?.selectedShapes.contains(shape.id) == true || shape.id == axisLine { style = shape.construction ? .selectedConstruction : .selected }
             else if hover == .sketchShape(sketch: sketchID, shape: shape.id) { style = .hover }
             for line in evaluated.curves[shape.id] ?? [] {
                 overlay.curves.append(SketchCurve(shapeID: shape.id, points: line, style: style))
@@ -293,6 +295,7 @@ extension DesignSession: ViewportDelegate {
     }
 
     func viewportToolBegan(_ event: ViewportToolEvent) {
+        if event.pointer == .pencil { pencilHasDrawn = true }
         guard let (p, ctx) = sketchInput(event) else { return }
         sketchEditor?.engine.press(p, context: ctx)
     }
@@ -322,12 +325,47 @@ extension DesignSession: ViewportDelegate {
         }
     }
 
+    /// Select tool: a press on a shape that starts to move drags the selection (see `beginSketchMove`).
+    func viewportShouldBeginDrag(target: PickTarget, event: ViewportToolEvent) -> Bool {
+        guard pickMode == .sketch, sketchEditor?.tool == .select, let (press, _) = sketchInput(event) else { return false }
+        let adding = !event.modifiers.isDisjoint(with: [.shift, .command])
+        switch target {
+        case .sketchShape(let shape): return beginSketchMove(grabbing: shape, point: nil, at: press, adding: adding)
+        case .sketchPoint(let shape, let i): return beginSketchMove(grabbing: shape, point: i, at: press, adding: adding)
+        default: return false
+        }
+    }
+
+    func viewportDragMoved(_ event: ViewportToolEvent) {
+        guard let (p, ctx) = sketchInput(event) else { return }
+        dragSketchMove(to: p, context: ctx)
+    }
+
+    func viewportDragEnded(_ event: ViewportToolEvent) {
+        guard let (p, ctx) = sketchInput(event) else { cancelSketchMove(); return }
+        endSketchMove(at: p, context: ctx)
+    }
+
+    func viewportDragCancelled() {
+        cancelSketchMove()
+    }
+
     func viewportCameraChanged(_ camera: Camera) {
         self.camera = camera
     }
 
     func viewportPencilToolSwitch() {
         sketchEditor?.switchPencilTool()
+    }
+
+    /// Fingers orbit by default on iPad. A second finger orbit or tap while a drawing tool waits,
+    /// with no Pencil stroke yet, reads as someone without a Pencil trying to draw: offer finger drawing.
+    func viewportFingerMissedTool() {
+        guard !pencilHasDrawn, !offeredFingerDrawing else { return }
+        fingerMissedToolCount += 1
+        guard fingerMissedToolCount >= 2 else { return }
+        offeredFingerDrawing = true
+        message = ToastMessage("No Apple Pencil? Turn on finger drawing to sketch with your finger.", action: .drawWithFinger)
     }
 
     // MARK: Helpers

@@ -30,6 +30,15 @@ struct ToastMessage: Equatable, ExpressibleByStringInterpolation {
     enum Action: Equatable {
         /// Open this step in the inspector and bring it into view on the timeline.
         case showFeature(UUID)
+        /// Turn on finger drawing (the editor owns that setting).
+        case drawWithFinger
+
+        var title: String {
+            switch self {
+            case .showFeature: "Show"
+            case .drawWithFinger: "Draw with finger"
+            }
+        }
     }
     var text: String
     var kind: Kind = .info
@@ -81,6 +90,12 @@ final class DesignSession {
     var importRequested = false
     /// Shown as a banner over the viewport (export finished, a step failed…).
     var message: ToastMessage?
+    /// Finger orbits and taps while a drawing tool waited (see `viewportFingerMissedTool`).
+    @ObservationIgnored var fingerMissedToolCount = 0
+    /// Apple Pencil has drawn in this window, so fingers navigating is on purpose.
+    @ObservationIgnored var pencilHasDrawn = false
+    /// The finger drawing hint shows once per window.
+    @ObservationIgnored var offeredFingerDrawing = false
     /// Live undo state for the toolbar (`UndoManager` itself isn't observable).
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -277,6 +292,8 @@ final class DesignSession {
             guard let feature = document.feature(id) else { return }
             message = nil  // the inspector takes over showing the error
             if case .sketch = feature.kind { editSketch(id) } else { beginEdit(id) }
+        case .drawWithFinger:
+            break  // handled by the editor, which owns the setting
         }
     }
 

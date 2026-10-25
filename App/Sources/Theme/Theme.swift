@@ -264,6 +264,19 @@ struct InlineButtonStyle: ButtonStyle {
     }
 }
 
+/// A hit area that reaches `bleed` past the top and bottom of a control without moving it.
+/// A touch that lands on no control (a row's label, the 8–12 pt gaps between inspector rows)
+/// is handed by SwiftUI to a control near it, and not always the nearest: 2 pt under the
+/// Rotation field went to Delete, 6 pt further down. A finger lands a little below where it
+/// aims, so a near miss on a row went to the next control down. Rows that own their label and
+/// the near half of each gap take those taps themselves. Keep `bleed` at most half the stack
+/// spacing so neighbours never overlap.
+struct VerticalBleed: SwiftUI.Shape {
+    var bleed: CGFloat
+    init(_ bleed: CGFloat) { self.bleed = bleed }
+    func path(in rect: CGRect) -> Path { Path(rect.insetBy(dx: 0, dy: -bleed)) }
+}
+
 // MARK: - Containers
 
 /// A titled group of controls in a panel.
@@ -372,8 +385,13 @@ struct OverflowFade: ViewModifier {
 }
 
 /// Bottom fade on a vertical `ScrollView`, shown only while content continues below.
+///
+/// Drawn over the content in the background colour, not as a `.mask`: inside a `DocumentGroup`
+/// on iPad, a masked `ScrollView` is drawn a toolbar's height (54 pt) below where SwiftUI
+/// hit-tests it, so every tap in the inspector landed on the control a row further down.
 struct BottomFade: ViewModifier {
     var height: CGFloat
+    var color: Color
     @State private var more = false
 
     func body(content: Content) -> some View {
@@ -381,12 +399,12 @@ struct BottomFade: ViewModifier {
             .onScrollGeometryChange(for: Bool.self) { g in
                 g.contentOffset.y + g.containerSize.height < g.contentSize.height - 1
             } action: { _, value in more = value }
-            .mask {
-                VStack(spacing: 0) {
-                    Color.black
-                    LinearGradient(colors: [.black, more ? .black.opacity(0.1) : .black], startPoint: .top, endPoint: .bottom)
-                        .frame(height: height)
-                }
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [color.opacity(0), color.opacity(0.9)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: height)
+                    .opacity(more ? 1 : 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
             }
     }
 }
@@ -464,8 +482,10 @@ extension View {
         #endif
     }
 
-    /// Fades the bottom of a vertical scroll view while there's more below.
-    func scrollEdgeFade(height: CGFloat = Theme.Space.xl) -> some View { modifier(BottomFade(height: height)) }
+    /// Fades the bottom of a vertical scroll view into `color` (its background) while there's more below.
+    func scrollEdgeFade(height: CGFloat = Theme.Space.xl, color: Color = Theme.panel) -> some View {
+        modifier(BottomFade(height: height, color: color))
+    }
 
     /// Fades the edges of a horizontal scroll view while there's more to scroll that way.
     func overflowFade(width: CGFloat = Theme.Space.l) -> some View { modifier(OverflowFade(width: width)) }

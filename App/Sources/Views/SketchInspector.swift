@@ -59,9 +59,23 @@ struct SketchInspector: View {
             .labelsHidden()
             .fixedSize()
         }
+        // Sets the mode for the next shapes, and with shapes selected (a shape just drawn is) shows and
+        // changes theirs too: flipping it with a line selected converts that line. Points are never
+        // construction (see `SketchToolEngine.make`).
+        let selected = sketch?.shapes.filter { shape in
+            if case .point = shape.kind { return false }
+            return editor.selectedShapes.contains(shape.id)
+        } ?? []
         Toggle("Draw construction lines", isOn: Binding(
-            get: { editor.engine.construction },
-            set: { session.sketchEditor?.engine.construction = $0 }))
+            get: { selected.isEmpty ? editor.engine.construction : selected.allSatisfy(\.construction) },
+            set: { on in
+                session.sketchEditor?.engine.construction = on
+                guard !selected.isEmpty else { return }
+                let ids = Set(selected.map(\.id))
+                session.updateSketch("Construction") { sketch in
+                    for i in sketch.shapes.indices where ids.contains(sketch.shapes[i].id) { sketch.shapes[i].construction = on }
+                }
+            }))
         if editor.tool == .polygon {
             Stepper("Sides: \(editor.engine.polygonSides)", value: Binding(
                 get: { editor.engine.polygonSides },
