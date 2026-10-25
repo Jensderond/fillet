@@ -95,6 +95,12 @@ const TopoDS_Shape &shapeOf(const FKShape *s, const char *what) {
 
 FKShape *wrap(const TopoDS_Shape &s) { return new FKShape(s); }
 
+FKShape *wrapFinished(const TopoDS_Shape &s) {
+  FKShape *r = new FKShape(s);
+  r->solidsOriented = true;
+  return r;
+}
+
 bool isEmpty(const TopoDS_Shape &s) {
   if (s.IsNull()) return true;
   if (s.ShapeType() == TopAbs_COMPOUND || s.ShapeType() == TopAbs_COMPSOLID) {
@@ -191,7 +197,7 @@ extern "C" void fk_shape_free(FKShape *shape) { delete shape; }
 extern "C" FKShape *fk_shape_copy(const FKShape *shape) {
   return guarded("Copy", (FKShape *)nullptr, [&] {
     const TopoDS_Shape &s = shapeOf(shape);
-    return wrap(s);
+    return shape->solidsOriented ? wrapFinished(s) : wrap(s);
   });
 }
 
@@ -201,11 +207,13 @@ extern "C" FKShape *fk_compound(const FKShape *const *shapes, int32_t count) {
     BRep_Builder b;
     TopoDS_Compound c;
     b.MakeCompound(c);
+    bool oriented = true;
     for (int32_t i = 0; i < count; i++) {
       if (!shapes[i] || shapes[i]->shape.IsNull()) continue;
       b.Add(c, shapes[i]->shape);
+      oriented = oriented && shapes[i]->solidsOriented;
     }
-    return wrap(c);
+    return oriented ? wrapFinished(c) : wrap(c);
   });
 }
 
@@ -256,7 +264,7 @@ extern "C" FKShape *fk_box(FKVec3 corner, FKVec3 size) {
     BRepPrimAPI_MakeBox mk(c, sx, sy, sz);
     mk.Build();
     if (!mk.IsDone()) fail("Box could not be created");
-    return wrap(finish(mk.Shape(), "Box could not be created", false));
+    return wrapFinished(finish(mk.Shape(), "Box could not be created", false));
   });
 }
 
@@ -270,7 +278,7 @@ extern "C" FKShape *fk_cylinder(FKPlane base, double radius, double height) {
     BRepPrimAPI_MakeCylinder mk(a2, radius, std::fabs(height));
     mk.Build();
     if (!mk.IsDone()) fail("Cylinder could not be created");
-    return wrap(finish(mk.Shape(), "Cylinder could not be created", false));
+    return wrapFinished(finish(mk.Shape(), "Cylinder could not be created", false));
   });
 }
 
@@ -281,7 +289,7 @@ extern "C" FKShape *fk_sphere(FKVec3 center, double radius) {
     BRepPrimAPI_MakeSphere mk(pnt(center), radius);
     mk.Build();
     if (!mk.IsDone()) fail("Sphere could not be created");
-    return wrap(finish(mk.Shape(), "Sphere could not be created", false));
+    return wrapFinished(finish(mk.Shape(), "Sphere could not be created", false));
   });
 }
 
@@ -298,7 +306,7 @@ extern "C" FKShape *fk_cone(FKPlane base, double radius1, double radius2, double
     BRepPrimAPI_MakeCone mk(gp_Ax2(ax.Location(), ax.Direction(), ax.XDirection()), radius1, radius2, height);
     mk.Build();
     if (!mk.IsDone()) fail("Cone could not be created");
-    return wrap(finish(mk.Shape(), "Cone could not be created", false));
+    return wrapFinished(finish(mk.Shape(), "Cone could not be created", false));
   });
 }
 
@@ -311,6 +319,6 @@ extern "C" FKShape *fk_torus(FKPlane base, double majorRadius, double minorRadiu
     BRepPrimAPI_MakeTorus mk(gp_Ax2(ax.Location(), ax.Direction(), ax.XDirection()), majorRadius, minorRadius);
     mk.Build();
     if (!mk.IsDone()) fail("Torus could not be created");
-    return wrap(finish(mk.Shape(), "Torus could not be created", false));
+    return wrapFinished(finish(mk.Shape(), "Torus could not be created", false));
   });
 }

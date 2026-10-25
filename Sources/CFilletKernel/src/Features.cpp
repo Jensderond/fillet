@@ -205,7 +205,7 @@ extern "C" FKShape *fk_extrude(const FKShape *profile, FKVec3 direction, double 
     }
     TopoDS_Shape result = fuseSolids(solids);
     if (countOf(result, TopAbs_SOLID) == 0) fail("Extrude failed: the profile does not enclose an area");
-    return wrap(finish(result, "Extrude failed: the result is not a valid solid"));
+    return wrapFinished(finish(result, "Extrude failed: the result is not a valid solid"));
   });
 }
 
@@ -233,7 +233,7 @@ extern "C" FKShape *fk_revolve(const FKShape *profile, FKVec3 axisOrigin, FKVec3
     }
     if (countOf(result, TopAbs_SOLID) == 0) fail("Revolve failed: the profile does not enclose an area");
     result = fuseSolids(result);
-    return wrap(finish(result, "Revolve failed: the profile must not cross the axis"));
+    return wrapFinished(finish(result, "Revolve failed: the profile must not cross the axis"));
   });
 }
 
@@ -278,7 +278,7 @@ extern "C" FKShape *fk_loft(const FKLoftSection *sections, int32_t count, bool r
     if (!mk.IsDone()) fail("Loft failed: the sections can't be skinned (do they cross each other?)");
     TopoDS_Shape result = mk.Shape();
     if (countOf(result, TopAbs_SOLID) == 0) fail("Loft failed: the result isn't closed");
-    return wrap(finish(result, "Loft failed: the skin intersects itself (space the sections out or bend more gently)", false));
+    return wrapFinished(finish(result, "Loft failed: the skin intersects itself (space the sections out or bend more gently)", false));
   });
 }
 
@@ -295,10 +295,11 @@ FKShape *booleanOf(const FKShape *a, const FKShape *const *bs, int32_t count, FK
     if (count < 1 || !bs) fail("No tool body was given");
     ShapeList args, tools;
     args.Append(sa);
-    bool toolsHaveSolids = false;
+    bool toolsHaveSolids = false, allOriented = a->solidsOriented;
     for (int32_t i = 0; i < count; i++) {
       const TopoDS_Shape &sb = shapeOf(bs[i], "tool body");
       toolsHaveSolids = toolsHaveSolids || countOf(sb, TopAbs_SOLID) > 0;
+      allOriented = allOriented && bs[i]->solidsOriented;
       tools.Append(sb);
     }
     std::unique_ptr<BRepAlgoAPI_BooleanOperation> algo;
@@ -312,6 +313,9 @@ FKShape *booleanOf(const FKShape *a, const FKShape *const *bs, int32_t count, FK
     algo->SetTools(tools);
     algo->SetNonDestructive(true);
     algo->SetRunParallel(true);
+    // OCCT classifies every argument solid to catch inside-out ones; finish() already
+    // guarantees that for kernel results, so only check bodies of unknown origin (imports).
+    algo->SetCheckInverted(!allOriented);
     algo->Build();
     if (!algo->IsDone() || algo->HasErrors())
       fail(std::string(name) + " failed: the bodies could not be combined");
@@ -321,7 +325,7 @@ FKShape *booleanOf(const FKShape *a, const FKShape *const *bs, int32_t count, FK
       if (op == FK_BOOL_CUT) fail("Cut failed: nothing is left of the body");
       fail(std::string(name) + " failed: the result is empty");
     }
-    return wrap(finish(r, std::string(name) + " failed: the result is not a valid solid"));
+    return wrapFinished(finish(r, std::string(name) + " failed: the result is not a valid solid"));
   });
 }
 
@@ -363,7 +367,7 @@ extern "C" FKShape *fk_fillet(const FKShape *shape, const int32_t *edgeIndices, 
       if (!mk.IsDone()) fail("fillet not done");
       return finish(mk.Shape(), "invalid fillet");
     };
-    return wrap(blendWithDiagnosis(attempt, radius, "Fillet radius too large for the selected edges",
+    return wrapFinished(blendWithDiagnosis(attempt, radius, "Fillet radius too large for the selected edges",
                                    "Could not fillet the selected edges"));
   });
 }
@@ -380,7 +384,7 @@ extern "C" FKShape *fk_chamfer(const FKShape *shape, const int32_t *edgeIndices,
       if (!mk.IsDone()) fail("chamfer not done");
       return finish(mk.Shape(), "invalid chamfer");
     };
-    return wrap(blendWithDiagnosis(attempt, distance, "Chamfer distance too large for the selected edges",
+    return wrapFinished(blendWithDiagnosis(attempt, distance, "Chamfer distance too large for the selected edges",
                                    "Could not chamfer the selected edges"));
   });
 }
@@ -435,7 +439,7 @@ extern "C" FKShape *fk_shell(const FKShape *shape, const int32_t *faceIndices, i
     if (after <= Precision::Confusion() || (thickness > 0 ? after >= before - Precision::Confusion()
                                                           : after <= before + Precision::Confusion()))
       fail(tooThick);
-    return wrap(result);
+    return wrapFinished(result);
   });
 }
 
@@ -477,7 +481,7 @@ extern "C" FKShape *fk_transform(const FKShape *shape, const double matrix[12]) 
       if (!mk.IsDone()) fail("Scale failed");
       result = mk.Shape();
     }
-    return wrap(finish(result, "Move failed: the result is not valid", false));
+    return wrapFinished(finish(result, "Move failed: the result is not valid", false));
   });
 }
 
@@ -489,6 +493,6 @@ extern "C" FKShape *fk_mirror(const FKShape *shape, FKPlane plane) {
     t.SetMirror(gp_Ax2(ax.Location(), ax.Direction(), ax.XDirection()));
     BRepBuilderAPI_Transform mk(s, t, true);
     if (!mk.IsDone()) fail("Mirror failed");
-    return wrap(finish(mk.Shape(), "Mirror failed: the result is not valid", false));
+    return wrapFinished(finish(mk.Shape(), "Mirror failed: the result is not valid", false));
   });
 }

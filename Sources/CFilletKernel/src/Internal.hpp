@@ -34,6 +34,8 @@ using AncestorMap =
 struct FKShape {
   explicit FKShape(const TopoDS_Shape &s) : shape(s) {}
   TopoDS_Shape shape;
+  /// Every solid is known to point outwards: the shape came out of finish().
+  bool solidsOriented = false;
 
   const ShapeMap &faces() const;
   const ShapeMap &edges() const;
@@ -114,6 +116,8 @@ bool isFinite(double v);
 
 const TopoDS_Shape &shapeOf(const FKShape *s, const char *what = "shape");
 FKShape *wrap(const TopoDS_Shape &s);
+/// wrap() for a shape that went through finish(), so its solids are known to point outwards.
+FKShape *wrapFinished(const TopoDS_Shape &s);
 
 bool isEmpty(const TopoDS_Shape &s);
 int countOf(const TopoDS_Shape &s, TopAbs_ShapeEnum type);
