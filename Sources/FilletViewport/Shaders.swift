@@ -351,8 +351,15 @@ vertex ShadowOut shadow_vertex(uint vid [[vertex_id]],
 }
 
 fragment float4 shadow_fragment(ShadowOut in [[stage_in]], constant ShadowDraw& S [[buffer(2)]]) {
-    float2 q = abs(in.local) - S.halfSize.xy;
-    float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);   // signed distance to the footprint
+    float d;
+    if (S.params.z > 0.5) {
+        // Elliptical footprint (rounded, organic parts): approximate distance to the ellipse.
+        float2 r = max(S.halfSize.xy, float2(1e-3));
+        d = (length(in.local / r) - 1.0) * min(r.x, r.y);
+    } else {
+        float2 q = abs(in.local) - S.halfSize.xy;
+        d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0);   // signed distance to the footprint
+    }
     float a = 1.0 - smoothstep(-S.params.x * 0.35, S.params.x, d);
     a *= a;
     if (a <= 0.001) discard_fragment();

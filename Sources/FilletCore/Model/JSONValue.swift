@@ -41,6 +41,20 @@ public enum JSONValue: Hashable, Sendable, Codable {
     }
 }
 
+extension JSONValue: ExpressibleByStringLiteral, ExpressibleByIntegerLiteral, ExpressibleByFloatLiteral,
+    ExpressibleByBooleanLiteral, ExpressibleByArrayLiteral, ExpressibleByDictionaryLiteral, ExpressibleByNilLiteral
+{
+    public init(stringLiteral value: String) { self = .string(value) }
+    public init(integerLiteral value: Int) { self = .number(Double(value)) }
+    public init(floatLiteral value: Double) { self = .number(value) }
+    public init(booleanLiteral value: Bool) { self = .bool(value) }
+    public init(arrayLiteral elements: JSONValue...) { self = .array(elements) }
+    public init(dictionaryLiteral elements: (String, JSONValue)...) {
+        self = .object(Dictionary(elements, uniquingKeysWith: { _, last in last }))
+    }
+    public init(nilLiteral: ()) { self = .null }
+}
+
 /// A coding key for the `"type"` discriminator of tagged enums.
 enum TypeCodingKey: String, CodingKey {
     case type

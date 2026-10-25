@@ -838,7 +838,7 @@ public final class ViewportRenderer: NSObject {
                     var sd = ShadowDraw()
                     sd.center = SIMD4(Float(bb.center.x), Float(bb.center.y), 0, 0)
                     sd.halfSize = SIMD4(Float(size.x / 2), Float(size.y / 2), 0, 0)
-                    sd.params = SIMD4(Float(margin), contact * strength, 0, 0)
+                    sd.params = SIMD4(Float(margin), contact * strength, scene.ellipticalShadows ? 1 : 0, 0)
                     sd.color = pal.shadow.linear
                     enc.setVertexBytes(&sd, length: MemoryLayout<ShadowDraw>.stride, index: 2)
                     enc.setFragmentBytes(&sd, length: MemoryLayout<ShadowDraw>.stride, index: 2)
@@ -984,7 +984,7 @@ public final class ViewportRenderer: NSObject {
 
     /// Renders `scene` from `camera` into an image of `size` points × `scale`.
     public func snapshot(scene: ViewportScene, camera: Camera, size: CGSize, scale: CGFloat = 2,
-                         appearance: ViewportAppearance = .light) -> CGImage? {
+                         appearance: ViewportAppearance = .light, customPalette: ViewportPalette? = nil) -> CGImage? {
         let savedScene = self.scene, savedCamera = self.camera, savedPalette = palette
         defer {
             update(scene: savedScene)
@@ -993,7 +993,7 @@ public final class ViewportRenderer: NSObject {
         }
         update(scene: scene)
         self.camera = camera
-        palette = appearance.palette
+        palette = customPalette ?? appearance.palette
         prepare()
 
         let w = max(Int((size.width * scale).rounded()), 1), h = max(Int((size.height * scale).rounded()), 1)

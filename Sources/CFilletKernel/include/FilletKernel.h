@@ -118,6 +118,17 @@ FKShape *fk_chamfer(const FKShape *shape, const int32_t *edgeIndices, int32_t co
 /// hollow). Positive thickness grows the wall inward.
 FKShape *fk_shell(const FKShape *shape, const int32_t *faceIndices, int32_t count, double thickness);
 
+/// One cross-section of a loft: an ellipse in `frame` (width along xDir, height along
+/// yDir; equal = circle). Width and height 0 make a point (first or last section only).
+typedef struct {
+  FKPlane frame;
+  double width, height;
+} FKLoftSection;
+
+/// Solid skinned through the sections in order: a smooth surface, or straight
+/// (ruled) between neighbouring sections.
+FKShape *fk_loft(const FKLoftSection *sections, int32_t count, bool ruled);
+
 /// Affine transform, row-major 3×4 matrix [R | t].
 FKShape *fk_transform(const FKShape *shape, const double matrix[12]);
 FKShape *fk_mirror(const FKShape *shape, FKPlane plane);
@@ -159,6 +170,9 @@ int32_t fk_face_count(const FKShape *shape);
 int32_t fk_edge_count(const FKShape *shape);
 bool fk_face_info(const FKShape *shape, int32_t faceIndex, FKFaceInfo *out);
 bool fk_edge_info(const FKShape *shape, int32_t edgeIndex, FKEdgeInfo *out);
+/// True for edges a fillet or chamfer can't use: degenerate ones (a sphere's pole) and seams
+/// where a face meets itself (a cylinder's or sphere's closing line).
+bool fk_edge_is_seam(const FKShape *shape, int32_t edgeIndex);
 /// Plane of a planar face, origin at the face centroid, normal outward,
 /// xDir aligned with the face's longest straight edge when there is one.
 /// Returns false for non-planar faces.

@@ -1,4 +1,4 @@
-// Modelling features: extrude, revolve, booleans, fillet, chamfer, shell, transforms.
+// Modelling features: extrude, revolve, loft, booleans, fillet, chamfer, shell, transforms.
 #include "Internal.hpp"
 
 #include <BRepAlgoAPI_Common.hxx>
@@ -10,7 +10,11 @@
 #include <BRepFilletAPI_MakeFillet.hxx>
 #include <BRepGProp_Face.hxx>
 #include <BRepOffsetAPI_MakeOffsetShape.hxx>
+#include <BRepBuilderAPI_MakeEdge.hxx>
+#include <BRepBuilderAPI_MakeVertex.hxx>
+#include <BRepBuilderAPI_MakeWire.hxx>
 #include <BRepOffsetAPI_MakeThickSolid.hxx>
+#include <BRepOffsetAPI_ThruSections.hxx>
 #include <BRepPrimAPI_MakePrism.hxx>
 #include <BRepPrimAPI_MakeRevol.hxx>
 #include <BRepTools.hxx>
@@ -24,6 +28,8 @@
 #include <TopoDS_Compound.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Solid.hxx>
+#include <gp_Circ.hxx>
+#include <gp_Elips.hxx>
 #include <gp_GTrsf.hxx>
 #include <gp_Trsf.hxx>
 
@@ -228,6 +234,51 @@ extern "C" FKShape *fk_revolve(const FKShape *profile, FKVec3 axisOrigin, FKVec3
     if (countOf(result, TopAbs_SOLID) == 0) fail("Revolve failed: the profile does not enclose an area");
     result = fuseSolids(result);
     return wrap(finish(result, "Revolve failed: the profile must not cross the axis"));
+  });
+}
+
+// MARK: - Loft
+
+extern "C" FKShape *fk_loft(const FKLoftSection *sections, int32_t count, bool ruled) {
+  return guarded("Loft", (FKShape *)nullptr, [&] {
+    if (!sections || count < 2) fail("A loft needs at least two sections");
+    BRepOffsetAPI_ThruSections mk(true, ruled, 1e-6);
+    mk.CheckCompatibility(true);
+    // Centripetal spacing keeps the skin from overshooting where sections bunch up around a bend.
+    mk.SetParType(Approx_Centripetal);
+    mk.SetMaxDegree(3);
+    int curves = 0;
+    for (int32_t i = 0; i < count; i++) {
+      const FKLoftSection &sec = sections[i];
+      requireFinite(sec.width, "Loft section width");
+      requireFinite(sec.height, "Loft section height");
+      if (sec.width < 0 || sec.height < 0) fail("Loft section sizes must not be negative");
+      gp_Ax3 ax = axes(sec.frame);
+      if (sec.width <= 1e-9 && sec.height <= 1e-9) {
+        if (i != 0 && i != count - 1) fail("Only the first or last loft section can be a point");
+        mk.AddVertex(BRepBuilderAPI_MakeVertex(ax.Location()).Vertex());
+        continue;
+      }
+      if (sec.width <= 1e-9 || sec.height <= 1e-9) fail("A loft section needs both a width and a height (or neither, for a point)");
+      TopoDS_Edge edge;
+      if (std::fabs(sec.width - sec.height) <= 1e-9) {
+        edge = BRepBuilderAPI_MakeEdge(gp_Circ(ax.Ax2(), sec.width / 2)).Edge();
+      } else if (sec.width > sec.height) {
+        edge = BRepBuilderAPI_MakeEdge(gp_Elips(ax.Ax2(), sec.width / 2, sec.height / 2)).Edge();
+      } else {
+        // gp_Elips wants the major radius along x: turn the frame a quarter around its normal.
+        gp_Ax2 turned(ax.Location(), ax.Direction(), ax.YDirection());
+        edge = BRepBuilderAPI_MakeEdge(gp_Elips(turned, sec.height / 2, sec.width / 2)).Edge();
+      }
+      mk.AddWire(BRepBuilderAPI_MakeWire(edge).Wire());
+      curves++;
+    }
+    if (curves == 0) fail("A loft needs at least one section that isn't a point");
+    mk.Build();
+    if (!mk.IsDone()) fail("Loft failed: the sections can't be skinned (do they cross each other?)");
+    TopoDS_Shape result = mk.Shape();
+    if (countOf(result, TopAbs_SOLID) == 0) fail("Loft failed: the result isn't closed");
+    return wrap(finish(result, "Loft failed: the skin intersects itself (space the sections out or bend more gently)", false));
   });
 }
 

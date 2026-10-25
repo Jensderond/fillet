@@ -124,6 +124,8 @@ public actor ModelEvaluator {
             case .primitive(let p): try primitive(p, feature, &state, ev)
             case .combine(let c): try combine(c, feature, &state)
             case .move(let m): try move(m, feature, &state, ev)
+            case .scale(let sc): try scale(sc, feature, &state, ev)
+            case .loft(let l): try loft(l, feature, &state, ev)
             case .mirror(let m): try mirror(m, feature, &state, ev)
             case .pattern(let p): try pattern(p, feature, &state, ev)
             case .importedSTEP(let s): try importedSTEP(s, feature, &state)
@@ -325,7 +327,11 @@ public actor ModelEvaluator {
         let angle = try ev.angleRadians(m.rotationAngle)
         var transform = Transform.translation(Vec3(t))
         if abs(angle) > 1e-12 {
-            let (origin, dir) = try axis(m.rotationAxis, state)
+            var (origin, dir) = try axis(m.rotationAxis, state)
+            // A world axis can pass through a chosen centre; an edge axis is where the edge is.
+            if let center = m.rotationCenter, m.rotationAxis.referencedBodies.isEmpty {
+                origin = Vec3(try center.evaluate(using: ev))
+            }
             transform = transform.concatenating(.rotation(axis: dir, angle: angle, origin: origin))
         }
         for ref in m.bodies {
@@ -333,6 +339,50 @@ public actor ModelEvaluator {
             state.bodies[i].shape = try body.shape.transformed(transform)
             state.bodies[i].lastFeature = feature.id
         }
+    }
+
+    private func scale(_ sc: Scale, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
+        guard !sc.bodies.isEmpty else { throw FeatureError("Select at least one body") }
+        let f = SIMD3(try ev.scalar(sc.factors.x), try ev.scalar(sc.factors.y), try ev.scalar(sc.factors.z))
+        guard f.x > 1e-6, f.y > 1e-6, f.z > 1e-6 else { throw FeatureError("Scale factors must be greater than zero") }
+        let c = try sc.center.evaluate(using: ev)
+        let t = c * (SIMD3(1, 1, 1) - f)
+        let transform = Transform(matrix: [f.x, 0, 0, t.x, 0, f.y, 0, t.y, 0, 0, f.z, t.z])
+        for ref in sc.bodies {
+            let (i, body) = try bodyIndex(ref, state)
+            state.bodies[i].shape = try body.shape.transformed(transform)
+            state.bodies[i].lastFeature = feature.id
+        }
+    }
+
+    private func loft(_ l: Loft, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
+        guard l.sections.count >= 2 else { throw FeatureError("A loft needs at least two sections") }
+        var sections: [LoftSection] = []
+        var previousX: Vec3?
+        for (n, s) in l.sections.enumerated() {
+            let normal = Vec3(try s.normal.evaluate(using: ev))
+            guard normal.length > 1e-9 else { throw FeatureError("Section \(n + 1) needs a direction") }
+            let z = normal.normalized
+            // The width direction follows the previous section's (no twist along a bend); the first
+            // uses world X, or Y when the section faces along X.
+            func perpendicular(_ v: Vec3) -> Vec3? {
+                let p = v - z * v.dot(z)
+                return p.length > 1e-6 ? p.normalized : nil
+            }
+            var x = previousX.flatMap(perpendicular) ?? perpendicular(.unitX) ?? perpendicular(.unitY)!
+            if let angle = s.angle {
+                let a = try ev.angleRadians(angle)
+                x = (x * cos(a) + z.cross(x) * sin(a)).normalized
+            }
+            previousX = x
+            let width = try ev.length(s.width)
+            let height = try s.height.map { try ev.length($0) } ?? width
+            guard width >= 0, height >= 0 else { throw FeatureError("Section \(n + 1) sizes must not be negative") }
+            sections.append(LoftSection(frame: Plane(origin: Vec3(try s.center.evaluate(using: ev)), normal: z, xDir: x),
+                                        width: width, height: height))
+        }
+        let tool = try Shape.loft(sections, ruled: l.ruled)
+        try combineTool(tool, operation: l.operation, targets: l.targets, feature, &state)
     }
 
     private func mirror(_ m: Mirror, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {

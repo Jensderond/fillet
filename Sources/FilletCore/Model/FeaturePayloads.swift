@@ -182,15 +182,67 @@ public struct Move: Hashable, Sendable, Codable, FeatureReferencing {
     public var translation: Vec3Expr
     public var rotationAxis: AxisRef
     public var rotationAngle: Expr
+    /// Point a world rotation axis (x, y, z) passes through; nil = the origin. Edge axes ignore it.
+    public var rotationCenter: Vec3Expr?
 
-    public init(bodies: [BodyRef], translation: Vec3Expr = .zero, rotationAxis: AxisRef = .z, rotationAngle: Expr = 0) {
+    public init(
+        bodies: [BodyRef], translation: Vec3Expr = .zero, rotationAxis: AxisRef = .z, rotationAngle: Expr = 0,
+        rotationCenter: Vec3Expr? = nil
+    ) {
         self.bodies = bodies; self.translation = translation
-        self.rotationAxis = rotationAxis; self.rotationAngle = rotationAngle
+        self.rotationAxis = rotationAxis; self.rotationAngle = rotationAngle; self.rotationCenter = rotationCenter
     }
 
     public var referencedFeatures: Set<UUID> {
         Set(bodies.map(\.feature)).union(rotationAxis.referencedBodies.featureIDs)
     }
+}
+
+/// Non-uniform scale of bodies about a centre point (squashes a sphere into an ellipsoid).
+public struct Scale: Hashable, Sendable, Codable, FeatureReferencing {
+    public var bodies: [BodyRef]
+    /// Factors along X, Y and Z (plain numbers; 1 = unchanged).
+    public var factors: Vec3Expr
+    /// Point that stays put.
+    public var center: Vec3Expr
+
+    public init(bodies: [BodyRef], factors: Vec3Expr = Vec3Expr(1, 1, 1), center: Vec3Expr = .zero) {
+        self.bodies = bodies; self.factors = factors; self.center = center
+    }
+
+    public var referencedFeatures: Set<UUID> { Set(bodies.map(\.feature)) }
+}
+
+/// A solid skinned through cross-sections placed in space: tapering horns, curled hat tips,
+/// limbs. Each section is an ellipse (or circle) facing along its `normal`.
+public struct Loft: Hashable, Sendable, Codable, FeatureReferencing {
+    public struct Section: Hashable, Sendable, Codable {
+        public var center: Vec3Expr
+        /// Direction the loft passes through the section.
+        public var normal: Vec3Expr
+        /// Size across the section; 0 makes the loft end in a point (first or last section only).
+        public var width: Expr
+        /// Second size, for an ellipse; nil = a circle of diameter `width`.
+        public var height: Expr?
+        /// Turns the width direction around the normal, in degrees.
+        public var angle: Expr?
+
+        public init(center: Vec3Expr, normal: Vec3Expr = Vec3Expr(0, 0, 1), width: Expr, height: Expr? = nil, angle: Expr? = nil) {
+            self.center = center; self.normal = normal; self.width = width; self.height = height; self.angle = angle
+        }
+    }
+
+    public var sections: [Section]
+    /// Straight between sections instead of one smooth surface.
+    public var ruled: Bool
+    public var operation: Operation
+    public var targets: [BodyRef]
+
+    public init(sections: [Section], ruled: Bool = false, operation: Operation = .newBody, targets: [BodyRef] = []) {
+        self.sections = sections; self.ruled = ruled; self.operation = operation; self.targets = targets
+    }
+
+    public var referencedFeatures: Set<UUID> { Set(targets.map(\.feature)) }
 }
 
 /// Mirror copy of bodies across a plane.

@@ -21,6 +21,8 @@
 #include <ShapeAnalysis_Surface.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
+#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
+#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
@@ -195,6 +197,19 @@ extern "C" bool fk_edge_info(const FKShape *shape, int32_t edgeIndex, FKEdgeInfo
     info.radius = c.GetType() == GeomAbs_Circle ? c.Circle().Radius() : 0;
     *out = info;
     return true;
+  });
+}
+
+extern "C" bool fk_edge_is_seam(const FKShape *shape, int32_t edgeIndex) {
+  return guarded("Edge info", false, [&] {
+    const TopoDS_Shape &s = shapeOf(shape);
+    const TopoDS_Edge &edge = edgeAt(shape, edgeIndex);
+    if (BRep_Tool::Degenerated(edge)) return true;
+    TopTools_IndexedDataMapOfShapeListOfShape faces;
+    TopExp::MapShapesAndUniqueAncestors(s, TopAbs_EDGE, TopAbs_FACE, faces);
+    const TopTools_ListOfShape *adjacent = faces.Seek(edge);
+    if (!adjacent || adjacent->Extent() < 2) return true;  // a face meeting itself, or a free edge
+    return false;
   });
 }
 

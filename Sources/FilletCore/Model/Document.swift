@@ -36,6 +36,8 @@ public struct Document: Hashable, Sendable, Codable {
     public var features: [Feature]
     /// Timeline marker: only `features[..<rollbackIndex]` are evaluated. `nil` = all.
     public var rollbackIndex: Int?
+    /// Display colour per body as `#RRGGBB`; bodies without one use the viewport's default.
+    public var bodyColors: [BodyRef: String] = [:]
 
     /// A new, empty design for the default printer (A1 mini).
     public init(
@@ -54,7 +56,7 @@ public struct Document: Hashable, Sendable, Codable {
     // MARK: Coding
 
     private enum CodingKeys: String, CodingKey {
-        case formatVersion, name, units, printer, customBedSize, parameters, features, rollbackIndex
+        case formatVersion, name, units, printer, customBedSize, parameters, features, rollbackIndex, bodyColors
     }
 
     public init(from decoder: Decoder) throws {
@@ -68,6 +70,9 @@ public struct Document: Hashable, Sendable, Codable {
         parameters = try c.decodeIfPresent([Parameter].self, forKey: .parameters) ?? []
         features = try c.decodeIfPresent([Feature].self, forKey: .features) ?? []
         rollbackIndex = try c.decodeIfPresent(Int.self, forKey: .rollbackIndex)
+        // Keyed by body id string; entries that aren't ids are dropped.
+        let colors = (try? c.decodeIfPresent([String: String].self, forKey: .bodyColors)) ?? [:]
+        bodyColors = Dictionary(colors.compactMap { k, v in UUID(uuidString: k).map { (BodyRef($0), v) } }, uniquingKeysWith: { a, _ in a })
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -80,6 +85,9 @@ public struct Document: Hashable, Sendable, Codable {
         try c.encode(parameters, forKey: .parameters)
         try c.encode(features, forKey: .features)
         try c.encodeIfPresent(rollbackIndex, forKey: .rollbackIndex)
+        if !bodyColors.isEmpty {
+            try c.encode(Dictionary(uniqueKeysWithValues: bodyColors.map { ($0.feature.uuidString, $1) }), forKey: .bodyColors)
+        }
     }
 
     /// Stable, human-readable JSON (pretty printed, sorted keys).

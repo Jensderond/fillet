@@ -9,6 +9,18 @@ extension Vec3 {
     var fk: FKVec3 { FKVec3(x: x, y: y, z: z) }
 }
 
+/// A loft cross-section: an ellipse in `frame`, `width` along its x axis and `height` along y
+/// (equal = circle; both 0 = a point, allowed for the first or last section).
+public struct LoftSection: Hashable, Sendable {
+    public var frame: Plane
+    public var width: Double
+    public var height: Double
+
+    public init(frame: Plane, width: Double, height: Double) {
+        self.frame = frame; self.width = width; self.height = height
+    }
+}
+
 extension Plane {
     init(_ p: FKPlane) { self.init(origin: Vec3(p.origin), normal: Vec3(p.normal), xDir: Vec3(p.xDir)) }
     var fk: FKPlane { FKPlane(origin: origin.fk, normal: normal.fk, xDir: xDir.fk) }
@@ -103,6 +115,12 @@ public final class Shape: @unchecked Sendable {
         try Shape.make(fk_revolve(handle, axisOrigin.fk, axisDir.fk, angle), "Revolve")
     }
 
+    /// Solid skinned through the sections in order (smooth, or straight between them when `ruled`).
+    public static func loft(_ sections: [LoftSection], ruled: Bool = false) throws -> Shape {
+        let fk = sections.map { FKLoftSection(frame: $0.frame.fk, width: $0.width, height: $0.height) }
+        return try Shape.make(fk.withUnsafeBufferPointer { fk_loft($0.baseAddress, Int32($0.count), ruled) }, "Loft")
+    }
+
     public func boolean(_ op: BooleanOperation, _ other: Shape) throws -> Shape {
         try withExtendedLifetime(other) { try Shape.make(fk_boolean(handle, other.handle, op.fk), "Boolean") }
     }
@@ -183,6 +201,9 @@ public final class Shape: @unchecked Sendable {
     }
 
     /// All face signatures, indexed like `faceInfo(_:)`.
+    /// Whether the edge is a seam or degenerate (fillets and chamfers can't use it).
+    public func isSeamEdge(_ index: Int) -> Bool { fk_edge_is_seam(handle, Int32(index)) }
+
     public var faceInfos: [FaceInfo] { (0..<faceCount).map(faceInfo) }
     /// All edge signatures, indexed like `edgeInfo(_:)`.
     public var edgeInfos: [EdgeInfo] { (0..<edgeCount).map(edgeInfo) }

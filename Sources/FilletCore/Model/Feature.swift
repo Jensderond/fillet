@@ -36,6 +36,7 @@ public struct Feature: Identifiable, Hashable, Sendable, Codable {
         case .extrude(let e): e.operation == .newBody
         case .revolve(let r): r.operation == .newBody
         case .primitive(let p): p.operation == .newBody
+        case .loft(let l): l.operation == .newBody
         case .mirror(let m): !m.merge
         case .importedSTEP: true
         default: false
@@ -55,6 +56,8 @@ public enum FeatureKind: Hashable, Sendable, Codable {
     case primitive(Primitive)
     case combine(Combine)
     case move(Move)
+    case scale(Scale)
+    case loft(Loft)
     case mirror(Mirror)
     case pattern(Pattern)
     case importedSTEP(ImportedSTEP)
@@ -74,6 +77,8 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case .primitive: "primitive"
         case .combine: "combine"
         case .move: "move"
+        case .scale: "scale"
+        case .loft: "loft"
         case .mirror: "mirror"
         case .pattern: "pattern"
         case .importedSTEP: "importedSTEP"
@@ -93,6 +98,8 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case .primitive(let p): p
         case .combine(let p): p
         case .move(let p): p
+        case .scale(let p): p
+        case .loft(let p): p
         case .mirror(let p): p
         case .pattern(let p): p
         case .importedSTEP(let p): p
@@ -116,6 +123,8 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case "primitive": self = .primitive(try Primitive(from: decoder))
         case "combine": self = .combine(try Combine(from: decoder))
         case "move": self = .move(try Move(from: decoder))
+        case "scale": self = .scale(try Scale(from: decoder))
+        case "loft": self = .loft(try Loft(from: decoder))
         case "mirror": self = .mirror(try Mirror(from: decoder))
         case "pattern": self = .pattern(try Pattern(from: decoder))
         case "importedSTEP": self = .importedSTEP(try ImportedSTEP(from: decoder))

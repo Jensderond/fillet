@@ -15,6 +15,14 @@ public struct ViewportColor: Hashable, Codable, Sendable {
         self.init(Float((hex >> 16) & 0xFF) / 255, Float((hex >> 8) & 0xFF) / 255, Float(hex & 0xFF) / 255, alpha)
     }
 
+    /// `#RRGGBB` or `RRGGBB` (a body colour as stored in the document); nil for anything else.
+    public init?(hexString: String) {
+        var s = hexString.trimmingCharacters(in: .whitespaces)
+        if s.hasPrefix("#") { s.removeFirst() }
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self.init(hex: v)
+    }
+
     public func withAlpha(_ a: Float) -> ViewportColor { ViewportColor(r, g, b, a) }
     /// Mixed towards white by `amount` (0…1).
     public func lightened(_ amount: Float) -> ViewportColor {
@@ -386,6 +394,8 @@ public struct ViewportScene: Sendable {
     /// Infinite-feel ground grid on z = 0.
     public var showsGroundGrid: Bool
     public var visualStyle: VisualStyle = .shadedWithEdges
+    /// Contact shadows as soft ellipses instead of rounded boxes (organic, product-shot renders).
+    public var ellipticalShadows = false
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
                 plate: BuildPlate? = nil, selection: Set<PickTarget> = [], hover: PickTarget? = nil,
