@@ -337,3 +337,48 @@ total); all eight tools in one boolean take 540 ms.
 5. **Dependency-aware cache keys** (baseline candidate 5): unchanged, still fixture-dependent.
 6. **Exact revolution surfaces for revolution-preserving scales** ("Widen hat"): saves up to
    ~90 ms here, but changes face types that saved references use. Needs a migration story first.
+||||||| parent of 9ca17c7 (perf: Document round 1b (agent step caching) in performance.md)
+
+## Round 1b: agent steps (candidates 2 and 3)
+
+Release build, measured while another benchmark loaded the machine, so expect ±10%. The query
+and MCP timings run on the fixture's 11 final bodies, loaded from BRep into a headless workspace
+(one imported body per step), so no boolean runs.
+
+**Per-shape caches.** `Shape` computes `faceInfos`, `edgeInfos` and `seamEdges` once, on first
+use, behind a lock per table. Per-index lookups read the table once it exists. `fk_seam_edges`
+builds the edge→face map once per shape. Values are byte-identical on all 11 bodies.
+
+| query, all final bodies (frog body) | before: 1st / repeat ms | after: 1st / repeat ms |
+|---|---:|---:|
+| `faceInfos` | 618 / 605 (496 / 484) | 587 / 0.00 (473 / 0.00) |
+| `edgeInfos` | 1.5 / 1.3 | 1.4 / 0.00 |
+| `isSeamEdge` for every edge | 8.1 / 7.8 (7.2 / 7.0) | 0.10 / 0.01 (0.06 / 0.01) |
+
+| MCP request on the frog body (headless) | before ms | after ms |
+|---|---:|---:|
+| `list_faces` (first) | 475 | 483 |
+| `list_faces` (again) | 477 | 0.6 |
+| `list_edges` | 4.0 | 0.6 |
+| `create_sketch` on a frog face | 951 | 5 |
+
+**One evaluation per agent step in the app.** `LiveWorkspace.preview` now checks a change on the
+window's own evaluator (`DesignSession.preview` → `ModelEvaluator.preview`). A preview fills a
+separate cache, so the session's recompute after the commit is all cache hits, and a refused
+preview leaves the window's cached steps alone. Measured through the MCP server with an
+app-like workspace (session evaluator + preview), filleting the frog body's straight edges:
+
+| | separate preview evaluator (before) | session's evaluator (after) |
+|---|---:|---:|
+| preview evaluate | 628 | 609 |
+| recompute after commit | 615 | 1.9 |
+| whole `fillet` request | 1 959 | 1 331 |
+
+On the fixture, an agent adding step 76 therefore waits about 54 s instead of 108 s.
+
+**Next candidate.** Of the remaining 1.3 s, about 0.7 s is the step's report: `volume` (211 ms),
+`surfaceArea` (190 ms), `bounds` (239 ms) and `isValid` (64 ms) of the changed frog body, each
+recomputed on every request. `bounds` is also called by the evaluator (`boundsOverlap`, display
+deflection). They can be cached per shape the same way.
+
+Fingerprint after both changes (`fillet-bench --runs 1 --no-cascade`): digest `5f765134c5951dc2`, unchanged.
