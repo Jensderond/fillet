@@ -305,6 +305,24 @@ extern "C" double fk_surface_area(const FKShape *shape) {
   });
 }
 
+extern "C" bool fk_mass_properties(const FKShape *shape, double eps, double *volume, double *area) {
+  return guarded("Mass properties", false, [&] {
+    const TopoDS_Shape &s = shapeOf(shape);
+    if (!isFinite(eps) || eps <= 0) fail("Integration precision must be positive");
+    if (volume) {
+      GProp_GProps props;
+      BRepGProp::VolumeProperties(s, props, eps);
+      *volume = props.Mass();
+    }
+    if (area) {
+      GProp_GProps props;
+      BRepGProp::SurfaceProperties(s, props, eps);
+      *area = props.Mass();
+    }
+    return true;
+  });
+}
+
 extern "C" bool fk_is_valid(const FKShape *shape) {
   return guarded("Validity check", false, [&] {
     const TopoDS_Shape &s = shapeOf(shape);

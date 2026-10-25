@@ -9,7 +9,8 @@ import Foundation
 //
 // Measures cold evaluation (per step), a warm no-op re-evaluate, an early-edit cascade,
 // display tessellation, and the face/edge queries agent tools make; then prints a geometry
-// fingerprint so an optimisation can show the result didn't change. See docs/performance.md.
+// fingerprint and bit-exact digests of the display meshes and face/edge infos, so an
+// optimisation can show the result didn't change. See docs/performance.md.
 // Output is Markdown on stdout; progress goes to stderr.
 
 // MARK: - Arguments
@@ -83,11 +84,24 @@ func pct(_ part: Double, _ whole: Double) -> String { whole > 0 ? String(format:
 func f3(_ v: Double) -> String { String(format: "%.3f", v) }
 
 /// 64-bit FNV-1a, stable across runs (unlike `Hasher`).
-func fnv1a(_ s: String) -> String {
+struct FNV1a {
     var h: UInt64 = 0xcbf2_9ce4_8422_2325
-    for b in s.utf8 { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
-    return String(format: "%016llx", h)
+    mutating func add<C: Collection>(bytes: C) where C.Element == UInt8 {
+        for b in bytes { h = (h ^ UInt64(b)) &* 0x100_0000_01b3 }
+    }
+    /// The raw bytes of every element (bit-exact for floats).
+    mutating func add<T>(_ values: [T]) { values.withUnsafeBytes { add(bytes: $0) } }
+    mutating func add(_ v: Vec3) { add([v.x, v.y, v.z]) }
+    var hex: String { String(format: "%016llx", h) }
 }
+func fnv1a(_ s: String) -> String {
+    var h = FNV1a()
+    h.add(bytes: s.utf8)
+    return h.hex
+}
+
+/// Integration precision of the fingerprint's volume and area (see docs/performance.md, Round 2).
+let fingerprintPrecision = 1e-9
 
 let active = document.activeFeatures
 let featureByID = Dictionary(uniqueKeysWithValues: active.map { ($0.id, $0) })
@@ -97,10 +111,12 @@ let featureByID = Dictionary(uniqueKeysWithValues: active.map { ($0.id, $0) })
     for body in model.bodies {
         let s = body.shape
         let b = s.bounds
+        let mass = s.massProperties(precision: fingerprintPrecision)
         let lo = b.map { "\(f3($0.min.x)) \(f3($0.min.y)) \(f3($0.min.z))" } ?? "-"
         let hi = b.map { "\(f3($0.max.x)) \(f3($0.max.y)) \(f3($0.max.z))" } ?? "-"
         lines.append("\(body.name) [\(body.ref.feature.uuidString.prefix(8))] solids=\(s.solidCount) faces=\(s.faceCount) "
-            + "edges=\(s.edgeCount) volume=\(String(format: "%.2f", s.volume)) area=\(String(format: "%.2f", s.surfaceArea)) "
+            + "edges=\(s.edgeCount) volume=\(mass.map { String(format: "%.3f", $0.volume) } ?? "-") "
+            + "area=\(mass.map { String(format: "%.3f", $0.area) } ?? "-") "
             + "valid=\(s.isValid) bounds=(\(lo))..(\(hi))")
     }
     let failed = active.filter { if case .failed = model.status[$0.id] { true } else { false } }
@@ -376,3 +392,25 @@ print("```")
 lines.forEach { print($0) }
 print("digest: \(fnv1a(lines.joined(separator: "\n")))")
 print("```")
+print("")
+
+// Bit-exact digests of what the optimisations must not change: the evaluator's display meshes,
+// and every final body's face and edge infos (which feed persistent reference signatures).
+var meshHash = FNV1a(), infoHash = FNV1a()
+var meshTriangles = 0
+for body in finalModel.bodies {
+    let m = finalModel.meshes[body.ref] ?? .empty
+    meshTriangles += m.triangleCount
+    meshHash.add(m.positions); meshHash.add(m.normals); meshHash.add(m.indices); meshHash.add(m.triangleFaces)
+    for e in m.edges { meshHash.add([e.count]); meshHash.add(e) }
+    guard let fresh = try? body.shape.copy() else { continue }
+    for f in fresh.faceInfos {
+        infoHash.add([f.surface.rawValue]); infoHash.add(f.centroid); infoHash.add(f.normal)
+        infoHash.add([f.area]); infoHash.add(f.boundsMin); infoHash.add(f.boundsMax)
+    }
+    for e in fresh.edgeInfos {
+        infoHash.add([e.curve.rawValue]); infoHash.add(e.start); infoHash.add(e.mid); infoHash.add(e.end)
+        infoHash.add(e.tangentAtMid); infoHash.add([e.length, e.radius])
+    }
+}
+print("display meshes: \(meshTriangles) triangles, digest \(meshHash.hex); face/edge infos digest \(infoHash.hex)")

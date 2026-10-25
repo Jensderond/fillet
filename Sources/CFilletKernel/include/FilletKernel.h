@@ -185,6 +185,10 @@ bool fk_face_plane(const FKShape *shape, int32_t faceIndex, FKPlane *out);
 bool fk_bounds(const FKShape *shape, FKVec3 *min, FKVec3 *max);
 double fk_volume(const FKShape *shape);
 double fk_surface_area(const FKShape *shape);
+/// Volume and surface area by adaptive integration to a relative error of `eps` per face
+/// (e.g. 1e-9). Much slower than fk_volume/fk_surface_area, but stable when only how a curve
+/// is represented changes. Either output may be null.
+bool fk_mass_properties(const FKShape *shape, double eps, double *volume, double *area);
 /// BRepCheck validity (true = valid closed geometry).
 bool fk_is_valid(const FKShape *shape);
 

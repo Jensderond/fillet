@@ -314,6 +314,14 @@ public final class Shape: @unchecked Sendable {
 
     public var volume: Double { fk_volume(handle) }
     public var surfaceArea: Double { fk_surface_area(handle) }
+    /// Volume and surface area integrated to a relative error of `precision` per face (e.g. 1e-9).
+    /// Slow; for checks that must not move when only an edge's approximation changes.
+    public func massProperties(precision: Double) -> (volume: Double, area: Double)? {
+        var v = 0.0, a = 0.0
+        guard fk_mass_properties(handle, precision, &v, &a) else { return nil }
+        return (v, a)
+    }
+
     /// BRepCheck validity and closed shells.
     public var isValid: Bool { fk_is_valid(handle) }
 
