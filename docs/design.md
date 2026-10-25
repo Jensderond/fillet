@@ -180,9 +180,12 @@ public struct ViewportScene {
   var selection: Set<PickTarget>, hover: PickTarget?
   var overhang: OverhangStyle?        // threshold angle; tints downward-facing triangles red
   var handles: [Handle]               // draggable arrows (e.g. extrude distance), id, origin, direction, value
+  var referencePlanes: [ReferencePlane] // pickable translucent plane patches (origin planes while choosing a sketch plane)
+  var pickableFaces: [UUID: Set<Int>]?  // restricts face picks (flat faces only while choosing a sketch plane)
 }
 public enum PickTarget: Hashable { face(body: UUID, index: Int), edge(body: UUID, index: Int),
-                                   region(Int), sketchShape(UUID), sketchPoint(UUID, Int), handle(String) }
+                                   region(Int), sketchShape(UUID), sketchPoint(UUID, Int), handle(String),
+                                   referencePlane(String) }
 public struct ViewportView: View { init(scene:, camera: Binding<Camera>, filter: PickFilter, delegate: ViewportDelegate) }
 public protocol ViewportDelegate { tap(target: PickTarget?, ray: Ray, modifiers)
                                    toolDragBegan/Changed/Ended(ray: Ray)    // Pencil / left-mouse in tool mode
@@ -218,8 +221,15 @@ Input:
 - Right inspector: the active feature's fields (expressions), OK/Cancel.
 - Viewport fills the rest; view cube / standard-view buttons top right.
 
-Sketch mode: enter by choosing a plane or planar face; camera animates to
-look at it; sketch toolbar (line, rectangle, circle, arc, polygon, slot,
+Sketch mode: enter by choosing a plane or planar face, like Fusion. With a
+flat face selected, Sketch opens on it; otherwise the viewport shows the three
+origin planes (translucent, tinted by the axis they face along: XY blue, XZ
+green, YZ red; the bed square plus two upright planes standing on it) and only
+flat faces react, so a tap on a plane or a flat face opens the sketch there.
+A face seen through a plane wins the tap; curved faces still hide what is
+behind them. A bar over the viewport names what to pick and has XY / XZ / YZ
+buttons (for planes hidden in the part or seen edge-on, and for VoiceOver) and
+Cancel (Esc). Camera animates to look at the chosen plane; sketch toolbar (line, rectangle, circle, arc, polygon, slot,
 spline, construction toggle, finish). Shapes snap to the grid
 (configurable) and to existing points (endpoint/center/midpoint). After
 drawing, the inspector shows the shape's dimensions for exact entry.

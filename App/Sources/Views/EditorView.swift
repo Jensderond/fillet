@@ -244,6 +244,13 @@ struct EditorContent: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .transition(.panel(from: .top, reduceMotion: reduceMotion))
                 }
+                if session.pickMode == .sketchPlane {
+                    SketchPlaneBar(session: session)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.panel(from: .top, reduceMotion: reduceMotion))
+                }
                 if let hint = currentHint {
                     // Crossfades when the kind of hint changes (sketch, picking, getting started);
                     // within one, the text swaps instantly: it changes with every click.
@@ -273,6 +280,7 @@ struct EditorContent: View {
             }
             .padding(Theme.Space.l)
             .animation(Theme.Motion.enter, value: session.sketchEditor != nil)
+            .animation(Theme.Motion.enter, value: session.choosingSketchPlane)
             .animation(Theme.Motion.enter, value: session.document.activeFeatureCount < session.document.features.count)
             .animation(Theme.Motion.enter, value: session.message)
 
@@ -329,6 +337,7 @@ struct EditorContent: View {
             return ("\(name) · \(editor.engine.hint(verb: pick))", editor.tool == .select ? "cursorarrow" : "pencil.tip", "sketch")
         }
         switch session.pickMode {
+        case .sketchPlane: return nil  // the plane bar says what to pick
         case .regions: return ("\(pick) the profiles to use", "hand.tap", "pick")
         case .edges: return ("\(pick) edges to add or remove them", "hand.tap", "pick")
         case .faces: return ("\(pick) faces to remove them", "hand.tap", "pick")
@@ -458,6 +467,7 @@ struct ToolStrip: View {
         return "Finish \(name) first: Done or Cancel."
     }
 
+    /// The long-press menu: straight to a plane without picking it in the viewport.
     @ViewBuilder private func sketchPlanes(busy: Bool, face: Bool) -> some View {
         Group {
             if face { Button("On selected face") { session.startSketch() } }
@@ -469,7 +479,7 @@ struct ToolStrip: View {
     }
 
     private func sketchLabel(busy: Bool) -> some View {
-        ToolLabel("Sketch", "pencil.and.outline", active: session.sketchEditor != nil, disabled: busy)
+        ToolLabel("Sketch", "pencil.and.outline", active: session.sketchEditor != nil || session.choosingSketchPlane, disabled: busy)
             .automationFrame("tool.Sketch")
     }
 
@@ -482,20 +492,15 @@ struct ToolStrip: View {
                     ToolCluster {
                         // Menus aren't `.disabled` as a whole (the system dims their labels a second
                         // time); their items are, and the label draws the same disabled colour as buttons.
-                        // With a planar face selected, a tap sketches on it (the menu stays on long
-                        // press); otherwise a tap asks which origin plane.
-                        Group {
-                            if session.sketchableFace != nil {
-                                Menu { sketchPlanes(busy: busy, face: true) } label: { sketchLabel(busy: busy) } primaryAction: {
-                                    if !busy { session.startSketch() }
-                                }
-                            } else {
-                                Menu { sketchPlanes(busy: busy, face: false) } label: { sketchLabel(busy: busy) }
-                            }
+                        // With a planar face selected, a tap sketches on it; otherwise the viewport
+                        // offers the origin planes and flat faces to pick. A long press lists the planes.
+                        let onFace = session.sketchableFace != nil
+                        Menu { sketchPlanes(busy: busy, face: onFace) } label: { sketchLabel(busy: busy) } primaryAction: {
+                            if !busy { session.startSketch() }
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                         .hoverHighlight(ownsPointerHover: true)
-                        .help(session.sketchableFace != nil ? "New sketch on the selected face (⇧⌘K)" : "New sketch on an origin plane")
+                        .help(onFace ? "New sketch on the selected face (⇧⌘K)" : "New sketch: pick a plane or a flat face (⇧⌘K)")
                     }
                     ToolCluster {
                         ToolButton("Extrude", "square.stack.3d.up", active: session.editingKind == "extrude",

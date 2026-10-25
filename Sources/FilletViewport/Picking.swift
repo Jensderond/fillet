@@ -116,7 +116,7 @@ public final class ViewportPicker {
     /// Picks the most relevant target under `location`.
     ///
     /// Priority: handles, sketch points, sketch curves, regions, edges (when within
-    /// `tolerance` and not occluded), faces/bodies.
+    /// `tolerance` and not occluded), faces/bodies, then reference planes (see below).
     public func pick(scene: ViewportScene, camera: Camera, at location: CGPoint, viewSize: CGSize,
                      filter: PickFilter, tolerance: Double = PointerKind.mouse.tolerance) -> PickHit? {
         let ray = camera.ray(at: location, viewSize: viewSize)
@@ -130,14 +130,23 @@ public final class ViewportPicker {
            let hit = pickSketch(sketch, ray: ray, camera: camera, viewSize: viewSize, filter: filter, tolerance: tolerance) {
             return hit
         }
-        guard !filter.intersection([.faces, .edges, .bodies]).isEmpty else { return nil }
+        let planeHit = filter.contains(.referencePlanes) ? pickReferencePlane(scene.referencePlanes, ray: ray) : nil
+        guard !filter.intersection([.faces, .edges, .bodies]).isEmpty else { return planeHit?.hit }
         let faceHit = raycast(ray, bodies: scene.bodies)
         if filter.contains(.edges),
            let e = pickEdge(scene.bodies, camera: camera, location: loc, viewSize: viewSize, tolerance: tolerance) {
             return e
         }
+        // Reference planes are see-through: a pickable face seen through one is what's under the
+        // pointer, so the plane only takes the pick where there is no such face, or in front of
+        // a face that can't be picked. A face that can't be picked still hides what's behind it.
+        if let p = planeHit {
+            let face = faceHit.flatMap { f in filter.contains(.faces) && scene.canPick(face: f.face, of: f.body) ? f : nil }
+            if face == nil, p.distance < faceHit?.distance ?? .infinity { return p.hit }
+        }
         if let f = faceHit {
             if filter.contains(.faces) {
+                guard scene.canPick(face: f.face, of: f.body) else { return nil }
                 return PickHit(target: .face(body: f.body, index: f.face), point: f.point, normal: f.normal, screenDistance: 0)
             }
             if filter.contains(.bodies) {
@@ -261,6 +270,24 @@ public final class ViewportPicker {
         let neg = d1 < 0 || d2 < 0 || d3 < 0
         let pos = d1 > 0 || d2 > 0 || d3 > 0
         return !(neg && pos)
+    }
+
+    // MARK: Reference planes
+
+    /// The nearest reference plane patch the ray passes through, with the distance along the ray.
+    func pickReferencePlane(_ planes: [ReferencePlane], ray: Ray) -> (hit: PickHit, distance: Double)? {
+        var best: (hit: PickHit, distance: Double)?
+        for r in planes {
+            guard let p = ray.intersect(r.plane) else { continue }
+            let uv = r.plane.project(p)
+            guard r.u.contains(uv.x), r.v.contains(uv.y) else { continue }
+            let t = (p - ray.origin).dot(ray.direction)
+            guard t < (best?.distance ?? .infinity) else { continue }
+            var n = r.plane.normal
+            if n.dot(ray.direction) > 0 { n = -n }
+            best = (PickHit(target: .referencePlane(r.id), point: p, normal: n, sketchPoint: uv, screenDistance: 0), t)
+        }
+        return best
     }
 
     // MARK: Handles

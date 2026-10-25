@@ -174,6 +174,13 @@ struct ViewportLabels: View {
                         .fixedSize()
                 }
             }
+            ForEach(scene.referencePlanes) { r in
+                if let p = cam.project(r.labelAnchor, viewSize: size) {
+                    ReferencePlaneLabel(text: r.label, color: appearance.palette.color(for: r).color,
+                                        hovered: scene.hover == .referencePlane(r.id), appearance: appearance)
+                        .position(x: p.x, y: p.y)
+                }
+            }
             if let plate = scene.plate, !plate.name.isEmpty, let place = bedLabelPlacement(plate, cam, size) {
                 // Like lettering on a drawing, the ground's ruling breaks around the name.
                 Text(plate.name)
@@ -187,6 +194,32 @@ struct ViewportLabels: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+/// A reference plane's name at its far corner: a chip with a swatch in the plane's colour,
+/// filled with that colour while the plane is under the pointer.
+private struct ReferencePlaneLabel: View {
+    let text: String
+    let color: Color
+    let hovered: Bool
+    let appearance: ViewportAppearance
+
+    var body: some View {
+        HStack(spacing: 4) {
+            RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                .fill(hovered ? appearance.chipFill : color)
+                .frame(width: 7, height: 7)
+            Text(text)
+                .font(.caption2.weight(.semibold).width(.condensed))
+                .foregroundStyle(hovered ? appearance.chipFill : appearance.chipInk)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(hovered ? color : appearance.chipFill, in: Capsule())
+        .overlay(Capsule().strokeBorder(hovered ? .clear : appearance.chipEdge))
+        .fixedSize()
+        .animation(.easeOut(duration: 0.12), value: hovered)
     }
 }
 

@@ -93,9 +93,27 @@ enum DebugAutomation {
         await settle(session)
         await snap(session, "01-empty")
 
-        // Sketch on the bed: a 60×30 rectangle with a Ø14 hole.
-        session.startSketch(on: .xy)
+        // Sketch on the bed, picked like in Fusion: Sketch shows the origin planes, tap XY.
+        session.startSketch()
         await settle(session)
+        check(session.pickMode == .sketchPlane && session.makeScene().referencePlanes.count == 3,
+              "Sketch with nothing picked offers the 3 origin planes")
+        await snap(session, "01b-choose-plane")
+        check(markers["sketch-plane-bar", default: 0] == 1, "the plane bar shows once")
+        let bedHit = pick(session, at: Vec3(25, -25, 0))
+        check(bedHit?.target == .referencePlane("xy"), "a tap on the bed plane picks XY (\(String(describing: bedHit?.target)))")
+        session.viewportHoverChanged(target: bedHit?.target)
+        check(session.hover == .originPlane(.xy), "hovering the plane lights it (and its chip)")
+        await settle(session)
+        await snap(session, "01c-hover-plane")
+        if let bedHit { session.viewportDidTap(target: bedHit.target, hit: bedHit, ray: Ray(origin: .zero, direction: .unitZ), location: .zero, modifiers: []) }
+        await settle(session)
+        if case .sketch(let s)? = session.editingFeature?.kind, case .standard(.xy, _) = s.plane, session.sketchEditor != nil {
+            check(!session.choosingSketchPlane, "picking XY opens a sketch on it")
+        } else {
+            check(false, "picking XY opens a sketch on it")
+        }
+        // A 60×30 rectangle with a Ø14 hole.
         session.sketchEditor?.engine.setTool(.rectangle)
         tap(session, SIMD2(0, 0))
         tap(session, SIMD2(60, 30))
@@ -160,13 +178,22 @@ enum DebugAutomation {
         await settle(session)
         check(session.model.status.values.allSatisfy { if case .failed = $0 { false } else { true } }, "no failed features")
 
-        // Sketch on the top face and cut a pocket.
+        // Sketch on the top face, picked in the viewport after Sketch, and cut a pocket.
         if let body = session.model.bodies.first,
             let top = body.shape.faceInfos.firstIndex(where: { $0.surface == .plane && $0.normal.z > 0.99 })
         {
-            session.selection = [.face(body.ref, top)]
+            session.selection = []
             session.startSketch()
             await settle(session)
+            let curved = body.shape.faceInfos.indices.filter { body.shape.facePlane($0) == nil }
+            check(!curved.isEmpty && session.planarFaces()[body.ref.feature]?.isDisjoint(with: curved) == true,
+                  "the filleted corners (\(curved.count) curved faces) can't be picked to sketch on")
+            await snap(session, "05b-choose-face")
+            let topHit = pick(session, at: Vec3(43, 15, 12))
+            check(topHit?.target == .face(body: body.ref.feature, index: top), "a tap on the top face picks it (\(String(describing: topHit?.target)))")
+            session.viewportDidTap(target: topHit?.target, hit: topHit, ray: Ray(origin: .zero, direction: .unitZ), location: .zero, modifiers: [])
+            await settle(session)
+            if case .sketch(let s)? = session.editingFeature?.kind, case .face = s.plane {} else { check(false, "picking the top face opens a sketch on it") }
             session.sketchEditor?.engine.setTool(.slot)
             if let plane = session.model.sketches[session.sketchEditor!.sketch]?.plane {
                 for p in [Vec3(36, 15, 12), Vec3(50, 15, 12), Vec3(43, 19, 12)] { tap(session, plane.project(p)) }
@@ -475,6 +502,14 @@ enum DebugAutomation {
         let event = ViewportToolEvent(ray: session.camera.ray(at: screen, viewSize: size), location: screen, pointer: .mouse)
         session.viewportToolBegan(event)
         session.viewportToolEnded(event)
+    }
+
+    /// What a tap on a world point would pick, through the editor's viewport (its scene and filter).
+    private static func pick(_ session: DesignSession, at world: Vec3) -> PickHit? {
+        guard let screen = session.camera.project(world, viewSize: session.viewSize) else { return nil }
+        if let controller { return controller.pick(at: screen, pointer: .mouse) }
+        return ViewportPicker().pick(scene: session.makeScene(), camera: session.camera, at: screen, viewSize: session.viewSize,
+                                     filter: session.pickFilter)
     }
 
     /// Pointer hover over a sketch-plane point (drives the rubber-band preview).

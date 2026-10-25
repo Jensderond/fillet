@@ -148,6 +148,7 @@ extension DesignSession {
             let shapes = sketch.source.shapes.count
             parts.append("\(editingFeature?.name ?? "Sketch"), \(shapes) \(shapes == 1 ? "shape" : "shapes")")
         }
+        if choosingSketchPlane { parts.append("Origin planes shown: pick one, or a flat face, for the new sketch") }
         let bodies = model.bodies.filter { !hiddenBodies.contains($0.ref) }
         if let b = visibleBodyBounds {
             let s = b.size

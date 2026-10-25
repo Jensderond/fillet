@@ -183,6 +183,8 @@ public final class ViewportRenderer: NSObject {
     private var measurePoints: MTLBuffer?, measurePointCount = 0
     private var highlightSegs: MTLBuffer?, highlightSegCount = 0
     private var highlightStates: MTLBuffer?, highlightCount = 0
+    private var planeVerts: MTLBuffer?
+    private var planeSegs: MTLBuffer?
 
     // Camera animation.
     private struct Animation { var from: Camera; var to: Camera; var start: CFTimeInterval; var duration: Double }
@@ -406,6 +408,14 @@ public final class ViewportRenderer: NSObject {
         let hs = GPUBody.segments(hl.map { $0.points.map(\.float) })
         highlightSegs = makeBuffer(hs); highlightSegCount = hs.count
         highlightStates = makeBuffer(hl.map { UInt8($0.dashed ? 1 : 0) }); highlightCount = hl.count
+        // Reference planes: two triangles and a closed outline (4 segments) each.
+        let planes = scene.referencePlanes
+        let tris = planes.flatMap { r -> [GPURegionVertex] in
+            let c = r.corners.map(\.float)
+            return [c[0], c[1], c[2], c[0], c[2], c[3]].map { GPURegionVertex(x: $0.x, y: $0.y, z: $0.z, state: 0) }
+        }
+        planeVerts = makeBuffer(tris)
+        planeSegs = makeBuffer(GPUBody.segments(planes.map { r in (r.corners + [r.corners[0]]).map(\.float) }))
         // Measures.
         let lined = scene.measures.filter(\.showsLine)
         let ms = GPUBody.segments(lined.map { [$0.from.float, $0.to.float] }, ids: lined.map { _ in 0 })
@@ -586,6 +596,8 @@ public final class ViewportRenderer: NSObject {
         for b in scene.bodies where b.visible && b.opacity < 0.999 { drawTranslucent(b, xray: false) }
         for b in scene.previews where b.visible { drawTranslucent(b, xray: true) }
 
+        if !scene.referencePlanes.isEmpty { drawReferencePlanes(enc, hover: hover) }
+
         // Sketch overlay.
         if let s = scene.sketch { drawSketch(enc, sketch: s, U: U) }
 
@@ -687,6 +699,39 @@ public final class ViewportRenderer: NSObject {
         let halo = LineStyle(pal.edgeHalo, width: w + 3)
         pass(dsTest, halo, halo)
         pass(dsTest, LineStyle(pal.accent, width: w), LineStyle(pal.accent, width: w, dashed: true))
+    }
+
+    /// Translucent patches in their axis colour, behind the model faintly (so a plane through a
+    /// part still reads as one sheet); the one under the pointer fills in and its outline thickens.
+    private func drawReferencePlanes(_ enc: MTLRenderCommandEncoder, hover: PickTarget?) {
+        guard let verts = planeVerts, let segs = planeSegs else { return }
+        let segStride = MemoryLayout<GPULineSeg>.stride, vertStride = MemoryLayout<GPURegionVertex>.stride
+        for (i, r) in scene.referencePlanes.enumerated() {
+            let hovered = hover == .referencePlane(r.id)
+            let c = palette.color(for: r)
+            let fill: Float = hovered ? 0.32 : 0.13
+            enc.setRenderPipelineState(pRegion)
+            enc.setVertexBuffer(verts, offset: i * 6 * vertStride, index: 0)
+            for (depth, alpha) in [(dsGreater, fill * 0.4), (dsTest, fill)] {
+                var d = RegionDraw()
+                d.c0 = c.withAlpha(alpha).linear
+                enc.setDepthStencilState(depth)
+                enc.setVertexBytes(&d, length: MemoryLayout<RegionDraw>.stride, index: 2)
+                enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
+            }
+            enc.setRenderPipelineState(pLine)
+            enc.setVertexBuffer(segs, offset: i * 4 * segStride, index: 0)
+            enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
+            let width: Float = hovered ? 2.5 : 1.25
+            for (depth, alpha) in [(dsGreater, Float(0.3)), (dsTest, hovered ? 1 : 0.75)] {
+                var d = LineDraw(LineStyle(c.withAlpha(alpha), width: width))
+                d.pull = 1
+                enc.setDepthStencilState(depth)
+                enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+                enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+                enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 4)
+            }
+        }
     }
 
     private func drawGrid(_ enc: MTLRenderCommandEncoder, _ g: inout GridDraw) {

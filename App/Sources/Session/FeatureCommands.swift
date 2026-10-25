@@ -12,24 +12,55 @@ extension DesignSession {
     // MARK: Sketch
 
     /// The selected face a new sketch would go on, when it's planar.
-    var sketchableFace: (body: BodyRef, ref: FaceRef, plane: Plane)? {
-        guard let (body, face) = selectedFaces.first, let ref = model.faceRef(body: body, face: face),
-            let plane = model.body(body)?.shape.facePlane(face)
+    var sketchableFace: (body: BodyRef, index: Int)? {
+        guard let (body, face) = selectedFaces.first, model.faceRef(body: body, face: face) != nil,
+            model.body(body)?.shape.facePlane(face) != nil
         else { return nil }
-        return (body, ref, plane)
+        return (body, face)
     }
 
-    /// New sketch on the selected planar face, or on the given origin plane.
+    /// New sketch on the given origin plane. Without one, on the selected planar face; with no
+    /// such face, the viewport offers the origin planes and flat faces to pick from (like Fusion),
+    /// and asking again while it does puts that away.
     func startSketch(on plane: StandardPlane? = nil) {
-        if plane == nil, let face = sketchableFace {
-            newSketch(on: .face(face.ref, fallback: face.plane))
-            // Frame the face's body footprint, so the new sketch starts where the part is.
-            frameSketch(on: face.plane, bounds: sketchFrameBounds(sketch: nil, plane: face.plane, on: face.body))
+        if let plane {
+            newSketch(on: .standard(plane, offset: 0))
+            frameSketch(on: plane.plane, bounds: sketchFrameBounds(sketch: nil, plane: plane.plane))
+        } else if let face = sketchableFace {
+            startSketch(onFace: face.body, face.index)
+        } else if choosingSketchPlane {
+            cancelChoosingSketchPlane()
         } else {
-            let p = plane ?? .xy
-            newSketch(on: .standard(p, offset: 0))
-            frameSketch(on: p.plane, bounds: sketchFrameBounds(sketch: nil, plane: p.plane))
+            beginChoosingSketchPlane()
         }
+    }
+
+    /// New sketch on a planar face of a body (displayed face index).
+    func startSketch(onFace body: BodyRef, _ index: Int) {
+        guard let ref = model.faceRef(body: body, face: index), let plane = model.body(body)?.shape.facePlane(index) else { return }
+        newSketch(on: .face(ref, fallback: plane))
+        // Frame the face's body footprint, so the new sketch starts where the part is.
+        frameSketch(on: plane, bounds: sketchFrameBounds(sketch: nil, plane: plane, on: body))
+    }
+
+    /// Shows the origin planes to pick a sketch plane from (the sketch open before is finished).
+    func beginChoosingSketchPlane() {
+        commitEdit()
+        selection = []
+        hover = nil
+        choosingSketchPlane = true
+        // Looking straight along an axis, two of the planes would be edge-on: turn to see all three.
+        let back = camera.back.normalized
+        if [Vec3.unitX, .unitY, .unitZ].contains(where: { abs(back.dot($0)) > 0.97 }) {
+            var c = camera
+            c.setView(.iso)
+            camera = c
+        }
+    }
+
+    func cancelChoosingSketchPlane() {
+        choosingSketchPlane = false
+        hover = nil
     }
 
     /// Re-opens a sketch for editing.
@@ -120,10 +151,13 @@ extension DesignSession {
         editing?.snapshot = document
     }
 
-    /// Escape, from the keyboard on both platforms: cancel the stroke in progress, then
-    /// leave sketch mode, then cancel the feature being edited, then clear the selection.
+    /// Escape, from the keyboard on both platforms: stop choosing a sketch plane, cancel the
+    /// stroke in progress, then leave sketch mode, then cancel the feature being edited, then
+    /// clear the selection.
     func escape() {
-        if var editor = sketchEditor, !editor.engine.isIdle {
+        if choosingSketchPlane {
+            cancelChoosingSketchPlane()
+        } else if var editor = sketchEditor, !editor.engine.isIdle {
             editor.engine.cancel()
             sketchEditor = editor
         } else if sketchEditor != nil {

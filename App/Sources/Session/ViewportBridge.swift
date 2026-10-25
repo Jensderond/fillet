@@ -6,6 +6,8 @@ import SwiftUI
 /// What tapping in the viewport does right now.
 enum PickMode: Equatable {
     case idle
+    /// Choosing where a new sketch goes: an origin plane or a flat face.
+    case sketchPlane
     /// Sketch mode with the select tool (or a drawing tool, which takes tool input instead).
     case sketch
     /// Choosing profile regions of a sketch (extrude, revolve).
@@ -23,6 +25,7 @@ enum PickMode: Equatable {
 extension DesignSession {
     var pickMode: PickMode {
         if sketchEditor != nil { return .sketch }
+        if choosingSketchPlane { return .sketchPlane }
         guard let feature = editingFeature else { return .idle }
         switch feature.kind {
         case .extrude(let e): return .regions(sketch: e.sketch)
@@ -38,6 +41,7 @@ extension DesignSession {
     var pickFilter: PickFilter {
         switch pickMode {
         case .idle: [.faces, .edges]
+        case .sketchPlane: [.faces, .referencePlanes]
         case .sketch: sketchEditor?.tool == .select ? [.sketchCurves, .sketchPoints] : []
         case .regions: [.regions, .handles]
         case .edges: [.edges]
@@ -71,10 +75,44 @@ extension DesignSession {
             scene.overhang = OverhangStyle(thresholdDegrees: overhangAngle, bedZ: minZ)
         }
         scene.sketch = sketchOverlay()
+        if pickMode == .sketchPlane {
+            scene.referencePlanes = originPlanePatches
+            scene.pickableFaces = planarFaces()
+        }
         scene.handles = editingHandles()
         scene.measures = sketchMeasures() + handleMeasures(scene.handles)
         scene.edgeHighlights = edgeHighlights()
         return scene
+    }
+
+    /// The origin planes offered while choosing where to sketch: the bed plane as a square around
+    /// the origin and the two upright planes standing on the bed, reaching past the visible bodies.
+    var originPlanePatches: [ReferencePlane] {
+        var reach = 50.0, floor = 0.0
+        if let b = visibleBodyBounds {
+            reach = max(reach, [b.min.x, b.min.y, b.max.x, b.max.y, b.max.z].map(abs).max()! * 1.15)
+            floor = min(0, b.min.z)
+        }
+        return StandardPlane.allCases.map { p in
+            ReferencePlane(id: p.rawValue, plane: p.plane, u: -reach...reach,
+                           v: p == .xy ? -reach...reach : floor...reach, label: p.title)
+        }
+    }
+
+    /// Per shown body, the faces a sketch can go on: the flat ones.
+    func planarFaces() -> [UUID: Set<Int>] {
+        var result: [UUID: Set<Int>] = [:]
+        planarFaceCache = planarFaceCache.filter { cached in model.bodies.contains { $0.ref == cached.key } }
+        for body in model.bodies where !hiddenBodies.contains(body.ref) {
+            if let cached = planarFaceCache[body.ref], cached.shape === body.shape {
+                result[body.ref.feature] = cached.faces
+                continue
+            }
+            let faces = Set((0..<body.shape.faceCount).filter { body.shape.facePlane($0) != nil })
+            planarFaceCache[body.ref] = (body.shape, faces)
+            result[body.ref.feature] = faces
+        }
+        return result
     }
 
     /// Edges/faces of the feature being edited, shown as selected on the displayed result.
@@ -241,6 +279,15 @@ extension DesignSession: ViewportDelegate {
         case .idle:
             guard let target, let s = Selection(target) else { selection = []; return }
             toggleSelection(s, additive: true)
+        case .sketchPlane:
+            // Empty space and curved faces keep waiting; the bar over the viewport says what to pick.
+            switch target {
+            case .referencePlane(let id):
+                if let plane = StandardPlane(rawValue: id) { startSketch(on: plane) }
+            case .face(let body, let index):
+                startSketch(onFace: BodyRef(body), index)
+            default: break
+            }
         case .sketch:
             guard let id = sketchEditor?.sketch else { return }
             switch target {
@@ -392,6 +439,9 @@ extension Selection {
         case .face(let b, let i): self = .face(BodyRef(b), i)
         case .edge(let b, let i): self = .edge(BodyRef(b), i)
         case .body(let b): self = .body(BodyRef(b))
+        case .referencePlane(let id):
+            guard let plane = StandardPlane(rawValue: id) else { return nil }
+            self = .originPlane(plane)
         default: return nil
         }
     }
@@ -403,6 +453,7 @@ extension Selection {
         case .body(let b): .body(b.feature)
         case .region(_, let i): .region(i)
         case .sketchShape(_, let s): .sketchShape(s)
+        case .originPlane(let p): .referencePlane(p.rawValue)
         }
     }
 }

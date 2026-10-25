@@ -210,6 +210,40 @@ public struct EdgeHighlight: Hashable, Sendable {
     public init(points: [Vec3], dashed: Bool = false) { self.points = points; self.dashed = dashed }
 }
 
+/// A construction plane drawn as a translucent patch the user can pick (the origin planes
+/// while choosing where to sketch). Tinted by the axis its normal runs along (an XY plane
+/// takes Z's blue), or the palette's neutral plane colour when it runs along none.
+public struct ReferencePlane: Hashable, Sendable, Identifiable {
+    /// Picked as `.referencePlane(id)`.
+    public var id: String
+    public var plane: Plane
+    /// The patch drawn, in plane coordinates (the plane itself is unbounded; picking uses the patch).
+    public var u: ClosedRange<Double>
+    public var v: ClosedRange<Double>
+    /// Short name drawn at the patch's far corner ("XY").
+    public var label: String
+
+    public init(id: String, plane: Plane, u: ClosedRange<Double>, v: ClosedRange<Double>, label: String) {
+        self.id = id; self.plane = plane; self.u = u; self.v = v; self.label = label
+    }
+
+    /// The patch's corners, counter-clockwise from (u.lower, v.lower).
+    public var corners: [Vec3] {
+        [plane.point(u: u.lowerBound, v: v.lowerBound), plane.point(u: u.upperBound, v: v.lowerBound),
+         plane.point(u: u.upperBound, v: v.upperBound), plane.point(u: u.lowerBound, v: v.upperBound)]
+    }
+
+    /// Where the label sits: the corner furthest along both plane axes.
+    public var labelAnchor: Vec3 { plane.point(u: u.upperBound, v: v.upperBound) }
+
+    /// The world axis the normal runs along (0 = X, 1 = Y, 2 = Z), nil for a tilted plane.
+    public var normalAxis: Int? {
+        let n = plane.normal
+        let a = [abs(n.x), abs(n.y), abs(n.z)]
+        return a.firstIndex { $0 > 0.999 }
+    }
+}
+
 /// A dimension-like annotation: a line between two points with a text label.
 public struct MeasureAnnotation: Hashable, Sendable, Identifiable {
     public var id: String
@@ -240,6 +274,8 @@ public enum PickTarget: Hashable, Sendable, Codable {
     case sketchPoint(shape: UUID, index: Int)
     /// A drag handle.
     case handle(String)
+    /// A reference plane (see `ReferencePlane`).
+    case referencePlane(String)
 
     /// The body this target belongs to, if any.
     public var bodyID: UUID? {
@@ -263,11 +299,12 @@ public struct PickFilter: OptionSet, Hashable, Sendable {
     public static let sketchCurves = PickFilter(rawValue: 1 << 4)
     public static let regions = PickFilter(rawValue: 1 << 5)
     public static let handles = PickFilter(rawValue: 1 << 6)
+    public static let referencePlanes = PickFilter(rawValue: 1 << 7)
 
     public static let sketch: PickFilter = [.sketchPoints, .sketchCurves]
     /// Faces, edges and handles.
     public static let `default`: PickFilter = [.faces, .edges, .handles]
-    public static let all: PickFilter = [.faces, .edges, .bodies, .sketchPoints, .sketchCurves, .regions, .handles]
+    public static let all: PickFilter = [.faces, .edges, .bodies, .sketchPoints, .sketchCurves, .regions, .handles, .referencePlanes]
     public static let none: PickFilter = []
 }
 
@@ -286,16 +323,26 @@ public struct ViewportScene: Sendable {
     public var measures: [MeasureAnnotation]
     /// Picked edges drawn over everything else (see `EdgeHighlight`).
     public var edgeHighlights: [EdgeHighlight] = []
+    /// Pickable construction planes (drawn translucent, under the sketch overlay).
+    public var referencePlanes: [ReferencePlane] = []
+    /// Faces that can be picked, per body; nil = all. A face outside its body's set still stops
+    /// the pick ray (it hides what is behind it) but picks nothing and shows no hover.
+    public var pickableFaces: [UUID: Set<Int>]?
     /// Infinite-feel ground grid on z = 0.
     public var showsGroundGrid: Bool
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
                 plate: BuildPlate? = nil, selection: Set<PickTarget> = [], hover: PickTarget? = nil,
                 overhang: OverhangStyle? = nil, handles: [Handle] = [], measures: [MeasureAnnotation] = [],
-                showsGroundGrid: Bool = true) {
+                referencePlanes: [ReferencePlane] = [], showsGroundGrid: Bool = true) {
         self.bodies = bodies; self.previews = previews; self.sketch = sketch; self.plate = plate
         self.selection = selection; self.hover = hover; self.overhang = overhang; self.handles = handles
-        self.measures = measures; self.showsGroundGrid = showsGroundGrid
+        self.measures = measures; self.referencePlanes = referencePlanes; self.showsGroundGrid = showsGroundGrid
+    }
+
+    /// Whether `pickableFaces` lets a face be picked.
+    func canPick(face: Int, of body: UUID) -> Bool {
+        pickableFaces.map { $0[body]?.contains(face) == true } ?? true
     }
 
     /// Bounds of visible bodies and previews (nil when empty).
@@ -321,6 +368,7 @@ public struct ViewportScene: Sendable {
             for p in s.points { add(s.plane.point(p.position)) }
         }
         for h in handles { add(h.origin); add(h.tip) }
+        for r in referencePlanes { r.corners.forEach(add) }
         return b
     }
 

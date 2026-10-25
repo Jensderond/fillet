@@ -11,6 +11,8 @@ enum Selection: Hashable {
     case edge(BodyRef, Int)
     case region(sketch: UUID, index: Int)
     case sketchShape(sketch: UUID, shape: UUID)
+    /// An origin plane (only ever hovered, while choosing where to sketch).
+    case originPlane(StandardPlane)
 }
 
 /// A feature being created or edited in the inspector. The feature lives in
@@ -72,6 +74,9 @@ final class DesignSession {
     var hover: Selection?
     var editing: FeatureEdit?
     var sketchEditor: SketchEditor?
+    /// Sketch was asked for with no flat face picked: the origin planes show in the viewport
+    /// and the next tap on one of them, or on a flat face, opens the new sketch there.
+    var choosingSketchPlane = false
     var hiddenBodies: Set<BodyRef> = []
     var camera = Camera(target: Vec3(0, 0, 10), distance: 260)
     /// Size of the viewport in points (for converting screen tolerances to mm).
@@ -96,6 +101,8 @@ final class DesignSession {
     @ObservationIgnored var pencilHasDrawn = false
     /// The finger drawing hint shows once per window.
     @ObservationIgnored var offeredFingerDrawing = false
+    /// The flat faces of each body, kept while the body's shape stays the same (see `planarFaces`).
+    @ObservationIgnored var planarFaceCache: [BodyRef: (shape: Shape, faces: Set<Int>)] = [:]
     /// Live undo state for the toolbar (`UndoManager` itself isn't observable).
     private(set) var canUndo = false
     private(set) var canRedo = false
@@ -204,6 +211,8 @@ final class DesignSession {
     var editingFeature: Feature? { editing.flatMap { document.feature($0.feature) } }
 
     func commitEdit() {
+        // Whatever starts next (a feature, a sketch, editing a step) replaces choosing a plane.
+        choosingSketchPlane = false
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil
@@ -229,6 +238,7 @@ final class DesignSession {
     func enterSketch(_ id: UUID) {
         sketchEditor = SketchEditor(sketch: id)
         selection = []
+        hover = nil  // the plane or face picked to sketch on
     }
 
     /// Creates a sketch on a plane and enters sketch mode.

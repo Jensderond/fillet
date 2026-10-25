@@ -30,7 +30,7 @@ struct SelectionInspector: View {
         InspectorHeader(symbol: "printer", title: "Print check", subtitle: session.document.printerPreset.name, tint: Theme.inkSecondary)
         if session.model.bodies.isEmpty {
             if session.document.features.isEmpty {
-                Button { session.startSketch() } label: {
+                Button { session.startSketch(on: .xy) } label: {
                     Label("Start a sketch on the bed", systemImage: "pencil.and.outline").frame(maxWidth: .infinity)
                 }
                 .buttonStyle(PrimaryButtonStyle())

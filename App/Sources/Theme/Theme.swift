@@ -51,6 +51,11 @@ enum Theme {
     static let dangerInk = Color(light: 0xC42B31, dark: 0xFF6369)
     static let ok = Color(hex: 0x2E9E6A)
     static let warn = Color(light: 0xA86E00, dark: 0xD9940F)
+    /// The viewport's axis colours (`ViewportPalette.axisX` …), which also tint the origin
+    /// planes: a plane takes the colour of the axis it faces along (XY takes Z's blue).
+    static let axisX = Color(light: 0xE5484D, dark: 0xFF6369)
+    static let axisY = Color(light: 0x30A46C, dark: 0x4CC38A)
+    static let axisZ = Color(light: 0x3E7BFA, dark: 0x5B93FF)
 
     // MARK: Shape
 

@@ -29,6 +29,8 @@ public struct ViewportPalette: Hashable, Sendable {
     public var axisX: ViewportColor
     public var axisY: ViewportColor
     public var axisZ: ViewportColor
+    /// A reference plane whose normal runs along no world axis (origin planes take their axis colour).
+    public var referencePlane: ViewportColor
     public var sketchCurve: ViewportColor
     /// Dashed construction geometry: slate, so orange keeps meaning "active".
     public var sketchConstruction: ViewportColor
@@ -78,6 +80,7 @@ public struct ViewportPalette: Hashable, Sendable {
         axisX: ViewportColor(hex: 0xE5484D),
         axisY: ViewportColor(hex: 0x30A46C),
         axisZ: ViewportColor(hex: 0x3E7BFA),
+        referencePlane: ViewportColor(hex: 0x5A6680),
         sketchCurve: ViewportColor(hex: 0x14181F),
         sketchConstruction: ViewportColor(hex: 0x5A6680),
         sketchPreview: ViewportColor(hex: 0x1D2B45, alpha: 0.55),
@@ -118,6 +121,7 @@ public struct ViewportPalette: Hashable, Sendable {
         axisX: ViewportColor(hex: 0xFF6369),
         axisY: ViewportColor(hex: 0x4CC38A),
         axisZ: ViewportColor(hex: 0x5B93FF),
+        referencePlane: ViewportColor(hex: 0x9AA5B8),
         sketchCurve: ViewportColor(hex: 0xF2F4F7),
         sketchConstruction: ViewportColor(hex: 0x9AA5B8),
         sketchPreview: ViewportColor(hex: 0xE4E9F2, alpha: 0.6),
@@ -135,4 +139,16 @@ public struct ViewportPalette: Hashable, Sendable {
         skyLight: ViewportColor(hex: 0xDDE3EC),
         groundLight: ViewportColor(hex: 0x5E5C59),
         ambient: 0.36, key: 0.62, fill: 0.18, rim: 0.26, specular: 0.10)
+}
+
+public extension ViewportPalette {
+    /// The colour a reference plane is tinted: the axis its normal runs along (XY takes Z's blue).
+    func color(for plane: ReferencePlane) -> ViewportColor {
+        switch plane.normalAxis {
+        case 0: axisX
+        case 1: axisY
+        case 2: axisZ
+        default: referencePlane
+        }
+    }
 }
