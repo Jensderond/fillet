@@ -48,6 +48,15 @@ public enum BooleanOperation: Sendable, Hashable {
     }
 }
 
+extension FaceInfo {
+    init(_ info: FKFaceInfo) {
+        self.init(
+            surface: SurfaceType(rawValue: Int32(info.surface.rawValue)) ?? .other, centroid: Vec3(info.centroid),
+            normal: Vec3(info.normal), area: info.area, boundsMin: Vec3(info.boundsMin),
+            boundsMax: Vec3(info.boundsMax))
+    }
+}
+
 // MARK: - Shape
 
 /// An immutable B-rep shape (solid, compound of solids, face, edge, ...) owned by the kernel.
@@ -220,7 +229,7 @@ public final class Shape: @unchecked Sendable {
     public var faceInfos: [FaceInfo] {
         faceCache.withLock { cache in
             if let cache { return cache.all }
-            let fresh = Indexed(count: faceCount, placeholder: Self.facePlaceholder, kernelFaceInfo)
+            let fresh = kernelFaceInfos()
             cache = fresh
             return fresh.all
         }
@@ -264,10 +273,21 @@ public final class Shape: @unchecked Sendable {
     private func kernelFaceInfo(_ index: Int) -> FaceInfo? {
         var info = FKFaceInfo()
         guard index >= 0, fk_face_info(handle, Int32(clamping: index), &info) else { return nil }
-        return FaceInfo(
-            surface: SurfaceType(rawValue: Int32(info.surface.rawValue)) ?? .other, centroid: Vec3(info.centroid),
-            normal: Vec3(info.normal), area: info.area, boundsMin: Vec3(info.boundsMin),
-            boundsMax: Vec3(info.boundsMax))
+        return FaceInfo(info)
+    }
+
+    /// Every face's info in one kernel call, which computes the faces in parallel.
+    private func kernelFaceInfos() -> Indexed<FaceInfo> {
+        let count = faceCount
+        guard count > 0 else { return Indexed(count: 0, placeholder: Self.facePlaceholder) { _ in nil } }
+        var infos = [FKFaceInfo](repeating: FKFaceInfo(), count: count)
+        var ok = [Bool](repeating: false, count: count)
+        let done = infos.withUnsafeMutableBufferPointer { i in
+            ok.withUnsafeMutableBufferPointer { o in fk_face_infos(handle, i.baseAddress, o.baseAddress, Int32(count)) }
+        }
+        // If the batch fails as a whole, ask face by face (failing faces get the placeholder).
+        guard done else { return Indexed(count: count, placeholder: Self.facePlaceholder, kernelFaceInfo) }
+        return Indexed(count: count, placeholder: Self.facePlaceholder) { ok[$0] ? FaceInfo(infos[$0]) : nil }
     }
 
     private func kernelEdgeInfo(_ index: Int) -> EdgeInfo? {

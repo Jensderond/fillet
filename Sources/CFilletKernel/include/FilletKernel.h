@@ -172,6 +172,9 @@ typedef struct {
 int32_t fk_face_count(const FKShape *shape);
 int32_t fk_edge_count(const FKShape *shape);
 bool fk_face_info(const FKShape *shape, int32_t faceIndex, FKFaceInfo *out);
+/// fk_face_info for every face at once, computed in parallel. `out` and `ok` have room for
+/// `count` entries, which must equal fk_face_count; ok[i] tells whether out[i] could be computed.
+bool fk_face_infos(const FKShape *shape, FKFaceInfo *out, bool *ok, int32_t count);
 bool fk_edge_info(const FKShape *shape, int32_t edgeIndex, FKEdgeInfo *out);
 /// Marks the edges a fillet or chamfer can't use: degenerate ones (a sphere's pole) and seams
 /// where a face meets itself (a cylinder's or sphere's closing line). `out` has room for

@@ -140,6 +140,21 @@ void boundsOf(const TopoDS_Shape &s, FKVec3 *mn, FKVec3 *mx, const ShapeMap *fac
   if (mx) *mx = FKVec3{x1, y1, z1};
 }
 
+/// Surface type, centroid, outward normal near the centroid, area and optimal bounds of one face.
+FKFaceInfo faceInfoOf(const TopoDS_Face &face) {
+  BRepAdaptor_Surface surf(face, false);
+  GProp_GProps props;
+  BRepGProp::SurfaceProperties(face, props);
+  gp_Pnt c = props.Mass() > 0 ? props.CentreOfMass() : gp_Pnt();
+  FKFaceInfo info{};
+  info.surface = surfaceType(surf.GetType());
+  info.centroid = fkv(c);
+  info.normal = fkv(normalNear(face, c));
+  info.area = props.Mass();
+  boundsOf(face, &info.boundsMin, &info.boundsMax);
+  return info;
+}
+
 } // namespace
 
 extern "C" int32_t fk_face_count(const FKShape *shape) {
@@ -160,18 +175,29 @@ extern "C" bool fk_face_info(const FKShape *shape, int32_t faceIndex, FKFaceInfo
   return guarded("Face info", false, [&] {
     shapeOf(shape);
     if (!out) fail("Missing output pointer");
-    const TopoDS_Face &face = faceAt(shape, faceIndex);
-    BRepAdaptor_Surface surf(face, false);
-    GProp_GProps props;
-    BRepGProp::SurfaceProperties(face, props);
-    gp_Pnt c = props.Mass() > 0 ? props.CentreOfMass() : gp_Pnt();
-    FKFaceInfo info{};
-    info.surface = surfaceType(surf.GetType());
-    info.centroid = fkv(c);
-    info.normal = fkv(normalNear(face, c));
-    info.area = props.Mass();
-    boundsOf(face, &info.boundsMin, &info.boundsMax);
-    *out = info;
+    *out = faceInfoOf(faceAt(shape, faceIndex));
+    return true;
+  });
+}
+
+extern "C" bool fk_face_infos(const FKShape *shape, FKFaceInfo *out, bool *ok, int32_t count) {
+  return guarded("Face info", false, [&] {
+    shapeOf(shape);
+    if (!out || !ok) fail("Missing output pointer");
+    const ShapeMap &faces = shape->faces();
+    if (count != faces.Extent())
+      fail("Expected " + std::to_string(faces.Extent()) + " faces, got room for " + std::to_string(count));
+    // Faces are independent and each is computed exactly as fk_face_info does, so running
+    // them on OCCT's thread pool gives the same values in a fraction of the time.
+    OSD_Parallel::For(0, count, [&](int i) {
+      ok[i] = false;
+      try {
+        out[i] = faceInfoOf(TopoDS::Face(faces(i + 1)));
+        ok[i] = true;
+      } catch (...) {
+        out[i] = FKFaceInfo{};
+      }
+    });
     return true;
   });
 }
