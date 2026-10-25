@@ -5,6 +5,8 @@ built on the OpenCascade 8 geometry kernel. Design with sketches and features on
 Fusion-style timeline, save as a normal `.fillet` file (Files / iCloud Drive), and
 export 3MF for Bambu Studio.
 
+![Fillet on macOS in light and dark mode: a filleted bracket in the viewport, with the browser, print check and timeline](docs/screenshots/mac-light-dark.png)
+
 ## Build
 
 Requirements: Xcode 27, CMake (`brew install cmake`), XcodeGen (`brew install xcodegen`).
