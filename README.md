@@ -16,7 +16,8 @@ cd App && xcodegen generate    # creates App/Fillet.xcodeproj
 open Fillet.xcodeproj          # pick the Fillet scheme, a Mac or your iPad, Run
 ```
 
-To run on an iPad, select your Apple ID team under *Signing & Capabilities* first.
+To run on an iPad, put your team in `App/Local.xcconfig` (gitignored): `DEVELOPMENT_TEAM = ABCDE12345`.
+A team picked under *Signing & Capabilities* is lost on the next `xcodegen generate`; this one isn't.
 
 ## Layout
 

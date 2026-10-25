@@ -10,3 +10,4 @@ xcuserdata/
 vendor/occt-include/
 .claude/worktrees/
 __pycache__/
+App/Local.xcconfig

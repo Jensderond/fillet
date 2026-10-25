@@ -64,6 +64,9 @@ targets:
             UTTypeConformsTo: [public.data]
             UTTypeTagSpecification:
               public.filename-extension: [step, stp]
+    configFiles:
+      Debug: Signing.xcconfig
+      Release: Signing.xcconfig
     entitlements:
       path: Fillet.entitlements
       properties:

@@ -1,0 +1,3 @@
+// Signing settings that survive `xcodegen generate`. Put your own team in Local.xcconfig
+// (gitignored), e.g. `DEVELOPMENT_TEAM = ABCDE12345`; without it the app builds unsigned-team.
+#include? "Local.xcconfig"
