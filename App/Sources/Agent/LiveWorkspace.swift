@@ -9,8 +9,6 @@ import Foundation
 final class LiveWorkspace: DesignWorkspace {
     let id = UUID()
     weak var session: DesignSession?
-    /// Checks candidate changes without touching the window (cached like the session's).
-    private let previewEvaluator = ModelEvaluator()
 
     init(session: DesignSession) { self.session = session }
 
@@ -36,8 +34,11 @@ final class LiveWorkspace: DesignWorkspace {
         return await session.settledModel()
     }
 
+    /// Checks a change on the session's own evaluator, so the recompute after `commit` is all
+    /// cache hits (each step is evaluated once, not twice).
     func preview(_ candidate: Document) async -> EvaluatedModel {
-        await previewEvaluator.evaluate(candidate)
+        guard let session else { return await ModelEvaluator().preview(candidate) }
+        return await session.preview(candidate)
     }
 
     func commit(_ newDocument: Document, action: String) async -> EvaluatedModel {

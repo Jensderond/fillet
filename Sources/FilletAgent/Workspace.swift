@@ -101,7 +101,7 @@ public final class HeadlessWorkspace: DesignWorkspace {
     }
 
     public func preview(_ candidate: Document) async -> EvaluatedModel {
-        await evaluator.evaluate(candidate)
+        await evaluator.preview(candidate)
     }
 
     public func commit(_ newDocument: Document, action: String) async -> EvaluatedModel {

@@ -239,6 +239,44 @@ struct RecomputeTests {
         #expect(abs(b.min.z) < 1e-6)
         #expect(abs((b.max.z - b.min.z) - 10) < 1e-6)  // the 10 mm width is now the height
     }
+
+    /// An agent's step is previewed, then committed (or refused) on the same evaluator.
+    @Test func previewKeepsTheCacheAndCommitsForFree() async throws {
+        let a = UUID(), b = UUID(), cut = UUID(), extra = UUID()
+        var doc = Document()
+        doc.features = [
+            Feature(id: a, name: "A", .primitive(Primitive(kind: .box, dimensions: [20, 20, 10]))),
+            Feature(id: b, name: "B", .primitive(Primitive(kind: .cylinder, dimensions: [6, 10]))),
+            Feature(id: cut, name: "Cut", .combine(Combine(target: BodyRef(a), tools: [BodyRef(b)], operation: .cut))),
+        ]
+        let ev = ModelEvaluator(recordsTimings: true)
+        func recomputed() async -> [UUID] { await ev.lastStepTimings.map(\.feature) }
+        _ = await ev.evaluate(doc)
+        #expect(await recomputed() == [a, b, cut])
+
+        // A new step: only it is computed, and committing it computes nothing.
+        var added = doc
+        added.features.append(Feature(id: extra, name: "Extra", .primitive(Primitive(kind: .sphere, dimensions: [4]))))
+        let previewed = await ev.preview(added)
+        #expect(await recomputed() == [extra])
+        let committed = await ev.evaluate(added, before: extra)
+        #expect(await recomputed() == [])
+        #expect(committed.bodies.map(\.ref) == previewed.bodies.map(\.ref))
+        #expect(committed.bodies.map { ObjectIdentifier($0.shape) } == previewed.bodies.map { ObjectIdentifier($0.shape) })
+        #expect(committed.bodiesBefore?.map(\.ref) == [BodyRef(a)])
+        #expect(Set(committed.meshes.keys) == Set(previewed.meshes.keys) && committed.meshes.count == 2)
+
+        // A refused edit of the first step leaves the evaluated document cached.
+        var edited = added
+        edited.features[0] = Feature(id: a, name: "A", .primitive(Primitive(kind: .box, dimensions: [30, 20, 10])))
+        _ = await ev.preview(edited)
+        #expect(await recomputed() == [a, b, cut, extra])  // keyed on the whole prefix
+        _ = await ev.evaluate(added)
+        #expect(await recomputed() == [])
+        // Going back to an earlier document still reuses its prefix.
+        _ = await ev.evaluate(doc, before: cut)
+        #expect(await recomputed() == [])
+    }
 }
 
 @Suite("Parameter rename")

@@ -27,9 +27,17 @@ public actor ModelEvaluator {
         var state: State
     }
 
+    private typealias MeshCache = [ObjectIdentifier: (shape: Shape, mesh: Mesh)]
+
+    /// The state after each step of the last evaluated document.
     private var cache: [CacheEntry] = []
+    /// The same for the last previewed document, kept apart so a preview that is thrown away
+    /// doesn't cost `cache` its entries, and a preview that is then committed is all cache hits.
+    private var previewCache: [CacheEntry] = []
     /// Display meshes by shape identity; the shape is retained so the identifier stays unique.
-    private var meshCache: [ObjectIdentifier: (shape: Shape, mesh: Mesh)] = [:]
+    private var meshCache: MeshCache = [:]
+    /// The last preview's display meshes.
+    private var previewMeshCache: MeshCache = [:]
 
     /// Wall-clock cost of one recomputed feature (see ``init(recordsTimings:)``).
     public struct StepTiming: Sendable {
@@ -60,6 +68,18 @@ public actor ModelEvaluator {
     /// Evaluates all active features of the document. When `before` names a
     /// feature, the bodies just before it are returned in `bodiesBefore`.
     public func evaluate(_ document: Document, before: UUID? = nil) -> EvaluatedModel {
+        run(document, before: before, preview: false)
+    }
+
+    /// Evaluates a candidate document (to check a change before making it) without replacing
+    /// what `evaluate` cached: the steps it shares with the last evaluated document are cache
+    /// hits, the rest is kept until the next preview, so evaluating the candidate afterwards
+    /// costs nothing, and dropping it costs the cache nothing either.
+    public func preview(_ document: Document, before: UUID? = nil) -> EvaluatedModel {
+        run(document, before: before, preview: true)
+    }
+
+    private func run(_ document: Document, before: UUID?, preview: Bool) -> EvaluatedModel {
         let table = document.parameterTable
         var hasher = Hasher()
         hasher.combine(table.values.mapValues { [$0.value, Double($0.dimension.hashValue)] })
@@ -79,18 +99,19 @@ public actor ModelEvaluator {
             h.combine(feature)
             key = h.finalize()
 
+            // Keys chain through every earlier step, so entry i can only match at position i.
             if i < cache.count, cache[i].key == key {
                 state = cache[i].state
+            } else if i < previewCache.count, previewCache[i].key == key {
+                state = previewCache[i].state
             } else {
-                // Everything after a miss must be recomputed too.
-                if i < cache.count { cache.removeSubrange(i...) }
                 let start = recordsTimings ? ContinuousClock.now : nil
                 apply(feature, to: &state, evaluator: table.evaluator)
                 if let start { timings.append(StepTiming(index: i, feature: feature.id, seconds: Self.seconds(since: start))) }
             }
             newCache.append(CacheEntry(key: key, state: state))
         }
-        cache = newCache
+        if preview { previewCache = newCache } else { cache = newCache }
 
         var model = EvaluatedModel(parameters: table)
         model.bodies = state.bodies
@@ -98,7 +119,7 @@ public actor ModelEvaluator {
         model.status = state.status
         model.resolvedEdges = state.resolvedEdges
         let meshStart = recordsTimings ? ContinuousClock.now : nil
-        model.meshes = displayMeshes(for: state.bodies)
+        model.meshes = displayMeshes(for: state.bodies, preview: preview)
         if let meshStart {
             lastStepTimings = timings
             lastMeshSeconds = Self.seconds(since: meshStart)
@@ -113,7 +134,9 @@ public actor ModelEvaluator {
     /// Drops all cached results (e.g. after loading a different document).
     public func reset() {
         cache = []
+        previewCache = []
         meshCache = [:]
+        previewMeshCache = [:]
     }
 
     /// Tessellation fine enough to look smooth, scaled to the part size.
@@ -123,13 +146,13 @@ public actor ModelEvaluator {
         return (min(max(diagonal * 0.0005, 0.005), 0.5), 0.2)
     }
 
-    private func displayMeshes(for bodies: [EvaluatedBody]) -> [BodyRef: Mesh] {
+    private func displayMeshes(for bodies: [EvaluatedBody], preview: Bool) -> [BodyRef: Mesh] {
         var result: [BodyRef: Mesh] = [:]
-        var kept: [ObjectIdentifier: (shape: Shape, mesh: Mesh)] = [:]
+        var kept: MeshCache = [:]
         for body in bodies {
             let id = ObjectIdentifier(body.shape)
             let mesh: Mesh
-            if let cached = meshCache[id] {
+            if let cached = meshCache[id] ?? previewMeshCache[id] {
                 mesh = cached.mesh
             } else {
                 let d = Self.displayDeflection(for: body.shape)
@@ -138,7 +161,7 @@ public actor ModelEvaluator {
             kept[id] = (body.shape, mesh)
             result[body.ref] = mesh
         }
-        meshCache = kept
+        if preview { previewMeshCache = kept } else { meshCache = kept }
         return result
     }
 

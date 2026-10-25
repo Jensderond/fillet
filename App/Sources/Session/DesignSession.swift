@@ -275,6 +275,13 @@ final class DesignSession {
         }
     }
 
+    /// Evaluates a candidate document (an agent's step, checked before it is made) on this
+    /// window's evaluator without showing it. Its steps stay cached, so committing it doesn't
+    /// recompute them, and the window's own cached steps survive when it is refused.
+    func preview(_ candidate: Document) async -> EvaluatedModel {
+        await evaluator.preview(candidate)
+    }
+
     // MARK: Failures
 
     /// Steps that failed in the latest recompute, in timeline order.
