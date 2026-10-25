@@ -7,6 +7,7 @@ let package = Package(
     products: [
         .library(name: "FilletKit", targets: ["FilletKernel", "FilletCore", "FilletViewport", "FilletAgent"]),
         .executable(name: "fillet-mcp", targets: ["fillet-mcp"]),
+        .executable(name: "fillet-bench", targets: ["fillet-bench"]),
     ],
     targets: [
         // Built by scripts/build-occt.sh (static OpenCascade, macOS + iOS + iOS simulator).
@@ -26,6 +27,8 @@ let package = Package(
         // MCP server: agents model through the same document, recompute and renderer as the app.
         .target(name: "FilletAgent", dependencies: ["FilletCore", "FilletKernel", "FilletViewport"]),
         .executableTarget(name: "fillet-mcp", dependencies: ["FilletAgent", "FilletCore"]),
+        // Recompute benchmark: `swift run -c release fillet-bench [design.fillet]` (see docs/performance.md).
+        .executableTarget(name: "fillet-bench", dependencies: ["FilletCore", "FilletKernel"]),
         .testTarget(name: "FilletKernelTests", dependencies: ["FilletKernel", "CFilletKernel"]),
         .testTarget(name: "FilletCoreTests", dependencies: ["FilletCore"]),
         .testTarget(name: "FilletViewportTests", dependencies: ["FilletViewport"]),

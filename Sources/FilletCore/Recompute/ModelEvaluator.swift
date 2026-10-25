@@ -31,7 +31,31 @@ public actor ModelEvaluator {
     /// Display meshes by shape identity; the shape is retained so the identifier stays unique.
     private var meshCache: [ObjectIdentifier: (shape: Shape, mesh: Mesh)] = [:]
 
-    public init() {}
+    /// Wall-clock cost of one recomputed feature (see ``init(recordsTimings:)``).
+    public struct StepTiming: Sendable {
+        /// Position among the document's active features.
+        public var index: Int
+        public var feature: UUID
+        public var seconds: Double
+    }
+
+    private let recordsTimings: Bool
+    /// Features the last `evaluate` recomputed (cache hits are left out), in order.
+    /// Only recorded when timing is on.
+    public private(set) var lastStepTimings: [StepTiming] = []
+    /// Time the last `evaluate` spent tessellating display meshes. Only recorded when timing is on.
+    public private(set) var lastMeshSeconds: Double = 0
+
+    /// `recordsTimings` makes `evaluate` measure every recomputed feature and the display
+    /// tessellation (for benchmarks; off in the app).
+    public init(recordsTimings: Bool = false) {
+        self.recordsTimings = recordsTimings
+    }
+
+    private static func seconds(since start: ContinuousClock.Instant) -> Double {
+        let d = ContinuousClock.now - start
+        return Double(d.components.seconds) + Double(d.components.attoseconds) * 1e-18
+    }
 
     /// Evaluates all active features of the document. When `before` names a
     /// feature, the bodies just before it are returned in `bodiesBefore`.
@@ -47,6 +71,7 @@ public actor ModelEvaluator {
         newCache.reserveCapacity(active.count)
 
         var bodiesBefore: [EvaluatedBody]?
+        var timings: [StepTiming] = []
         for (i, feature) in active.enumerated() {
             if feature.id == before { bodiesBefore = state.bodies }
             var h = Hasher()
@@ -59,7 +84,9 @@ public actor ModelEvaluator {
             } else {
                 // Everything after a miss must be recomputed too.
                 if i < cache.count { cache.removeSubrange(i...) }
+                let start = recordsTimings ? ContinuousClock.now : nil
                 apply(feature, to: &state, evaluator: table.evaluator)
+                if let start { timings.append(StepTiming(index: i, feature: feature.id, seconds: Self.seconds(since: start))) }
             }
             newCache.append(CacheEntry(key: key, state: state))
         }
@@ -70,7 +97,12 @@ public actor ModelEvaluator {
         model.sketches = state.sketches
         model.status = state.status
         model.resolvedEdges = state.resolvedEdges
+        let meshStart = recordsTimings ? ContinuousClock.now : nil
         model.meshes = displayMeshes(for: state.bodies)
+        if let meshStart {
+            lastStepTimings = timings
+            lastMeshSeconds = Self.seconds(since: meshStart)
+        }
         model.bodiesBefore = bodiesBefore
         for f in document.features where model.status[f.id] == nil {
             model.status[f.id] = .inactive
