@@ -163,15 +163,8 @@ struct ViewportLabels: View {
         ZStack(alignment: .topLeading) {
             ForEach(scene.measures) { m in
                 if let p = cam.project((m.from + m.to) * 0.5, viewSize: size) {
-                    Text(m.label)
-                        .font(.caption.monospacedDigit().weight(.medium))
-                        .foregroundStyle(appearance.chipInk)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(appearance.chipFill, in: Capsule())
-                        .overlay(Capsule().strokeBorder(appearance.chipEdge))
+                    MeasureChip(label: m.label, entry: m.entry, appearance: appearance)
                         .position(x: p.x + 8, y: p.y)
-                        .fixedSize()
                 }
             }
             ForEach(scene.referencePlanes) { r in
@@ -194,6 +187,74 @@ struct ViewportLabels: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+/// A measure's value on the canvas. While it is typed it takes the accent outline and a caret,
+/// like a field that opened on the drawing; once typed it carries a lock.
+private struct MeasureChip: View {
+    let label: String
+    let entry: MeasureEntry
+    let appearance: ViewportAppearance
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var typing: Bool { if case .typing = entry { true } else { false } }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            if entry == .locked {
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(appearance.entryInk)
+                    .transition(.scale(scale: 0.4).combined(with: .opacity))
+            }
+            Text(label)
+                .font(.caption.monospacedDigit().weight(.medium))
+                .foregroundStyle(appearance.chipInk)
+                // Before the first key the live value shows selected: typing replaces it.
+                .background {
+                    if entry == .typing(replacing: true) {
+                        RoundedRectangle(cornerRadius: 3, style: .continuous)
+                            .fill(appearance.entryAccent.opacity(0.24))
+                            .padding(.horizontal, -2)
+                    }
+                }
+            if entry == .typing(replacing: false) {
+                Caret(color: appearance.entryAccent, blinks: !reduceMotion)
+                    .id(label)  // solid again after each key, then blinks
+            }
+        }
+        .padding(.leading, 6)
+        .padding(.trailing, typing ? 8 : 6)  // room for the caret inside the round end
+        .padding(.vertical, 2)
+        .background(appearance.chipFill, in: Capsule())
+        .overlay {
+            Capsule().strokeBorder(
+                typing ? appearance.entryAccent : entry == .locked ? appearance.entryAccent.opacity(0.45) : appearance.chipEdge,
+                lineWidth: typing ? 1.5 : 1)
+        }
+        .fixedSize()
+        .animation(reduceMotion ? nil : .snappy(duration: 0.18), value: entry)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(label)
+        .accessibilityValue(entry == .locked ? "Locked" : typing ? "Editing" : "")
+    }
+}
+
+/// A text caret that blinks at the system's rhythm, solid when it may not blink.
+private struct Caret: View {
+    let color: Color
+    let blinks: Bool
+
+    var body: some View {
+        let bar = RoundedRectangle(cornerRadius: 0.75).fill(color).frame(width: 1.5, height: 12)
+        if blinks {
+            bar.phaseAnimator([true, false]) { view, on in view.opacity(on ? 1 : 0) } animation: { _ in
+                .linear(duration: 0.01).delay(0.53)
+            }
+        } else {
+            bar
+        }
     }
 }
 
@@ -234,6 +295,13 @@ extension ViewportAppearance {
     // Solid chips (measure labels, cube buttons) matching the app's raised surfaces and ink,
     // rather than material, so they read the same over any geometry.
     var chipFill: Color { self == .dark ? Color(.sRGB, red: 0x21 / 255, green: 0x28 / 255, blue: 0x36 / 255) : .white }
+    /// Fillet orange: the measure being typed, like the inspector's focused field.
+    var entryAccent: Color { Color(.sRGB, red: 0xF2 / 255, green: 0x6B / 255, blue: 0x1D / 255) }
+    /// The accent dark enough for small glyphs on a chip (the lock).
+    var entryInk: Color {
+        self == .dark ? Color(.sRGB, red: 0xFF / 255, green: 0x8A / 255, blue: 0x3D / 255)
+            : Color(.sRGB, red: 0xC9 / 255, green: 0x4F / 255, blue: 0x0B / 255)
+    }
     var chipInk: Color {
         self == .dark ? Color(.sRGB, red: 0xE4 / 255, green: 0xE9 / 255, blue: 0xF2 / 255)
             : Color(.sRGB, red: 0x1D / 255, green: 0x2B / 255, blue: 0x45 / 255)

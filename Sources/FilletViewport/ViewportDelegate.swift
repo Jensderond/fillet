@@ -12,6 +12,14 @@ public struct ViewportModifiers: OptionSet, Hashable, Sendable {
     public static let command = ViewportModifiers(rawValue: 1 << 3)
 }
 
+/// A key pressed while the viewport has keyboard focus (Mac), for typing sizes while drawing.
+public enum ViewportKey: Hashable, Sendable {
+    case tab(backward: Bool)
+    case returnKey
+    case deleteBackward
+    case text(String)
+}
+
 /// A pointer sample delivered to the active tool (Pencil, finger with "draw with
 /// finger", or the left mouse button on Mac).
 public struct ViewportToolEvent: Sendable {
@@ -69,6 +77,9 @@ public protocol ViewportDelegate: AnyObject {
     /// A finger orbited or tapped while the active tool wanted input and `fingerDraws` is off:
     /// someone may be trying to draw without Apple Pencil.
     func viewportFingerMissedTool()
+    /// A key the viewport doesn't handle itself. Return true when it was used; otherwise it goes
+    /// on up the responder chain (menu shortcuts, Escape).
+    func viewportKeyDown(_ key: ViewportKey) -> Bool
 }
 
 public extension ViewportDelegate {
@@ -89,6 +100,7 @@ public extension ViewportDelegate {
     func viewportCameraChanged(_ camera: Camera) {}
     func viewportPencilToolSwitch() {}
     func viewportFingerMissedTool() {}
+    func viewportKeyDown(_ key: ViewportKey) -> Bool { false }
 }
 
 /// Viewport behaviour switches.

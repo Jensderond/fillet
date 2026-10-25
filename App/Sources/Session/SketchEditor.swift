@@ -6,7 +6,10 @@ import Foundation
 /// the shape selected for dimension editing.
 struct SketchEditor {
     var sketch: UUID
-    var engine = SketchToolEngine(tool: .line)
+    var engine = SketchToolEngine(tool: .line) {
+        // Typing belongs to the shape in progress: a new tool, Escape or a finished shape ends it.
+        didSet { if engine.isIdle, typing != nil { typing = nil } }
+    }
     var selectedShapes: Set<UUID> = []
     /// Grid spacing in mm used for snapping (0 = off).
     var gridSize: Double = 1
@@ -14,10 +17,18 @@ struct SketchEditor {
     var lastDrawingTool: SketchTool = .line
     /// Shapes being dragged with the Select tool.
     var move: SketchMove?
+    /// The size being typed for the shape in progress (Tab, then a number; Mac keyboard).
+    var typing: DimensionTyping?
 
     init(sketch: UUID) { self.sketch = sketch }
 
     var tool: SketchTool { engine.tool }
+
+    /// Which of the shape's sizes (`SketchToolEngine.dimensionFields`) is being typed, and the text so far.
+    struct DimensionTyping: Equatable {
+        var field: Int
+        var text = ""
+    }
 
     /// Pencil double tap / squeeze: Select and the last drawing tool, back and forth.
     mutating func switchPencilTool() {

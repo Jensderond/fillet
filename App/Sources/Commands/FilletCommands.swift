@@ -7,6 +7,7 @@ extension FocusedValues {
     @Entry var session: DesignSession?
     @Entry var viewport: ViewportController?
     /// True while a text field has focus, so bare-letter tool shortcuts stay out of its way.
+    /// (Sizes typed on the canvas while drawing withdraw them too: `DesignSession.isTypingDimension`.)
     @Entry var isEditingText: Bool?
 }
 
@@ -72,7 +73,7 @@ struct FilletCommands: Commands {
 
     /// A single-key shortcut, withdrawn while typing so it can never take a keystroke from a field.
     private func bare(_ key: KeyEquivalent) -> KeyboardShortcut? {
-        isEditingText == true ? nil : KeyboardShortcut(key, modifiers: [])
+        isEditingText == true || session?.isTypingDimension == true ? nil : KeyboardShortcut(key, modifiers: [])
     }
 }
 

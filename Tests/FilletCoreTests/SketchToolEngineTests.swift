@@ -138,4 +138,83 @@ struct SketchToolEngineTests {
         guard case .circle(_, let d) = try #require(tap(&e, 5, 5, off).first).kind else { Issue.record(); return }
         #expect(abs((try Evaluator.empty.length(d)) - 14.1421) < 0.001)
     }
+
+    // MARK: Typed sizes
+
+    func lock(_ e: inout SketchToolEngine, _ field: Int, to value: Double) -> Bool { e.lock(field, to: value) }
+
+    @Test func typedWidthHoldsWhileCursorPicksHeight() throws {
+        var e = SketchToolEngine(tool: .rectangle)
+        _ = tap(&e, 0, 0)
+        #expect(e.dimensionKinds == [.width, .height])
+        #expect(lock(&e, 0, to: 42.5))
+        e.hover(SIMD2(7, 12), context: ctx)
+        #expect(e.cursor == SIMD2(42.5, 12))
+        #expect(e.dimensionFields().map(\.locked) == [true, false])
+        #expect(e.dimensionFields().map(\.value) == [42.5, 12])
+        let shapes = tap(&e, 7, 12)
+        guard case .rectangle(.corner, let pos, let w, let h, _) = try #require(shapes.first).kind else { Issue.record(); return }
+        #expect(pos == Point2Expr(0, 0))
+        #expect(w == 42.5)
+        #expect(h == 12)
+        #expect(e.locks.isEmpty)
+    }
+
+    @Test func typedSizesFollowTheCursorsSide() throws {
+        var e = SketchToolEngine(tool: .rectangle)
+        _ = tap(&e, 0, 0)
+        e.lock(0, to: 20)
+        e.lock(1, to: 10)
+        e.hover(SIMD2(-3, -4), context: ctx)
+        let shapes = e.placeTyped()
+        guard case .rectangle(.corner, let pos, let w, let h, _) = try #require(shapes.first).kind else { Issue.record(); return }
+        #expect(pos == Point2Expr(-20, -10))
+        #expect(w == 20)
+        #expect(h == 10)
+        #expect(e.isIdle)
+    }
+
+    @Test func typedSizeIsNotRoundedToTheGrid() throws {
+        var e = SketchToolEngine(tool: .circle)
+        _ = tap(&e, 0, 0)
+        e.lock(0, to: 15.3)
+        e.hover(SIMD2(3, 4), context: ctx)
+        guard case .circle(_, let d) = try #require(e.placeTyped().first).kind else { Issue.record(); return }
+        #expect(d == 15.3)
+    }
+
+    @Test func placeTypedWaitsForFreeSizes() {
+        var e = SketchToolEngine(tool: .rectangle)
+        _ = tap(&e, 0, 0)
+        e.lock(0, to: 30)
+        #expect(e.placeTyped().isEmpty)  // height is still 0 at the first corner
+        #expect(!e.isIdle)
+    }
+
+    @Test func lineLengthAndAngle() throws {
+        var e = SketchToolEngine(tool: .line)
+        _ = tap(&e, 0, 0)
+        e.lock(0, to: 10)
+        e.lock(1, to: 90)
+        e.hover(SIMD2(30, 1), context: ctx)
+        guard case .line(_, let b) = try #require(e.placeTyped().first).kind else { Issue.record(); return }
+        #expect(b == Point2Expr(0, 10))
+        // The chain goes on from the new point, with nothing typed yet.
+        #expect(e.points.count == 1 && abs(e.points[0].x) < 1e-9 && e.points[0].y == 10)
+        #expect(e.locks.isEmpty)
+    }
+
+    @Test func rejectsNonPositiveLengths() {
+        var e = SketchToolEngine(tool: .circle)
+        _ = tap(&e, 0, 0)
+        #expect(!lock(&e, 0, to: 0))
+        #expect(!lock(&e, 0, to: -5))
+        #expect(!lock(&e, 1, to: 5))  // a circle has one size
+    }
+
+    @Test func noTypedSizesBeforeTheFirstPoint() {
+        var e = SketchToolEngine(tool: .rectangle)
+        #expect(e.dimensionKinds.isEmpty)
+        #expect(!lock(&e, 0, to: 10))
+    }
 }

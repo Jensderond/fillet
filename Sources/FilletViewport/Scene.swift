@@ -244,6 +244,17 @@ public struct ReferencePlane: Hashable, Sendable, Identifiable {
     }
 }
 
+/// Whether a measure's value can be typed, and how far that has got.
+public enum MeasureEntry: Hashable, Sendable {
+    /// Follows the pointer.
+    case live
+    /// Being typed. `label` is the text so far; before the first key it is the live value,
+    /// shown selected (`replacing`) because typing replaces it.
+    case typing(replacing: Bool)
+    /// Typed and held.
+    case locked
+}
+
 /// A dimension-like annotation: a line between two points with a text label.
 public struct MeasureAnnotation: Hashable, Sendable, Identifiable {
     public var id: String
@@ -252,9 +263,10 @@ public struct MeasureAnnotation: Hashable, Sendable, Identifiable {
     public var label: String
     /// False for a bare value label (no dimension line or end dots), e.g. beside a handle.
     public var showsLine: Bool
+    public var entry: MeasureEntry
 
-    public init(id: String, from: Vec3, to: Vec3, label: String, showsLine: Bool = true) {
-        self.id = id; self.from = from; self.to = to; self.label = label; self.showsLine = showsLine
+    public init(id: String, from: Vec3, to: Vec3, label: String, showsLine: Bool = true, entry: MeasureEntry = .live) {
+        self.id = id; self.from = from; self.to = to; self.label = label; self.showsLine = showsLine; self.entry = entry
     }
 }
 

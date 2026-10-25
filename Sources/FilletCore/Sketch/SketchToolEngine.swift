@@ -48,6 +48,30 @@ public enum SketchTool: String, CaseIterable, Hashable, Sendable {
     }
 }
 
+/// A size of the shape in progress that can be typed while drawing (Tab, then a number).
+public struct DimensionField: Hashable, Sendable {
+    public enum Kind: Hashable, Sendable {
+        case width, height, diameter, radius, length
+        /// Degrees counterclockwise from the sketch's +X axis.
+        case angle
+    }
+    public var kind: Kind
+    /// The typed value while locked, otherwise the value under the cursor (mm or degrees).
+    public var value: Double
+    public var locked: Bool
+
+    public var title: String {
+        switch kind {
+        case .width: "Width"
+        case .height: "Height"
+        case .diameter: "Diameter"
+        case .radius: "Radius"
+        case .length: "Length"
+        case .angle: "Angle"
+        }
+    }
+}
+
 /// What the cursor snapped to, for on-screen feedback.
 public enum SketchSnap: Hashable, Sendable {
     case grid
@@ -105,8 +129,13 @@ public struct SketchToolEngine: Sendable {
     public var polygonSides = 6
     /// Placed points of the shape in progress.
     public private(set) var points: [SIMD2<Double>] = []
-    /// The snapped cursor position, if the pointer is over the plane.
+    /// The snapped cursor position, if the pointer is over the plane, moved to honour typed sizes.
     public private(set) var cursor: SIMD2<Double>?
+    /// The snapped cursor before typed sizes move it.
+    private var freeCursor: SIMD2<Double>?
+    /// Typed sizes of the shape in progress by field index (see `dimensionFields`). They hold
+    /// while the cursor moves; the cursor still picks the free sizes and the direction.
+    public private(set) var locks: [Int: Double] = [:]
     public private(set) var snap: SketchSnap = .none
     /// Start of the current line chain (to detect closing it).
     private var chainStart: SIMD2<Double>?
@@ -124,6 +153,7 @@ public struct SketchToolEngine: Sendable {
     /// Drops the shape in progress.
     public mutating func cancel() {
         points = []
+        locks = [:]
         chainStart = nil
         pressPoint = nil
     }
@@ -135,17 +165,15 @@ public struct SketchToolEngine: Sendable {
     // MARK: Input
 
     public mutating func hover(_ raw: SIMD2<Double>, context: SnapContext) {
-        cursor = snapped(raw, context)
+        track(raw, context)
     }
 
     public mutating func press(_ raw: SIMD2<Double>, context: SnapContext) {
-        let p = snapped(raw, context)
-        cursor = p
-        pressPoint = p
+        pressPoint = track(raw, context)
     }
 
     public mutating func drag(_ raw: SIMD2<Double>, context: SnapContext) {
-        cursor = snapped(raw, context)
+        track(raw, context)
         // A drag from an empty state starts the shape at the press point.
         if let start = pressPoint, points.isEmpty, let c = cursor, distance(start, c) > context.tolerance,
             [.line, .rectangle, .centerRectangle, .circle, .polygon].contains(tool)
@@ -157,10 +185,114 @@ public struct SketchToolEngine: Sendable {
 
     /// Ends a gesture; returns any shapes it completed.
     public mutating func release(_ raw: SIMD2<Double>, context: SnapContext) -> [SketchShape] {
-        let p = snapped(raw, context)
-        cursor = p
+        let p = track(raw, context)
         pressPoint = nil
         return place(p, tolerance: context.tolerance)
+    }
+
+    // MARK: Typed sizes
+
+    /// The sizes that can be typed for the shape in progress, in Tab order.
+    public var dimensionKinds: [DimensionField.Kind] {
+        guard !points.isEmpty else { return [] }
+        switch tool {
+        case .rectangle, .centerRectangle: return [.width, .height]
+        case .circle: return [.diameter]
+        case .polygon: return [.radius]
+        case .line: return [.length, .angle]
+        case .arc, .slot: return points.count == 1 ? [.length] : []
+        case .select, .point, .spline: return []
+        }
+    }
+
+    /// Each typeable size with its live (or locked) value.
+    public func dimensionFields() -> [DimensionField] {
+        guard let anchor = points.last else { return [] }
+        let values = measure(cursor ?? anchor)
+        return zip(dimensionKinds, values).enumerated().map { i, field in
+            DimensionField(kind: field.0, value: locks[i] ?? field.1, locked: locks[i] != nil)
+        }
+    }
+
+    /// Holds a size at `value` (mm, or degrees for an angle). Lengths must be positive.
+    @discardableResult
+    public mutating func lock(_ field: Int, to value: Double) -> Bool {
+        let kinds = dimensionKinds
+        guard kinds.indices.contains(field), value.isFinite, kinds[field] == .angle || value > 1e-6 else { return false }
+        locks[field] = value
+        if let free = freeCursor { cursor = constrained(free) }
+        return true
+    }
+
+    public mutating func unlock(_ field: Int) {
+        locks[field] = nil
+        if let free = freeCursor { cursor = constrained(free) }
+    }
+
+    /// Places the next point where the typed sizes put it (Return), taking any free size and
+    /// the direction from the cursor. Does nothing while the free sizes are still zero.
+    public mutating func placeTyped() -> [SketchShape] {
+        guard let anchor = points.last else { return [] }
+        let p = constrained(freeCursor ?? anchor)
+        switch tool {
+        case .rectangle, .centerRectangle, .circle, .polygon:
+            guard shape(from: points[0], to: p) != nil else { return [] }
+        default:
+            guard distance(anchor, p) > 1e-9 else { return [] }
+        }
+        cursor = p
+        return place(p, tolerance: 0)
+    }
+
+    /// Moves a cursor position so the shape gets the locked sizes; it keeps the side of the
+    /// anchor the cursor is on, and the cursor's distance for sizes that aren't locked.
+    private func constrained(_ c: SIMD2<Double>) -> SIMD2<Double> {
+        guard let first = points.first, !locks.isEmpty else { return c }
+        func side(_ v: Double) -> Double { v < 0 ? -1 : 1 }
+        func direction(from a: SIMD2<Double>) -> SIMD2<Double> {
+            distance(a, c) > 1e-9 ? (c - a) / distance(a, c) : SIMD2(1, 0)
+        }
+        var d = c - first
+        switch tool {
+        case .rectangle:
+            if let w = locks[0] { d.x = side(d.x) * w }
+            if let h = locks[1] { d.y = side(d.y) * h }
+            return first + d
+        case .centerRectangle:
+            if let w = locks[0] { d.x = side(d.x) * w / 2 }
+            if let h = locks[1] { d.y = side(d.y) * h / 2 }
+            return first + d
+        case .circle:
+            return locks[0].map { first + direction(from: first) * $0 / 2 } ?? c
+        case .polygon, .arc, .slot:
+            guard tool == .polygon || points.count == 1 else { return c }
+            return locks[0].map { first + direction(from: first) * $0 } ?? c
+        case .line:
+            let last = points[points.count - 1]
+            let length = locks[0] ?? distance(last, c)
+            let angle = locks[1].map { $0 * .pi / 180 } ?? atan2(c.y - last.y, c.x - last.x)
+            return last + SIMD2(cos(angle), sin(angle)) * length
+        case .select, .point, .spline:
+            return c
+        }
+    }
+
+    /// The value of each typeable size with the cursor at `c`: the typed value where locked.
+    private func measure(_ c: SIMD2<Double>) -> [Double] {
+        guard let first = points.first, let last = points.last else { return [] }
+        let d = c - first
+        switch tool {
+        case .rectangle: return [locks[0] ?? abs(d.x), locks[1] ?? abs(d.y)]
+        // Snap the size, not the corner, so odd widths (15 mm) are reachable.
+        case .centerRectangle: return [locks[0] ?? snapSize(abs(d.x) * 2), locks[1] ?? snapSize(abs(d.y) * 2)]
+        case .circle: return [locks[0] ?? snapSize(distance(first, c) * 2)]
+        case .polygon: return [locks[0] ?? snapSize(distance(first, c))]
+        case .line:
+            let angle = atan2(c.y - last.y, c.x - last.x) * 180 / .pi
+            return [locks[0] ?? distance(last, c), locks[1] ?? angle]
+        case .arc, .slot: return points.count == 1 ? [locks[0] ?? distance(first, c)] : []
+        case .select, .point, .spline: return []
+        }
     }
 
     /// Finishes open-ended tools (line chain, spline).
@@ -174,6 +306,8 @@ public struct SketchToolEngine: Sendable {
 
     private mutating func place(_ p: SIMD2<Double>, tolerance: Double) -> [SketchShape] {
         if let last = points.last, distance(last, p) < 1e-9 { return [] }  // repeated tap
+        // Typed sizes belong to the step they were typed for.
+        defer { locks = [:] }
         switch tool {
         case .select:
             return []
@@ -236,6 +370,8 @@ public struct SketchToolEngine: Sendable {
         public var from: SIMD2<Double>
         public var to: SIMD2<Double>
         public var label: String
+        /// The typeable size it shows (index into `dimensionFields()`).
+        public var field: Int?
     }
 
     /// Dimensions of the shape in progress ("40 × 25" style feedback while drawing).
@@ -253,23 +389,31 @@ public struct SketchToolEngine: Sendable {
             else { return [] }
             let origin = anchor == .center ? p - SIMD2(w, h) / 2 : p
             return [
-                PreviewDimension(from: origin, to: origin + SIMD2(w, 0), label: mm(w)),
-                PreviewDimension(from: origin + SIMD2(w, 0), to: origin + SIMD2(w, h), label: mm(h)),
+                PreviewDimension(from: origin, to: origin + SIMD2(w, 0), label: mm(w), field: 0),
+                PreviewDimension(from: origin + SIMD2(w, 0), to: origin + SIMD2(w, h), label: mm(h), field: 1),
             ]
         case .circle:
             guard case .circle(_, let d)? = shape(from: first, to: c), let diameter = try? Evaluator.empty.length(d) else { return [] }
             let dir = distance(first, c) > 1e-9 ? (c - first) / distance(first, c) : SIMD2(1, 0)
-            return [PreviewDimension(from: first - dir * diameter / 2, to: first + dir * diameter / 2, label: "Ø " + mm(diameter))]
+            return [PreviewDimension(from: first - dir * diameter / 2, to: first + dir * diameter / 2, label: "Ø " + mm(diameter), field: 0)]
         case .polygon:
             guard case .polygon(_, _, let r, _, _)? = shape(from: first, to: c), let radius = try? Evaluator.empty.length(r) else { return [] }
             let dir = distance(first, c) > 1e-9 ? (c - first) / distance(first, c) : SIMD2(1, 0)
-            return [PreviewDimension(from: first, to: first + dir * radius, label: "R " + mm(radius))]
-        case .line, .spline:
+            return [PreviewDimension(from: first, to: first + dir * radius, label: "R " + mm(radius), field: 0)]
+        case .line:
+            guard let last = points.last, distance(last, c) > 1e-9 else { return [] }
+            // The angle has no line of its own: it sits at the start, where the angle opens.
+            let angle = atan2(c.y - last.y, c.x - last.x) * 180 / .pi
+            return [
+                PreviewDimension(from: last, to: c, label: mm(distance(last, c)), field: 0),
+                PreviewDimension(from: last, to: last, label: Self.degrees(angle), field: 1),
+            ]
+        case .spline:
             guard let last = points.last, distance(last, c) > 1e-9 else { return [] }
             return [PreviewDimension(from: last, to: c, label: mm(distance(last, c)))]
         case .slot, .arc:
             guard points.count == 1 else { return [] }
-            return [PreviewDimension(from: first, to: c, label: mm(distance(first, c)))]
+            return [PreviewDimension(from: first, to: c, label: mm(distance(first, c)), field: 0)]
         case .select, .point:
             return []
         }
@@ -279,23 +423,23 @@ public struct SketchToolEngine: Sendable {
 
     private func shape(from a: SIMD2<Double>, to b: SIMD2<Double>) -> SketchShapeKind? {
         let d = b - a
+        let size = measure(b)
         switch tool {
         case .rectangle:
-            let w = abs(d.x), h = abs(d.y)
+            let w = size[0], h = size[1]
             guard w > 1e-6, h > 1e-6 else { return nil }
-            return .rectangle(anchor: .corner, position: Self.expr(SIMD2(min(a.x, b.x), min(a.y, b.y))),
+            return .rectangle(anchor: .corner, position: Self.expr(SIMD2(d.x < 0 ? a.x - w : a.x, d.y < 0 ? a.y - h : a.y)),
                               width: Self.expr(w), height: Self.expr(h), angle: 0)
         case .centerRectangle:
-            // Snap the size, not the corner, so odd widths (15 mm) are reachable.
-            let w = snapSize(abs(d.x) * 2), h = snapSize(abs(d.y) * 2)
+            let w = size[0], h = size[1]
             guard w > 1e-6, h > 1e-6 else { return nil }
             return .rectangle(anchor: .center, position: Self.expr(a), width: Self.expr(w), height: Self.expr(h), angle: 0)
         case .circle:
-            let diameter = snapSize(distance(a, b) * 2)
+            let diameter = size[0]
             guard diameter > 1e-6 else { return nil }
             return .circle(center: Self.expr(a), diameter: Self.expr(diameter))
         case .polygon:
-            let r = snapSize(distance(a, b))
+            let r = size[0]
             guard r > 1e-6 else { return nil }
             return .polygon(center: Self.expr(a), sides: Expr(integerLiteral: polygonSides), radius: Self.expr(r),
                             inscribed: true, angle: Self.expr(atan2(d.y, d.x) * 180 / .pi))
@@ -336,6 +480,16 @@ public struct SketchToolEngine: Sendable {
 
     // MARK: Snapping
 
+    /// Snaps an input position, then applies the typed sizes; returns the new cursor.
+    @discardableResult
+    private mutating func track(_ raw: SIMD2<Double>, _ context: SnapContext) -> SIMD2<Double> {
+        let free = snapped(raw, context)
+        freeCursor = free
+        let p = constrained(free)
+        cursor = p
+        return p
+    }
+
     private mutating func snapped(_ raw: SIMD2<Double>, _ context: SnapContext) -> SIMD2<Double> {
         grid = context.gridSize
         // 1. Existing geometry (and the chain start, to close a loop), 2. the grid.
@@ -363,6 +517,12 @@ public struct SketchToolEngine: Sendable {
     private func distance(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double {
         let d = a - b
         return (d.x * d.x + d.y * d.y).squareRoot()
+    }
+
+    /// "30°", "12.5°": an angle label, rounded to 0.1°.
+    static func degrees(_ v: Double) -> String {
+        let r = (v * 10).rounded() / 10
+        return r == r.rounded() ? "\(Int(r))°" : String(format: "%.1f°", r)
     }
 
     /// Literal expression rounded to 0.0001 mm.

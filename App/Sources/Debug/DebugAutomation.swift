@@ -138,6 +138,7 @@ enum DebugAutomation {
         #if os(macOS)
         await typeIntoDimensionField(session)
         await dragToMove(session)
+        await typeSizesWhileDrawing(session)
         #endif
 
         // Extrude the plate (not the hole).
@@ -625,6 +626,71 @@ enum DebugAutomation {
         session.sketchEditor?.selectedShapes = [circle]
         session.deleteSelectedSketchShapes()
         session.sketchEditor?.engine.setTool(toolBefore)
+        await settle(session)
+    }
+
+    /// Typing sizes while drawing, through the viewport's own mouse and key handling: Tab opens
+    /// the width on the canvas, the typed value locks while the pointer still picks the height,
+    /// "." and "," stay digits (not the Point tool), and Return places the rectangle.
+    private static func typeSizesWhileDrawing(_ session: DesignSession) async {
+        guard let window = NSApp.windows.first(where: { $0.isVisible && $0.frame.width > 200 }), let content = window.contentView,
+            let sketch = session.sketchEditor?.sketch, let plane = session.model.sketches[sketch]?.plane
+        else { return }
+        func find(_ v: NSView) -> MTKView? {
+            if let m = v as? MTKView { return m }
+            for s in v.subviews { if let f = find(s) { return f } }
+            return nil
+        }
+        guard let mtk = find(content) else { check(false, "viewport found"); return }
+        func mouse(_ type: NSEvent.EventType, _ p: SIMD2<Double>) {
+            guard let screen = session.camera.project(plane.point(p), viewSize: session.viewSize) else { return }
+            let location = mtk.convert(NSPoint(x: screen.x, y: mtk.bounds.height - screen.y), to: nil)
+            guard let e = NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                             windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: 1)
+            else { return }
+            switch type {
+            case .leftMouseDown: mtk.mouseDown(with: e)
+            case .mouseMoved: mtk.mouseMoved(with: e)
+            default: mtk.mouseUp(with: e)
+            }
+        }
+        func type(_ keys: String) async {
+            for ch in keys {
+                let code: UInt16 = ch == "\t" ? 48 : ch == "\r" ? 36 : 0
+                guard let e = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                               windowNumber: window.windowNumber, context: nil, characters: String(ch),
+                                               charactersIgnoringModifiers: String(ch), isARepeat: false, keyCode: code)
+                else { continue }
+                NSApp.sendEvent(e)
+                // Let the menu bar drop the bare-letter shortcuts once typing starts, as between real keys.
+                try? await Task.sleep(for: .milliseconds(30))
+            }
+        }
+        let shapesBefore = session.model.sketches[sketch]?.source.shapes.count ?? 0
+        session.sketchEditor?.engine.setTool(.rectangle)
+        mouse(.leftMouseDown, SIMD2(-60, 0))
+        mouse(.leftMouseUp, SIMD2(-60, 0))
+        mouse(.mouseMoved, SIMD2(-52.8, 6.1))
+        await type("\t25.5\t12,")
+        check(session.sketchEditor?.tool == .rectangle, "typing a size keeps the tool ('.' is not Point)")
+        check(session.sketchEditor?.engine.locks == [0: 25.5], "Tab locks the typed width (\(String(describing: session.sketchEditor?.engine.locks)))")
+        check(session.sketchEditor?.typing == SketchEditor.DimensionTyping(field: 1, text: "12,"), "the height is being typed")
+        let measures = session.makeScene().measures.filter { $0.id.hasPrefix("draw-") }
+        check(measures.map(\.entry) == [.locked, .typing(replacing: false)], "chips show locked width and typed height (\(measures.map(\.entry)))")
+        await settle(session)
+        await snap(session, "02c-typing-size")
+        await type("5\r")
+        await settle(session)
+        let added = session.model.sketches[sketch]?.source.shapes.dropFirst(shapesBefore)
+        if let shape = added?.first, added?.count == 1, case .rectangle(.corner, let pos, let w, let h, _) = shape.kind {
+            check(pos == Point2Expr(-60, 0) && w == 25.5 && h == 12.5, "Return places the typed 25.5 × 12.5 rectangle (\(pos) \(w) × \(h))")
+            session.sketchEditor?.selectedShapes = [shape.id]
+            session.deleteSelectedSketchShapes()
+        } else {
+            check(false, "Return places one rectangle (\(String(describing: added)))")
+        }
+        check(session.sketchEditor?.typing == nil && session.sketchEditor?.engine.isIdle == true, "placing the rectangle ends typing")
+        session.sketchEditor?.engine.setTool(.circle)
         await settle(session)
     }
 

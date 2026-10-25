@@ -177,6 +177,28 @@ final class ViewportNSView: MTKView {
         controller?.hover(at: nil, pointer: .mouse)
     }
 
+    // MARK: Keys
+
+    override func keyDown(with e: NSEvent) {
+        if let key = viewportKey(e), controller?.keyDown(key) == true { return }
+        super.keyDown(with: e)
+    }
+
+    private func viewportKey(_ e: NSEvent) -> ViewportKey? {
+        guard e.modifierFlags.isDisjoint(with: [.command, .control]) else { return nil }
+        switch e.keyCode {
+        case 48: return .tab(backward: e.modifierFlags.contains(.shift))
+        case 36, 76: return .returnKey  // return, keypad enter
+        case 51: return .deleteBackward
+        default:
+            guard let text = e.characters, !text.isEmpty, text.unicodeScalars.allSatisfy({ !CharacterSet.controlCharacters.contains($0) })
+            else { return nil }
+            // Arrow and function keys arrive as private-use characters.
+            guard !text.unicodeScalars.contains(where: { (0xF700...0xF8FF).contains($0.value) }) else { return nil }
+            return .text(text)
+        }
+    }
+
     // MARK: Scroll / trackpad gestures
 
     override func scrollWheel(with e: NSEvent) {

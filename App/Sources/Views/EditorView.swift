@@ -328,13 +328,27 @@ struct EditorContent: View {
         session.message = "Finger drawing is on. Drag with two fingers to pan, pinch to zoom."
     }
 
+    /// The tool's hint; on Mac, with a shape in progress, how to type its sizes instead.
+    private func sketchHint(_ editor: SketchEditor, verb: String) -> String {
+        let hint = editor.engine.hint(verb: verb)
+        #if os(macOS)
+        let fields = editor.engine.dimensionFields()
+        if let typing = editor.typing, fields.indices.contains(typing.field) {
+            let next = fields.count > 1 ? ", Tab for \(fields[(typing.field + 1) % fields.count].title.lowercased())" : ""
+            return "Type the \(fields[typing.field].title.lowercased())\(next), Return to place"
+        }
+        if !fields.isEmpty { return "\(hint), or Tab to type the size" }
+        #endif
+        return hint
+    }
+
     private var currentHint: (text: String, symbol: String, context: String)? {
         let pick = Theme.Copy.pick
         if let editor = session.sketchEditor {
             // Tools are icon-only and touch has no tooltips, so the hint names the live tool.
             let title = editor.tool.title  // menu titles are Title Case; app copy is sentence case
             let name = title.prefix(1) + title.dropFirst().lowercased()
-            return ("\(name) · \(editor.engine.hint(verb: pick))", editor.tool == .select ? "cursorarrow" : "pencil.tip", "sketch")
+            return ("\(name) · \(sketchHint(editor, verb: pick))", editor.tool == .select ? "cursorarrow" : "pencil.tip", "sketch")
         }
         switch session.pickMode {
         case .sketchPlane: return nil  // the plane bar says what to pick

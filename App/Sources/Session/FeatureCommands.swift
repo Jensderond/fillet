@@ -151,12 +151,14 @@ extension DesignSession {
         editing?.snapshot = document
     }
 
-    /// Escape, from the keyboard on both platforms: stop choosing a sketch plane, cancel the
-    /// stroke in progress, then leave sketch mode, then cancel the feature being edited, then
+    /// Escape, from the keyboard on both platforms: stop choosing a sketch plane, stop typing a
+    /// size, cancel the stroke in progress, then leave sketch mode, then cancel the feature being edited, then
     /// clear the selection.
     func escape() {
         if choosingSketchPlane {
             cancelChoosingSketchPlane()
+        } else if stopTypingDimension() {
+            return
         } else if var editor = sketchEditor, !editor.engine.isIdle {
             editor.engine.cancel()
             sketchEditor = editor

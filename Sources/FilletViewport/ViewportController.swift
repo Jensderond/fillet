@@ -223,6 +223,8 @@ public final class ViewportController {
 
     var wantsToolInput: Bool { delegate?.wantsToolInput ?? false }
 
+    func keyDown(_ key: ViewportKey) -> Bool { delegate?.viewportKeyDown(key) ?? false }
+
     func toolEvent(at p: CGPoint, pressure: Double?, pointer: PointerKind, modifiers: ViewportModifiers,
                    hit: PickHit?? = nil) -> ViewportToolEvent {
         let h = hit ?? pick(at: p, pointer: pointer, filter: filter)

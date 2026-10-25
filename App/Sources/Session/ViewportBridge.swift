@@ -214,26 +214,43 @@ extension DesignSession {
         return SketchGrid(spacing: minor, majorEvery: majorEvery, extent: max(200, visible * 1.5))
     }
 
-    /// Live dimensions of the shape being drawn.
+    /// Live dimensions of the shape being drawn, with the size being typed and the locked ones marked.
     private func sketchMeasures() -> [MeasureAnnotation] {
         guard let editor = sketchEditor, let plane = model.sketches[editor.sketch]?.plane else { return [] }
-        let dims = editor.engine.previewDimensions()
+        let fields = editor.engine.dimensionFields()
+        func entry(_ field: Int?) -> MeasureEntry {
+            guard let field else { return .live }
+            if let typing = editor.typing, typing.field == field { return .typing(replacing: typing.text.isEmpty) }
+            return fields.indices.contains(field) && fields[field].locked ? .locked : .live
+        }
+        // A line's angle shows only once it's typed or locked; at other times it would crowd the length.
+        let dims = editor.engine.previewDimensions().filter { $0.from != $0.to || entry($0.field) != .live }
         guard !dims.isEmpty else { return [] }
+        func length(_ v: SIMD2<Double>) -> Double { (v.x * v.x + v.y * v.y).squareRoot() }
         // Like dimension lines on a drawing: offset each one outward, away from the shape's middle.
-        let all = dims.flatMap { [$0.from, $0.to] }
-        let centre = all.reduce(SIMD2<Double>(0, 0), +) / Double(all.count)
+        let lined = dims.filter { length($0.to - $0.from) > 1e-9 }
+        let all = lined.flatMap { [$0.from, $0.to] }
+        let centre = all.reduce(SIMD2<Double>(0, 0), +) / Double(max(all.count, 1))
         let gap = 16 * camera.worldUnitsPerPoint(at: plane.origin, viewSize: viewSize)
         return dims.enumerated().map { i, d in
             let along = d.to - d.from
-            let length = (along.x * along.x + along.y * along.y).squareRoot()
-            var offset = SIMD2<Double>(0, 0)
-            if dims.count > 1, length > 1e-9 {
-                var normal = SIMD2(-along.y, along.x) / length
+            var from = d.from, to = d.to
+            if length(along) <= 1e-9, let field = d.field, fields.indices.contains(field) {
+                // The angle sits inside the angle it measures, between the +X axis and the line.
+                let half = fields[field].value / 2 * .pi / 180
+                from += SIMD2(cos(half), sin(half)) * gap * 2.5
+                to = from
+            } else if lined.count > 1 {
+                var normal = SIMD2(-along.y, along.x) / length(along)
                 let mid = (d.from + d.to) / 2
                 if ((mid - centre) * normal).sum() < 0 { normal = -normal }
-                offset = normal * gap
+                from += normal * gap
+                to += normal * gap
             }
-            return MeasureAnnotation(id: "draw-\(i)", from: plane.point(d.from + offset), to: plane.point(d.to + offset), label: d.label)
+            var label = d.label
+            if let typing = editor.typing, typing.field == d.field, !typing.text.isEmpty { label = typing.text }
+            return MeasureAnnotation(id: "draw-\(i)", from: plane.point(from), to: plane.point(to), label: label,
+                                     showsLine: from != to, entry: entry(d.field))
         }
     }
 
@@ -353,6 +370,7 @@ extension DesignSession: ViewportDelegate {
     }
 
     func viewportToolEnded(_ event: ViewportToolEvent) {
+        guard lockTypedBeforePlacing() else { return }  // the toast says what was wrong with the typed size
         guard let (p, ctx) = sketchInput(event), let shapes = sketchEditor?.engine.release(p, context: ctx) else { return }
         addSketchShapes(shapes)
     }
@@ -399,6 +417,10 @@ extension DesignSession: ViewportDelegate {
 
     func viewportCameraChanged(_ camera: Camera) {
         self.camera = camera
+    }
+
+    func viewportKeyDown(_ key: ViewportKey) -> Bool {
+        handleDimensionKey(key)
     }
 
     func viewportPencilToolSwitch() {
