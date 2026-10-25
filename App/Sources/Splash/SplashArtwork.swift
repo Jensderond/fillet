@@ -43,6 +43,18 @@ struct SplashLayout {
         lineWidth = drawingWidth * 0.026
         gridStep = (drawingWidth * 0.055).rounded()
     }
+
+    /// The drawing alone, placed by the caller (the document browser's launch
+    /// scene, which owns the title). Same proportions as the splash.
+    init(size: CGSize, drawingWidth: Double, drawingCenter: CGPoint) {
+        self.size = size
+        self.drawingWidth = drawingWidth
+        self.drawingCenter = drawingCenter
+        wordmarkCenter = drawingCenter
+        wordmarkSize = 0
+        lineWidth = drawingWidth * 0.026
+        gridStep = (drawingWidth * 0.055).rounded()
+    }
 }
 
 /// Draws one frame. Layer order follows `final02()` in docs/icon/flat.py:
@@ -57,9 +69,13 @@ struct SplashRenderer {
     let radii: [Double]
 
     init(time: Double, size: CGSize, isDark: Bool) {
+        self.init(time: time, layout: SplashLayout(size: size), isDark: isDark)
+    }
+
+    init(time: Double, layout: SplashLayout, isDark: Bool) {
         self.time = time
         self.isDark = isDark
-        layout = SplashLayout(size: size)
+        self.layout = layout
         block = SplashBlock(drawingWidth: layout.drawingWidth, center: layout.drawingCenter)
         radii = (0...SplashBlock.sections).map { SplashTimeline.filletRadius(section: $0, at: time) * SplashBlock.radius }
     }
@@ -79,18 +95,23 @@ struct SplashRenderer {
         context.drawLayer { sheet in
             sheet.fill(Path(CGRect(origin: .zero, size: layout.size).insetBy(dx: -40, dy: -40)), with: .color(Theme.paper))
             drawGrid(in: sheet)
-            drawHiddenEdges(in: sheet)
-            drawFillet(in: sheet)
-            drawOutline(in: sheet)
+            drawBlock(in: sheet)
             drawWordmark(in: sheet)
         }
+    }
+
+    /// The block alone: no paper, grid, wordmark or exit.
+    func drawBlock(in context: GraphicsContext) {
+        drawHiddenEdges(in: context)
+        drawFillet(in: context)
+        drawOutline(in: context)
     }
 
     // MARK: Grid
 
     /// Every rule draws outward from the drawing's centre lines; rules further
     /// out start a little later, so the sheet rules itself from the middle.
-    private func drawGrid(in context: GraphicsContext) {
+    func drawGrid(in context: GraphicsContext) {
         let step = layout.gridStep
         let c = layout.drawingCenter
         let size = layout.size

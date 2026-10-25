@@ -12,6 +12,18 @@ struct FilletApp: App {
             EditorView(document: file.$document, fileURL: file.fileURL)
         }
         .commands { FilletCommands() }
+
+        #if os(iOS)
+        DocumentGroupLaunchScene("Fillet") {
+            NewDocumentButton("New Design")
+        } background: {
+            Theme.paper.ignoresSafeArea()
+        } backgroundAccessoryView: { geometry in
+            DocumentLaunchSheet(layer: .paper, geometry: geometry)
+        } overlayAccessoryView: { geometry in
+            DocumentLaunchSheet(layer: .block, geometry: geometry)
+        }
+        #endif
     }
 }
 
