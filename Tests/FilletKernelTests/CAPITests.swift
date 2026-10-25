@@ -28,7 +28,7 @@ struct CAPITests {
         #expect(fk_shell(nil, nil, 0, 1) == nil)
         #expect(fk_transform(nil, nil) == nil)
         #expect(fk_mirror(nil, FKPlane()) == nil)
-        #expect(fk_tessellate(nil, 0.1, 0.5) == nil)
+        #expect(fk_tessellate(nil, 0.1, 0.5, true) == nil)
         #expect(fk_brep_write_string(nil) == nil)
         #expect(fk_brep_read_string(nil) == nil)
         #expect(fk_import_step(nil) == nil)
@@ -74,7 +74,7 @@ struct CAPITests {
         var edge = FKEdgeInfo()
         #expect(!fk_edge_info(box, Int32.max, &edge))
         #expect(!fk_edge_info(box, Int32.min, &edge))
-        let mesh = fk_tessellate(box, 0.1, 0.5)
+        let mesh = fk_tessellate(box, 0.1, 0.5, true)
         defer { fk_mesh_free(mesh) }
         var count: Int32 = 0
         #expect(fk_mesh_edge_points(mesh, 12, &count) == nil)

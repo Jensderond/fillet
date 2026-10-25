@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import Synchronization
 import simd
 @testable import FilletKernel
 
@@ -159,6 +160,23 @@ struct TessellationTests {
         #expect(fine.triangleCount > coarse.triangleCount)
         let coarseAgain = try box.tessellate(linearDeflection: 1, angularDeflection: 1)
         #expect(coarseAgain.triangleCount == coarse.triangleCount)
+    }
+
+    @Test func serialAndParallelMeshesAreIdentical() throws {
+        // The evaluator meshes all but the largest body on one thread each, several at once.
+        let part = try cube(10).filleted(edges: Array(0..<12), radius: 2)
+            .cut(by: try Shape.sphere(center: Vec3(10, 10, 10), radius: 4))
+        let parallel = try part.tessellate(linearDeflection: 0.02, angularDeflection: 0.2, parallel: true)
+        let meshes = Mutex<[Mesh]>([])
+        DispatchQueue.concurrentPerform(iterations: 4) { _ in
+            let m = try? part.copy().tessellate(linearDeflection: 0.02, angularDeflection: 0.2, parallel: false)
+            meshes.withLock { $0.append(m ?? .empty) }
+        }
+        for serial in meshes.withLock({ $0 }) {
+            #expect(serial.positions == parallel.positions && serial.normals == parallel.normals)
+            #expect(serial.indices == parallel.indices && serial.triangleFaces == parallel.triangleFaces)
+            #expect(serial.edges == parallel.edges)
+        }
     }
 
     @Test func performanceFilletedBoxWithHoles() throws {

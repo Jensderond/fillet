@@ -1,5 +1,6 @@
 import FilletKernel
 import Foundation
+import Synchronization
 
 /// Error raised while evaluating one feature; its message is shown in the timeline.
 public struct FeatureError: Error, CustomStringConvertible, Sendable {
@@ -147,22 +148,46 @@ public actor ModelEvaluator {
     }
 
     private func displayMeshes(for bodies: [EvaluatedBody], preview: Bool) -> [BodyRef: Mesh] {
+        // Shapes without a cached mesh, each once.
+        var pending: [Shape] = []
+        var seen = Set<ObjectIdentifier>()
+        for body in bodies {
+            let id = ObjectIdentifier(body.shape)
+            if meshCache[id] == nil, previewMeshCache[id] == nil, seen.insert(id).inserted { pending.append(body.shape) }
+        }
+        let fresh = Self.tessellate(pending)
+
         var result: [BodyRef: Mesh] = [:]
         var kept: MeshCache = [:]
         for body in bodies {
             let id = ObjectIdentifier(body.shape)
-            let mesh: Mesh
-            if let cached = meshCache[id] ?? previewMeshCache[id] {
-                mesh = cached.mesh
-            } else {
-                let d = Self.displayDeflection(for: body.shape)
-                mesh = (try? body.shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular)) ?? .empty
-            }
+            let mesh = meshCache[id]?.mesh ?? previewMeshCache[id]?.mesh ?? fresh[id] ?? .empty
             kept[id] = (body.shape, mesh)
             result[body.ref] = mesh
         }
         if preview { previewMeshCache = kept } else { meshCache = kept }
         return result
+    }
+
+    /// Display meshes of distinct shapes, tessellated concurrently. The kernel meshes a copy of
+    /// each shape, so bodies sharing sub-shapes never write to the same topology, and a mesh is
+    /// the same whichever thread makes it.
+    ///
+    /// OCCT's thread pool only has threads for whichever parallel loop asks first. If the body
+    /// with the most faces doesn't get them, it meshes on one thread and holds everything up
+    /// (on the frog body 300 ms instead of 80). So it goes first: its bounds alone, then its
+    /// mesh is the only one on the pool while the others mesh on one thread each.
+    private static func tessellate(_ shapes: [Shape]) -> [ObjectIdentifier: Mesh] {
+        guard let largest = shapes.indices.max(by: { shapes[$0].faceCount < shapes[$1].faceCount }) else { return [:] }
+        let largestDeflection = displayDeflection(for: shapes[largest])
+        let meshes = Mutex<[ObjectIdentifier: Mesh]>([:])
+        DispatchQueue.concurrentPerform(iterations: shapes.count) { i in
+            let shape = shapes[i]
+            let d = i == largest ? largestDeflection : displayDeflection(for: shape)
+            let mesh = (try? shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular, parallel: i == largest)) ?? .empty
+            meshes.withLock { $0[ObjectIdentifier(shape)] = mesh }
+        }
+        return meshes.withLock { $0 }
     }
 
     // MARK: - Features

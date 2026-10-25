@@ -65,7 +65,8 @@ std::vector<float> edgePolyline(const TopoDS_Edge &edge, const ShapeList *faces,
 
 } // namespace
 
-extern "C" FKMesh *fk_tessellate(const FKShape *shape, double linearDeflection, double angularDeflection) {
+extern "C" FKMesh *fk_tessellate(const FKShape *shape, double linearDeflection, double angularDeflection,
+                                 bool parallel) {
   return guarded("Tessellation", (FKMesh *)nullptr, [&] {
     const TopoDS_Shape &s = shapeOf(shape);
     if (!isFinite(linearDeflection) || linearDeflection <= 0) fail("Tessellation tolerance must be positive");
@@ -77,7 +78,7 @@ extern "C" FKMesh *fk_tessellate(const FKShape *shape, double linearDeflection, 
     // may be reading shapes that share sub-shapes with this one).
     BRepBuilderAPI_Copy copier(s, false, false);
     TopoDS_Shape work = copier.Shape();
-    BRepMesh_IncrementalMesh mesher(work, linearDeflection, false, angularDeflection, true);
+    BRepMesh_IncrementalMesh mesher(work, linearDeflection, false, angularDeflection, parallel);
     if (!mesher.IsDone()) fail("Tessellation failed");
 
     auto mesh = std::make_unique<FKMesh>();

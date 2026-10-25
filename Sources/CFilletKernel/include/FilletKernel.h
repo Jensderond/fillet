@@ -202,8 +202,10 @@ FKShape *fk_subshape_edge(const FKShape *shape, int32_t edgeIndex);
 
 /// Triangulates the shape. Triangles are grouped per face so every triangle
 /// knows the face index it came from; every topological edge also gets a
-/// polyline for drawing crisp outlines.
-FKMesh *fk_tessellate(const FKShape *shape, double linearDeflection, double angularDeflection);
+/// polyline for drawing crisp outlines. `parallel` meshes the faces on OCCT's thread pool; when
+/// meshing several shapes at once, pass false for all but the largest, so it gets the pool.
+/// The mesh is the same either way.
+FKMesh *fk_tessellate(const FKShape *shape, double linearDeflection, double angularDeflection, bool parallel);
 void fk_mesh_free(FKMesh *mesh);
 
 int32_t fk_mesh_vertex_count(const FKMesh *mesh);
