@@ -22,8 +22,6 @@
 #include <ShapeAnalysis_Surface.hxx>
 #include <TopExp.hxx>
 #include <TopExp_Explorer.hxx>
-#include <TopTools_IndexedDataMapOfShapeListOfShape.hxx>
-#include <TopTools_ListOfShape.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
@@ -213,16 +211,26 @@ extern "C" bool fk_edge_info(const FKShape *shape, int32_t edgeIndex, FKEdgeInfo
   });
 }
 
-extern "C" bool fk_edge_is_seam(const FKShape *shape, int32_t edgeIndex) {
-  return guarded("Edge info", false, [&] {
+extern "C" bool fk_seam_edges(const FKShape *shape, bool *out, int32_t count) {
+  return guarded("Seam edges", false, [&] {
     const TopoDS_Shape &s = shapeOf(shape);
-    const TopoDS_Edge &edge = edgeAt(shape, edgeIndex);
-    if (BRep_Tool::Degenerated(edge)) return true;
-    TopTools_IndexedDataMapOfShapeListOfShape faces;
+    if (!out) fail("Missing output pointer");
+    const ShapeMap &edges = shape->edges();
+    if (count != edges.Extent())
+      fail("Expected " + std::to_string(edges.Extent()) + " edges, got room for " + std::to_string(count));
+    // One edge→face map for the whole shape (building it per edge made a full scan quadratic).
+    AncestorMap faces;
     TopExp::MapShapesAndUniqueAncestors(s, TopAbs_EDGE, TopAbs_FACE, faces);
-    const TopTools_ListOfShape *adjacent = faces.Seek(edge);
-    if (!adjacent || adjacent->Extent() < 2) return true;  // a face meeting itself, or a free edge
-    return false;
+    for (int32_t i = 0; i < count; ++i) {
+      const TopoDS_Edge &edge = TopoDS::Edge(edges(i + 1));
+      if (BRep_Tool::Degenerated(edge)) {
+        out[i] = true;
+        continue;
+      }
+      const ShapeList *adjacent = faces.Seek(edge);
+      out[i] = !adjacent || adjacent->Extent() < 2;  // a face meeting itself, or a free edge
+    }
+    return true;
   });
 }
 

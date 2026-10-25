@@ -190,7 +190,8 @@ struct Resolver {
     func edges(of body: EvaluatedBody, _ value: JSONValue?, key: String, forRounding: Bool = false) throws -> [Int] {
         let infos = body.shape.edgeInfos
         guard let value else { throw ToolError("`\(key)` is required: edge indices from list_edges, \"all\", or a filter object") }
-        func usable(_ i: Int) -> Bool { !forRounding || !body.shape.isSeamEdge(i) }
+        let seams = forRounding ? body.shape.seamEdges : []
+        func usable(_ i: Int) -> Bool { !forRounding || !seams[i] }
         if value.string == "all" {
             let found = infos.indices.filter(usable)
             guard !found.isEmpty else { throw ToolError("“\(bodyLabel(body))” has no edges to round (a plain sphere or ellipsoid has only seams)") }

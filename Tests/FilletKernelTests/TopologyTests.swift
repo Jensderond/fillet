@@ -91,6 +91,42 @@ struct TopologyTests {
         #expect(box.facePlane(-3) == nil)
         expectKernelError("does not exist") { _ = try box.face(6) }
         expectKernelError("does not exist") { _ = try box.edge(-1) }
+        // The same once the lookups are answered from the cached tables.
+        _ = (box.faceInfos, box.edgeInfos)
+        #expect(box.faceInfoIfValid(6) == nil && box.faceInfoIfValid(-1) == nil)
+        #expect(box.edgeInfoIfValid(12) == nil && box.edgeInfoIfValid(-1) == nil)
+        #expect(box.faceInfo(99).surface == .other && box.edgeInfo(99).length == 0)
+        #expect(!box.isSeamEdge(12) && !box.isSeamEdge(-1))
+    }
+
+    @Test func seamsAndDegenerateEdges() throws {
+        #expect(try cube(10).seamEdges == Array(repeating: false, count: 12))
+        // A cylinder's closing line is a seam; its two circles are not.
+        let c = try Shape.cylinder(base: .xy, radius: 4, height: 10)
+        let circles = (0..<c.edgeCount).filter { c.edgeInfo($0).curve == .circle }
+        #expect(circles.count == 2)
+        #expect((0..<c.edgeCount).filter(c.isSeamEdge) == (0..<c.edgeCount).filter { !circles.contains($0) })
+        // A sphere has only a seam and two degenerate pole edges.
+        let s = try Shape.sphere(center: .zero, radius: 5)
+        #expect(s.edgeCount > 0 && s.seamEdges.allSatisfy { $0 })
+    }
+
+    @Test func cachedInfosMatchSingleQueries() async throws {
+        let part = try cube(10).cut(by: Shape.cylinder(base: .xy, radius: 3, height: 10))
+        // Per-index answers come from the kernel until the whole table is built…
+        let faces = (0..<part.faceCount).map(part.faceInfo)
+        let edges = (0..<part.edgeCount).map(part.edgeInfo)
+        // …which several threads may ask for at once.
+        let tables = await withTaskGroup(of: ([FaceInfo], [EdgeInfo], [Bool]).self) { group in
+            for _ in 0..<8 { group.addTask { (part.faceInfos, part.edgeInfos, part.seamEdges) } }
+            return await group.reduce(into: []) { $0.append($1) }
+        }
+        for (f, e, seams) in tables {
+            #expect(f == faces && e == edges)
+            #expect(seams.count == part.edgeCount)
+        }
+        #expect((0..<part.faceCount).map(part.faceInfo) == faces)
+        #expect((0..<part.edgeCount).map(part.edgeInfo) == edges)
     }
 
     @Test func subshapes() throws {

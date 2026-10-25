@@ -173,9 +173,10 @@ int32_t fk_face_count(const FKShape *shape);
 int32_t fk_edge_count(const FKShape *shape);
 bool fk_face_info(const FKShape *shape, int32_t faceIndex, FKFaceInfo *out);
 bool fk_edge_info(const FKShape *shape, int32_t edgeIndex, FKEdgeInfo *out);
-/// True for edges a fillet or chamfer can't use: degenerate ones (a sphere's pole) and seams
-/// where a face meets itself (a cylinder's or sphere's closing line).
-bool fk_edge_is_seam(const FKShape *shape, int32_t edgeIndex);
+/// Marks the edges a fillet or chamfer can't use: degenerate ones (a sphere's pole) and seams
+/// where a face meets itself (a cylinder's or sphere's closing line). `out` has room for
+/// `count` flags, which must equal fk_edge_count; out[i] is set for edge i.
+bool fk_seam_edges(const FKShape *shape, bool *out, int32_t count);
 /// Plane of a planar face, origin at the face centroid, normal outward,
 /// xDir aligned with the face's longest straight edge when there is one.
 /// Returns false for non-planar faces.

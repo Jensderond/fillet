@@ -203,11 +203,12 @@ struct FilletTools {
             let r = Resolver(document: ws.document, model: await ws.evaluated())
             let b = try r.body(try a.string("body"))
             let infos = b.shape.edgeInfos
+            let seams = b.shape.seamEdges
             let indices = try a["filter"].map { try GeometryFilter($0).edges(infos) } ?? Array(infos.indices)
             let limit = try a.int("limit", default: 80)
             return .json(["body": .string(r.bodyLabel(b)), "total_edges": .number(Double(infos.count)),
                           "matching": .number(Double(indices.count)),
-                          "edges": .array(indices.prefix(limit).map { Describe.edge($0, infos[$0], seam: b.shape.isSeamEdge($0)) })])
+                          "edges": .array(indices.prefix(limit).map { Describe.edge($0, infos[$0], seam: seams[$0]) })])
         }
     }
 

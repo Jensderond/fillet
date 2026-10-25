@@ -1,5 +1,6 @@
 import CFilletKernel
 import Foundation
+import Synchronization
 import simd
 
 // MARK: - Bridging helpers
@@ -54,9 +55,16 @@ public enum BooleanOperation: Sendable, Hashable {
 /// Every operation returns a new shape. Face and edge indices are 0-based and
 /// only valid for this exact shape (see `faceInfo(_:)` / `edgeInfo(_:)`).
 /// A single `Shape` must not be used from several threads at the same time;
-/// distinct shapes may be used concurrently.
+/// distinct shapes may be used concurrently. The exception is the cached topology queries
+/// (`faceInfos`, `edgeInfos`, `seamEdges` and the per-index lookups), which are safe from any thread.
 public final class Shape: @unchecked Sendable {
     let handle: OpaquePointer
+
+    /// Topology query results, computed once on first use: the shape never changes, so they
+    /// never go stale. Each has its own lock so a slow face query doesn't hold up edge lookups.
+    private let faceCache = Mutex<Indexed<FaceInfo>?>(nil)
+    private let edgeCache = Mutex<Indexed<EdgeInfo>?>(nil)
+    private let seamCache = Mutex<[Bool]?>(nil)
 
     init(owning handle: OpaquePointer) { self.handle = handle }
     deinit { fk_shape_free(handle) }
@@ -181,11 +189,79 @@ public final class Shape: @unchecked Sendable {
     /// Geometric signature of face `index`. Returns a zero `.other` placeholder for an invalid index;
     /// use `faceInfoIfValid(_:)` to distinguish.
     public func faceInfo(_ index: Int) -> FaceInfo {
-        faceInfoIfValid(index)
-            ?? FaceInfo(surface: .other, centroid: .zero, normal: .zero, area: 0, boundsMin: .zero, boundsMax: .zero)
+        faceInfoIfValid(index) ?? Self.facePlaceholder
     }
 
+    /// Answered from `faceInfos` once that has been computed, else by asking the kernel for this one face.
     public func faceInfoIfValid(_ index: Int) -> FaceInfo? {
+        // Under the lock, so one shape's face queries never run on two threads at once.
+        faceCache.withLock { cache in
+            if let cache { return cache[index] }
+            return kernelFaceInfo(index)
+        }
+    }
+
+    /// Geometric signature of edge `index`. Returns a zero `.other` placeholder for an invalid index;
+    /// use `edgeInfoIfValid(_:)` to distinguish.
+    public func edgeInfo(_ index: Int) -> EdgeInfo {
+        edgeInfoIfValid(index) ?? Self.edgePlaceholder
+    }
+
+    /// Answered from `edgeInfos` once that has been computed, else by asking the kernel for this one edge.
+    public func edgeInfoIfValid(_ index: Int) -> EdgeInfo? {
+        // Under the lock, so one shape's edge queries never run on two threads at once.
+        edgeCache.withLock { cache in
+            if let cache { return cache[index] }
+            return kernelEdgeInfo(index)
+        }
+    }
+
+    /// All face signatures, indexed like `faceInfo(_:)`. Computed once per shape.
+    public var faceInfos: [FaceInfo] {
+        faceCache.withLock { cache in
+            if let cache { return cache.all }
+            let fresh = Indexed(count: faceCount, placeholder: Self.facePlaceholder, kernelFaceInfo)
+            cache = fresh
+            return fresh.all
+        }
+    }
+
+    /// All edge signatures, indexed like `edgeInfo(_:)`. Computed once per shape.
+    public var edgeInfos: [EdgeInfo] {
+        edgeCache.withLock { cache in
+            if let cache { return cache.all }
+            let fresh = Indexed(count: edgeCount, placeholder: Self.edgePlaceholder, kernelEdgeInfo)
+            cache = fresh
+            return fresh.all
+        }
+    }
+
+    /// Whether the edge is a seam or degenerate (fillets and chamfers can't use it).
+    public func isSeamEdge(_ index: Int) -> Bool {
+        let seams = seamEdges
+        return seams.indices.contains(index) && seams[index]
+    }
+
+    /// `isSeamEdge` for every edge, indexed like `edgeInfo(_:)`. Computed once per shape.
+    public var seamEdges: [Bool] {
+        seamCache.withLock { cache in
+            if let cache { return cache }
+            let count = edgeCount
+            var flags = [Bool](repeating: false, count: count)
+            let ok = flags.withUnsafeMutableBufferPointer { fk_seam_edges(handle, $0.baseAddress, Int32(count)) }
+            // On a kernel failure no edge counts as a seam (as a failed per-edge query did).
+            if !ok { flags = [Bool](repeating: false, count: count) }
+            cache = flags
+            return flags
+        }
+    }
+
+    private static let facePlaceholder =
+        FaceInfo(surface: .other, centroid: .zero, normal: .zero, area: 0, boundsMin: .zero, boundsMax: .zero)
+    private static let edgePlaceholder =
+        EdgeInfo(curve: .other, start: .zero, mid: .zero, end: .zero, tangentAtMid: .zero, length: 0, radius: 0)
+
+    private func kernelFaceInfo(_ index: Int) -> FaceInfo? {
         var info = FKFaceInfo()
         guard index >= 0, fk_face_info(handle, Int32(clamping: index), &info) else { return nil }
         return FaceInfo(
@@ -194,14 +270,7 @@ public final class Shape: @unchecked Sendable {
             boundsMax: Vec3(info.boundsMax))
     }
 
-    /// Geometric signature of edge `index`. Returns a zero `.other` placeholder for an invalid index;
-    /// use `edgeInfoIfValid(_:)` to distinguish.
-    public func edgeInfo(_ index: Int) -> EdgeInfo {
-        edgeInfoIfValid(index)
-            ?? EdgeInfo(curve: .other, start: .zero, mid: .zero, end: .zero, tangentAtMid: .zero, length: 0, radius: 0)
-    }
-
-    public func edgeInfoIfValid(_ index: Int) -> EdgeInfo? {
+    private func kernelEdgeInfo(_ index: Int) -> EdgeInfo? {
         var info = FKEdgeInfo()
         guard index >= 0, fk_edge_info(handle, Int32(clamping: index), &info) else { return nil }
         return EdgeInfo(
@@ -209,14 +278,6 @@ public final class Shape: @unchecked Sendable {
             mid: Vec3(info.mid), end: Vec3(info.end), tangentAtMid: Vec3(info.tangentAtMid), length: info.length,
             radius: info.radius)
     }
-
-    /// All face signatures, indexed like `faceInfo(_:)`.
-    /// Whether the edge is a seam or degenerate (fillets and chamfers can't use it).
-    public func isSeamEdge(_ index: Int) -> Bool { fk_edge_is_seam(handle, Int32(index)) }
-
-    public var faceInfos: [FaceInfo] { (0..<faceCount).map(faceInfo) }
-    /// All edge signatures, indexed like `edgeInfo(_:)`.
-    public var edgeInfos: [EdgeInfo] { (0..<edgeCount).map(edgeInfo) }
 
     /// Plane of a planar face: origin at the centroid, outward normal, xDir along the longest
     /// straight edge. nil for non-planar faces or invalid indices.
@@ -339,5 +400,29 @@ public final class Shape: @unchecked Sendable {
 
     public static func fromBRep(_ string: String) throws -> Shape {
         try make(string.withCString { fk_brep_read_string($0) }, "BRep import")
+    }
+}
+
+/// Every face's or edge's info, with the indices the kernel couldn't answer for (those hold a placeholder).
+private struct Indexed<Info: Sendable>: Sendable {
+    var all: [Info]
+    var failed: Set<Int>
+
+    init(count: Int, placeholder: Info, _ query: (Int) -> Info?) {
+        all = []
+        all.reserveCapacity(count)
+        failed = []
+        for i in 0..<count {
+            if let info = query(i) {
+                all.append(info)
+            } else {
+                all.append(placeholder)
+                failed.insert(i)
+            }
+        }
+    }
+
+    subscript(index: Int) -> Info? {
+        all.indices.contains(index) && !failed.contains(index) ? all[index] : nil
     }
 }
