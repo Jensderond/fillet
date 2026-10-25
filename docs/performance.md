@@ -1,7 +1,8 @@
 # Performance
 
 Recompute benchmark, the baseline numbers, and what each optimisation round changed (see
-[Round 1](#round-1-kernel-booleans-2026-10-25)).
+[Round 1](#round-1-kernel-booleans-2026-10-25), [Round 1b](#round-1b-agent-steps-candidates-2-and-3)
+and [Round 2](#round-2-meshing-face-infos-and-report-queries-2026-10-25)).
 
 ## Running it
 
@@ -25,11 +26,19 @@ It measures:
 - **Early-edit cascade**: the Y factor of the first `scale` step ×1.01, re-evaluated on a warm evaluator.
 - **Tessellation, `faceInfos`, `edgeInfos` and `isSeamEdge`** for every final body. Each query
   runs on a fresh shape handle, so the kernel's index maps start empty.
+- **Report queries**: `volume`, `surfaceArea`, `bounds` and `isValid`, the values agent tools
+  report for a changed body, first and repeated call on a fresh handle.
 - **Fillet edge lookup**: `edgeInfos` of each fillet's input body, compared with the whole step.
 - **Geometry fingerprint**: per body, the solid, face and edge counts, volume, area, validity and
   bounds, plus failed steps and an FNV digest of all of it. **An optimisation must leave this
-  unchanged.** If the digest differs, compare the lines: volume to 0.01 and bounds to 0.001
-  are printed exactly, so a kernel option such as a fuzzy value can legitimately move the last digit.
+  unchanged.** Since Round 2 volume and area are integrated to a relative error of 1e-9
+  (`Shape.massProperties(precision:)`, about 2 s for all bodies) and printed to 0.001, so a
+  different approximation of the same edge no longer moves them. If the digest differs, compare
+  the lines: bounds to 0.001 are printed exactly, so a kernel option such as a fuzzy value can
+  legitimately move the last digit. Reference digest: **`c9740640fe841e22`**.
+- **Mesh and face-info digests**: bit-exact FNV digests of the evaluator's display meshes and of
+  every final body's face and edge infos (which feed persistent reference signatures). Reference:
+  meshes `8cb4b3419e1f5575` (159 433 triangles), face/edge infos `78ee99c9d3ec3ba6`.
 
 ## Fixture
 
@@ -337,7 +346,6 @@ total); all eight tools in one boolean take 540 ms.
 5. **Dependency-aware cache keys** (baseline candidate 5): unchanged, still fixture-dependent.
 6. **Exact revolution surfaces for revolution-preserving scales** ("Widen hat"): saves up to
    ~90 ms here, but changes face types that saved references use. Needs a migration story first.
-||||||| parent of 9ca17c7 (perf: Document round 1b (agent step caching) in performance.md)
 
 ## Round 1b: agent steps (candidates 2 and 3)
 
@@ -382,3 +390,92 @@ recomputed on every request. `bounds` is also called by the evaluator (`boundsOv
 deflection). They can be cached per shape the same way.
 
 Fingerprint after both changes (`fillet-bench --runs 1 --no-cascade`): digest `5f765134c5951dc2`, unchanged.
+
+## Round 2: meshing, face infos and report queries (2026-10-25)
+
+Same machine and fixture, release build, median of 3 (cold, cascade) or 10 (queries). Four commits:
+
+| commit | change |
+|---|---|
+| `a6b3d47` | precise fingerprint (eps 1e-9 volume and area) plus mesh and face-info digests |
+| `b885e58` | mesh changed bodies concurrently |
+| `d71c690` | compute a shape's face infos in parallel (`fk_face_infos`) |
+| `53d292e` | cache `bounds`, `volume`, `surfaceArea` and `isValid` per shape |
+
+| measurement | before ms | after ms |
+|---|---:|---:|
+| cold full evaluate | 2 383 | **2 119** |
+| … modelling | 1 965 | 1 928 |
+| … display tessellation, 11 bodies | 422 | **186** |
+| early-edit cascade (76 of 80 steps) | 2 358 | **2 151–2 209** |
+| … its display tessellation | 421 | 178–216 |
+| first `faceInfos`, all final bodies (frog body) | 590 (477) | **125 (59)** |
+| repeated `volume` / `surfaceArea` / `bounds` / `isValid`, frog body | 208 / 187 / 30 / 63 | 0.0 each |
+
+Headless MCP server (`fillet-mcp` on a copy of the fixture, the agent's requests over stdio),
+before (`c2a6f9d`) and after:
+
+| request | before ms | after ms |
+|---|---:|---:|
+| `get_design` (opens the file: cold evaluate) | 2 440–2 490 | 2 150–2 160 |
+| `get_design` again | 76 | 0.6 |
+| first `list_faces` on the frog body | 480–498 | 61 |
+| `fillet` of the frog body's straight edges (r 0.3) | 686–695 | 663–687 |
+| `undo` | 89–107 | 59–73 |
+| `measure` of the frog body | 491 | 469–477 |
+
+### What changed
+
+1. **Precise fingerprint first**, so the other three could show identity directly. New kernel call
+   `fk_mass_properties(shape, eps, …)`: `BRepGProp` volume and area to a relative error of `eps` per
+   face. With eps 1e-9 Body 1 is 128 271.910 mm³ / 17 760.288 mm² both at the baseline and after
+   Round 1 (see [Round 1's fingerprint](#fingerprint)); default precision gave 128 293.00 vs
+   128 296.88. New digest `c9740640fe841e22` (was `cc487b99da55f349`), identical over repeated runs
+   and after every Round 2 commit. The fingerprint now takes about 2.1 s.
+2. **Concurrent meshing.** `ModelEvaluator.displayMeshes` collects the shapes without a cached mesh
+   and tessellates them with `DispatchQueue.concurrentPerform`; the kernel already meshes a private
+   copy of each shape. Meshing everything at once naively only got to 298 ms, and the frog body's
+   mesh was bimodal (100 or 300 ms): `OSD_Parallel` loops lock whichever pool threads are free, so
+   the small bodies' parallel bounds and meshes (2–5 faces, each holding a few threads for up to
+   100 ms) left the 88-face body one thread. Now the body with the most faces computes its bounds
+   alone first, then is the only one meshed with `BRepMesh`'s parallel mode (new `parallel` flag on
+   `fk_tessellate` / `Shape.tessellate`), while the others mesh on one thread each. The remaining
+   critical path is a 5-face body (Body 20, 24 578 triangles) meshed on one thread: about 150 ms.
+   Meshes bit-identical (digest `8cb4b3419e1f5575`); a test checks serial meshes made concurrently
+   equal the parallel mesh.
+3. **Parallel face infos.** `fk_face_infos` computes every face with the same `faceInfoOf` as
+   `fk_face_info`, on OCCT's pool. `Shape.faceInfos` fills its cache with it; per-index lookups
+   before that still ask for one face. 8× on the frog body. Values bit-identical (digest
+   `78ee99c9d3ec3ba6`, whose reference was computed face by face).
+4. **Scalar caches.** `bounds`, `volume`, `surfaceArea` and `isValid` are lazy, one lock each, like
+   the topology tables. Repeat calls are free, but a step's changed body is a new shape, so an
+   agent step's report still pays for each value once: the `fillet` request only loses the bounds
+   the display mesh had already computed. The app benefits more: `visibleBodyBounds` (sketch-plane
+   picking, framing) and the overhang view asked for the bounds of every body on each
+   `makeScene`, 77 ms for the fixture, now once per shape.
+
+### Where an agent step's time goes now
+
+The 665 ms `fillet` request on the frog body is roughly 460 ms of report (`volume` 208,
+`surfaceArea` 187, `isValid` 63), about 100 ms of display mesh and the fillet itself, and saving the
+document. `measure` (470 ms) is the same volume and area on a body not described before.
+
+### What's left (ranked)
+
+1. **Parallel volume and area per face.** `BRepGProp` sums independent per-face integrals; computing
+   the faces on the pool and adding them in face order (as `BRepGProp` does) should give the same
+   value at about 1/6 of the time: about −330 ms on every agent step that changes the frog body,
+   and on `measure`. The default-precision values are reported to agents, so check bit identity on
+   all bodies, as for face infos.
+2. **Parallel `isValid`.** `BRepCheck_Analyzer(s, true, /*parallel*/ true)`, as `finish()` already
+   does: −50 ms per agent step. Same verdict by construction.
+3. **Booleans again.** The cascade's modelling (1.95 s) is still about 60% booleans (`PerformFF`,
+   `BOPAlgo_Builder`), with step 76 alone 546 ms. Dependency-aware cache keys only help designs
+   with independent parts.
+4. **Mesh Body 20 faster.** The cold tessellation's critical path is now one 5-face body meshed on
+   one thread (about 150 ms of the 186). Either a bigger OCCT pool so several bodies can use it at
+   once (affects booleans too, so measure), or give the pool to the body with the most triangles
+   from the last mesh rather than the most faces.
+5. **UI:** `planarFaces` is cheap (5 ms for the frog body, cached per shape); `makeScene`'s bounds
+   are cached now, and the `faceInfos` it resolves a lay-flat's face against are cached and 8×
+   faster on first use. No other kernel query in `makeScene` showed up.
