@@ -32,7 +32,7 @@ if args.contains("-h") || args.contains("--help") {
           --query-runs M  repetitions of the tessellation and face/edge timings (default 10)
           --top K         slowest steps to list (default 15)
           --no-cascade    skip the early-edit cascade
-          --booleans      also time each boolean of the 5 slowest combine steps on its own
+          --booleans      also time the booleans of the 5 slowest combine steps on their own
         """)
     exit(0)
 }
@@ -331,11 +331,12 @@ if !filletRows.isEmpty {
 // MARK: - Boolean breakdown
 
 if booleanDetail {
-    // Replays each boolean of the slowest combine steps on the bodies before the step (as
-    // ModelEvaluator.combine does: one boolean per tool, in order).
+    // Replays each boolean of the slowest combine steps on the bodies before the step: one
+    // boolean per tool, in order, then (for several tools) all tools in one boolean, which is
+    // what ModelEvaluator.combine does.
     let slowCombines = perStep.filter { if case .combine = active[$0.index].kind { true } else { false } }
         .sorted { $0.seconds > $1.seconds }.prefix(5)
-    print("## Slowest combine steps, one boolean per tool")
+    print("## Slowest combine steps: one boolean per tool, then all tools in one")
     print("")
     print("| # | step | op | tool | target faces | tool faces | ms |")
     print("|---:|---|---|---|---:|---:|---:|")
@@ -344,15 +345,23 @@ if booleanDetail {
         guard case .combine(let c) = f.kind else { continue }
         progress("booleans of “\(f.name)”")
         let before = await warm.evaluate(document, before: f.id).bodiesBefore ?? []
-        guard var shape = before.first(where: { $0.ref == c.target })?.shape else { continue }
+        guard let targetShape = before.first(where: { $0.ref == c.target })?.shape else { continue }
+        var shape = targetShape
+        let op: BooleanOperation = c.operation == .cut ? .cut : c.operation == .intersect ? .common : .fuse
         for tool in c.tools where tool != c.target {
             guard let t = before.first(where: { $0.ref == tool }) else { continue }
             let toolName = featureByID[tool.feature]?.name ?? t.name
             let faces = shape.faceCount
-            let (result, sec) = time { try? shape.boolean(c.operation == .cut ? .cut : c.operation == .intersect ? .common : .fuse, t.shape) }
+            let (result, sec) = time { try? shape.boolean(op, t.shape) }
             print("| \(s.index + 1) | \(f.name) | \(c.operation) | \(toolName) | \(faces) | \(t.shape.faceCount) | \(ms(sec)) |")
             guard let result else { break }
             shape = result
+        }
+        let tools = c.tools.filter { $0 != c.target }.compactMap { ref in before.first { $0.ref == ref }?.shape }
+        if tools.count > 1 {
+            let (_, sec) = time { try? targetShape.boolean(op, tools) }
+            let toolFaces = tools.reduce(0) { $0 + $1.faceCount }
+            print("| \(s.index + 1) | \(f.name) | \(c.operation) | all \(tools.count) tools in one boolean | \(targetShape.faceCount) | \(toolFaces) | \(ms(sec)) |")
         }
     }
     print("")

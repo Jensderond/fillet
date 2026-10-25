@@ -340,11 +340,20 @@ public actor ModelEvaluator {
     private func combine(_ c: Combine, _ feature: Feature, _ state: inout State) throws {
         let (index, target) = try bodyIndex(c.target, state)
         guard !c.tools.isEmpty else { throw FeatureError("Select at least one tool body") }
+        var seen: Set<BodyRef> = [c.target]
+        let tools = try c.tools.filter { seen.insert($0).inserted }.map { try bodyIndex($0, state).1.shape }
+        let op = Self.booleanOp(c.operation)
         var shape = target.shape
-        for tool in c.tools {
-            guard tool != c.target else { continue }
-            let (_, toolBody) = try bodyIndex(tool, state)
-            shape = try shape.boolean(Self.booleanOp(c.operation), toolBody.shape)
+        if tools.count > 1 {
+            do {
+                // One boolean with every tool: OCCT intersects and cleans up once, not per tool.
+                shape = try shape.boolean(op, tools)
+            } catch {
+                // One tool at a time sometimes succeeds where the whole set fails.
+                for tool in tools { shape = try shape.boolean(op, tool) }
+            }
+        } else if let tool = tools.first {
+            shape = try shape.boolean(op, tool)
         }
         state.bodies[index].shape = shape
         state.bodies[index].lastFeature = feature.id

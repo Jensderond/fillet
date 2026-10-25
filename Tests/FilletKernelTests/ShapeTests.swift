@@ -160,6 +160,23 @@ struct FeatureTests {
         #expect(close(a.volume, 1000) && a.faceCount == 6)
     }
 
+    @Test func booleansWithSeveralTools() throws {
+        let a = try cube(10)
+        let b = try cube(10, at: Vec3(5, 5, 5))
+        let c = try cube(10, at: Vec3(-5, -5, -5))
+        // b and c overlap a in opposite corners (125 each) and touch each other at a's centre.
+        #expect(close(try a.boolean(.fuse, [b, c]).volume, 3000 - 250, rel: 1e-9))
+        #expect(close(try a.boolean(.cut, [b, c]).volume, 1000 - 250, rel: 1e-9))
+        let cut = try a.boolean(.cut, [b, c])
+        let chained = try a.cut(by: b).cut(by: c)
+        #expect(cut.faceCount == chained.faceCount && cut.edgeCount == chained.edgeCount)
+        // Common keeps what is inside every tool, like chaining.
+        let d = try cube(10, at: Vec3(2, 0, 0))
+        #expect(close(try a.boolean(.common, [b, d]).volume, 125, rel: 1e-9))
+        expectKernelError("overlap") { _ = try a.boolean(.common, [b, c]) }
+        expectKernelError("nothing is left") { _ = try a.boolean(.cut, [b, try cube(30, at: Vec3(-10, -10, -10))]) }
+    }
+
     @Test func fuseMergesCoplanarFaces() throws {
         let a = try cube(10)
         let b = try cube(10, at: Vec3(10, 0, 0))

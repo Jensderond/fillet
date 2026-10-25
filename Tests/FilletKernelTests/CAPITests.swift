@@ -22,6 +22,7 @@ struct CAPITests {
         #expect(fk_extrude(nil, FKVec3(x: 0, y: 0, z: 1), 1, 0, 0) == nil)
         #expect(fk_revolve(nil, FKVec3(), FKVec3(x: 0, y: 0, z: 1), 1) == nil)
         #expect(fk_boolean(nil, nil, FK_BOOL_FUSE) == nil)
+        #expect(fk_boolean_tools(nil, nil, 0, FK_BOOL_CUT) == nil)
         #expect(fk_fillet(nil, nil, 0, 1) == nil)
         #expect(fk_chamfer(nil, nil, 0, 1) == nil)
         #expect(fk_shell(nil, nil, 0, 1) == nil)

@@ -284,14 +284,23 @@ extern "C" FKShape *fk_loft(const FKLoftSection *sections, int32_t count, bool r
 
 // MARK: - Booleans
 
-extern "C" FKShape *fk_boolean(const FKShape *a, const FKShape *b, FKBoolOp op) {
+namespace {
+
+/// target op tools, as one OCCT operation. Several tools are intersected with the target and
+/// with each other once, and the result is post-processed once.
+FKShape *booleanOf(const FKShape *a, const FKShape *const *bs, int32_t count, FKBoolOp op) {
   const char *name = op == FK_BOOL_FUSE ? "Join" : op == FK_BOOL_CUT ? "Cut" : "Intersect";
   return guarded(name, (FKShape *)nullptr, [&] {
     const TopoDS_Shape &sa = shapeOf(a, "target body");
-    const TopoDS_Shape &sb = shapeOf(b, "tool body");
+    if (count < 1 || !bs) fail("No tool body was given");
     ShapeList args, tools;
     args.Append(sa);
-    tools.Append(sb);
+    bool toolsHaveSolids = false;
+    for (int32_t i = 0; i < count; i++) {
+      const TopoDS_Shape &sb = shapeOf(bs[i], "tool body");
+      toolsHaveSolids = toolsHaveSolids || countOf(sb, TopAbs_SOLID) > 0;
+      tools.Append(sb);
+    }
     std::unique_ptr<BRepAlgoAPI_BooleanOperation> algo;
     switch (op) {
     case FK_BOOL_FUSE: algo.reset(new BRepAlgoAPI_Fuse()); break;
@@ -307,14 +316,37 @@ extern "C" FKShape *fk_boolean(const FKShape *a, const FKShape *b, FKBoolOp op) 
     if (!algo->IsDone() || algo->HasErrors())
       fail(std::string(name) + " failed: the bodies could not be combined");
     TopoDS_Shape r = algo->Shape();
-    if (isEmpty(r) || (countOf(r, TopAbs_SOLID) == 0 && countOf(sa, TopAbs_SOLID) > 0 &&
-                       countOf(sb, TopAbs_SOLID) > 0)) {
+    if (isEmpty(r) || (countOf(r, TopAbs_SOLID) == 0 && countOf(sa, TopAbs_SOLID) > 0 && toolsHaveSolids)) {
       if (op == FK_BOOL_COMMON) fail("Intersect failed: the bodies do not overlap");
       if (op == FK_BOOL_CUT) fail("Cut failed: nothing is left of the body");
       fail(std::string(name) + " failed: the result is empty");
     }
     return wrap(finish(r, std::string(name) + " failed: the result is not a valid solid"));
   });
+}
+
+} // namespace
+
+extern "C" FKShape *fk_boolean(const FKShape *a, const FKShape *b, FKBoolOp op) {
+  return booleanOf(a, &b, 1, op);
+}
+
+extern "C" FKShape *fk_boolean_tools(const FKShape *a, const FKShape *const *tools, int32_t count, FKBoolOp op) {
+  if (op == FK_BOOL_COMMON) {
+    // OCCT intersects the target with the union of the tools; chain instead, so the result is
+    // the part inside every tool.
+    return guarded("Intersect", (FKShape *)nullptr, [&]() -> FKShape * {
+      if (count < 1 || !tools) fail("No tool body was given");
+      std::unique_ptr<FKShape> current;
+      for (int32_t i = 0; i < count; i++) {
+        FKShape *next = booleanOf(current ? current.get() : a, &tools[i], 1, op);
+        if (!next) throw Error(fk_last_error());
+        current.reset(next);
+      }
+      return current.release();
+    });
+  }
+  return booleanOf(a, tools, count, op);
 }
 
 // MARK: - Fillet / chamfer / shell

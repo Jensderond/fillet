@@ -109,6 +109,9 @@ typedef enum { FK_BOOL_FUSE = 0, FK_BOOL_CUT = 1, FK_BOOL_COMMON = 2 } FKBoolOp;
 
 /// a op b. Result is cleaned up (coplanar faces merged).
 FKShape *fk_boolean(const FKShape *a, const FKShape *b, FKBoolOp op);
+/// a op (all tools) in one operation, so intersections and clean-up run once. Fuse joins
+/// everything; cut removes every tool; common keeps what is inside every tool.
+FKShape *fk_boolean_tools(const FKShape *a, const FKShape *const *tools, int32_t count, FKBoolOp op);
 
 /// Constant-radius fillet on the edges (indices as in fk_edge_info).
 FKShape *fk_fillet(const FKShape *shape, const int32_t *edgeIndices, int32_t count, double radius);

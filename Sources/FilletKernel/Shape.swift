@@ -125,6 +125,16 @@ public final class Shape: @unchecked Sendable {
         try withExtendedLifetime(other) { try Shape.make(fk_boolean(handle, other.handle, op.fk), "Boolean") }
     }
 
+    /// `self op tools` as one kernel operation: intersections and clean-up run once instead of
+    /// once per tool. Fuse joins everything, cut removes every tool, common keeps what is inside
+    /// every tool.
+    public func boolean(_ op: BooleanOperation, _ tools: [Shape]) throws -> Shape {
+        if tools.count == 1 { return try boolean(op, tools[0]) }
+        let handles: [OpaquePointer?] = tools.map { $0.handle }
+        let result = handles.withUnsafeBufferPointer { fk_boolean_tools(handle, $0.baseAddress, Int32($0.count), op.fk) }
+        return try withExtendedLifetime(tools) { try Shape.make(result, "Boolean") }
+    }
+
     public func fused(with other: Shape) throws -> Shape { try boolean(.fuse, other) }
     public func cut(by other: Shape) throws -> Shape { try boolean(.cut, other) }
     public func common(with other: Shape) throws -> Shape { try boolean(.common, other) }
