@@ -127,7 +127,7 @@ TopoDS_Shape unify(const TopoDS_Shape &s) {
 }
 
 static bool checkValid(const TopoDS_Shape &s) {
-  BRepCheck_Analyzer ana(s, true);
+  BRepCheck_Analyzer ana(s, true, true);
   return ana.IsValid();
 }
 
