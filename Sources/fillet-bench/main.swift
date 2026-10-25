@@ -318,6 +318,42 @@ for (i, body) in bodies.enumerated() {
 print("| **all** | | | \(triangles.values.reduce(0, +)) | \(ms(sumTess)) | \(ms(sumF)) | \(ms(sumE)) | \(ms(sumS)) |")
 print("")
 
+// MARK: - Report queries
+
+// What agent tools report for every changed body on each request: first call on a fresh handle,
+// then the same call again.
+struct ReportTimes { var first: [Double] = []; var repeated: [Double] = [] }
+let reportQueries: [(String, (Shape) -> Void)] = [
+    ("volume", { _ = $0.volume }), ("surfaceArea", { _ = $0.surfaceArea }),
+    ("bounds", { _ = $0.bounds }), ("isValid", { _ = $0.isValid }),
+]
+var reportAll = [ReportTimes](repeating: ReportTimes(), count: reportQueries.count)
+var reportLargest = reportAll
+let largestBody = bodies.indices.max { bodies[$0].shape.faceCount < bodies[$1].shape.faceCount }
+progress("report queries ×\(queryRuns)")
+for _ in 0..<queryRuns {
+    var first = [Double](repeating: 0, count: reportQueries.count), again = first
+    for (i, body) in bodies.enumerated() {
+        guard let fresh = try? body.shape.copy() else { continue }
+        for (q, query) in reportQueries.enumerated() {
+            let (_, t1) = time { query.1(fresh) }
+            let (_, t2) = time { query.1(fresh) }
+            first[q] += t1; again[q] += t2
+            if i == largestBody { reportLargest[q].first.append(t1); reportLargest[q].repeated.append(t2) }
+        }
+    }
+    for q in reportQueries.indices { reportAll[q].first.append(first[q]); reportAll[q].repeated.append(again[q]) }
+}
+print("## Report queries: first / repeated call on a fresh handle (median of \(queryRuns))")
+print("")
+print("| query | all bodies ms | \(largestBody.map { bodies[$0].name } ?? "-") ms |")
+print("|---|---:|---:|")
+for (q, query) in reportQueries.enumerated() {
+    let a = reportAll[q], l = reportLargest[q]
+    print("| `\(query.0)` | \(ms(median(a.first))) / \(ms(median(a.repeated))) | \(ms(median(l.first))) / \(ms(median(l.repeated))) |")
+}
+print("")
+
 // MARK: - Fillet reference resolution
 
 // Each fillet step resolves its edge references against edgeInfos of the body before it.

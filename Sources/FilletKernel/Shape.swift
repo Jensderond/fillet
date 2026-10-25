@@ -64,8 +64,9 @@ extension FaceInfo {
 /// Every operation returns a new shape. Face and edge indices are 0-based and
 /// only valid for this exact shape (see `faceInfo(_:)` / `edgeInfo(_:)`).
 /// A single `Shape` must not be used from several threads at the same time;
-/// distinct shapes may be used concurrently. The exception is the cached topology queries
-/// (`faceInfos`, `edgeInfos`, `seamEdges` and the per-index lookups), which are safe from any thread.
+/// distinct shapes may be used concurrently. The exception is the cached queries (`faceInfos`,
+/// `edgeInfos`, `seamEdges`, the per-index lookups, `bounds`, `volume`, `surfaceArea` and
+/// `isValid`), which are safe from any thread.
 public final class Shape: @unchecked Sendable {
     let handle: OpaquePointer
 
@@ -74,6 +75,10 @@ public final class Shape: @unchecked Sendable {
     private let faceCache = Mutex<Indexed<FaceInfo>?>(nil)
     private let edgeCache = Mutex<Indexed<EdgeInfo>?>(nil)
     private let seamCache = Mutex<[Bool]?>(nil)
+    private let boundsCache = Mutex<(min: Vec3, max: Vec3)??>(nil)
+    private let volumeCache = Mutex<Double?>(nil)
+    private let areaCache = Mutex<Double?>(nil)
+    private let validCache = Mutex<Bool?>(nil)
 
     init(owning handle: OpaquePointer) { self.handle = handle }
     deinit { fk_shape_free(handle) }
@@ -326,14 +331,23 @@ public final class Shape: @unchecked Sendable {
 
     // MARK: Analysis
 
+    // Bounds, volume, area and validity are computed once per shape, like the topology tables:
+    // agent tools report them for every changed body on each request, and the evaluator asks
+    // for bounds when picking booleans' targets and the display deflection.
+
+    /// Optimal axis-aligned bounds; nil for an empty shape. Computed once per shape.
     public var bounds: (min: Vec3, max: Vec3)? {
-        var lo = FKVec3(), hi = FKVec3()
-        guard fk_bounds(handle, &lo, &hi) else { return nil }
-        return (Vec3(lo), Vec3(hi))
+        Self.cached(boundsCache) {
+            var lo = FKVec3(), hi = FKVec3()
+            guard fk_bounds(handle, &lo, &hi) else { return nil }
+            return (Vec3(lo), Vec3(hi))
+        }
     }
 
-    public var volume: Double { fk_volume(handle) }
-    public var surfaceArea: Double { fk_surface_area(handle) }
+    /// Computed once per shape.
+    public var volume: Double { Self.cached(volumeCache) { fk_volume(handle) } }
+    /// Computed once per shape.
+    public var surfaceArea: Double { Self.cached(areaCache) { fk_surface_area(handle) } }
     /// Volume and surface area integrated to a relative error of `precision` per face (e.g. 1e-9).
     /// Slow; for checks that must not move when only an edge's approximation changes.
     public func massProperties(precision: Double) -> (volume: Double, area: Double)? {
@@ -342,8 +356,18 @@ public final class Shape: @unchecked Sendable {
         return (v, a)
     }
 
-    /// BRepCheck validity and closed shells.
-    public var isValid: Bool { fk_is_valid(handle) }
+    /// BRepCheck validity and closed shells. Computed once per shape.
+    public var isValid: Bool { Self.cached(validCache) { fk_is_valid(handle) } }
+
+    /// The cached value, computed under the lock on first use (so it is computed only once).
+    private static func cached<T>(_ cache: borrowing Mutex<T?>, _ compute: () -> T) -> T {
+        cache.withLock { value in
+            if let value { return value }
+            let fresh = compute()
+            value = fresh
+            return fresh
+        }
+    }
 
     /// Shortest distance between this shape and `other`, with the closest points on each.
     public func distance(to other: Shape) -> (distance: Double, pointA: Vec3, pointB: Vec3)? {
