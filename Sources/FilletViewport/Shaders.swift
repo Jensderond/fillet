@@ -61,7 +61,8 @@ struct MeshDraw {
     float4 color;        // linear rgb, a = opacity
     float4 highlight;    // rgb tint, a = amount
     uint faceStateCount;
-    uint flags;          // 1 = overhang, 2 = unlit (flat colour), 4 = pull towards the camera
+    uint flags;          // 1 = overhang, 2 = unlit (flat colour), 4 = pull towards the camera,
+                         // 8 = only picked / hovered faces (open-face visual styles)
     float pad0;
     float pad1;
 };
@@ -128,6 +129,7 @@ fragment float4 mesh_fragment(MeshOut in [[stage_in]],
     float3 base = D.color.rgb;
     base = mix(base, D.highlight.rgb, D.highlight.a);
     uint st = in.face < D.faceStateCount ? uint(faceState[in.face]) : 0u;
+    if ((D.flags & 8u) != 0u && st == 0u && D.highlight.a <= 0.0) discard_fragment();
     if (st == 2u) base = mix(base, U.accent.rgb, U.accent.a);
     else if (st == 1u) base = mix(base, U.hover.rgb, U.hover.a);
     float oh = (in.overhang > 0.0 && in.worldPos.z > U.overhang.z + 0.01) ? in.overhang : 0.0;

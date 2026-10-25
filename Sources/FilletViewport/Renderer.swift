@@ -538,34 +538,70 @@ public final class ViewportRenderer: NSObject {
         enc.setDepthStencilState(dsAlways)
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
-        // Opaque bodies.
-        enc.setRenderPipelineState(pMeshOpaque)
-        enc.setDepthStencilState(dsWrite)
-        for b in scene.bodies where b.visible && b.opacity >= 0.999 {
-            drawMesh(enc, body: b, hover: hover, overhang: true)
+        // Opaque bodies, filled as the visual style says. Every style lays down their depth, so
+        // hidden edges, silhouettes and the x-ray of previews can tell what's in front.
+        let style = scene.visualStyle
+        let opaque = scene.bodies.filter { $0.visible && $0.opacity >= 0.999 }
+        switch style.faces {
+        case .lit, .paper:
+            enc.setRenderPipelineState(pMeshOpaque)
+            enc.setDepthStencilState(dsWrite)
+            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: style.faces == .lit, paper: style.faces == .paper) }
+            // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
+            // silhouettes draw on top of the bed).
+            drawGround(enc, U: U)
+        case .xray, .none:
+            // Faces hide nothing, so the bed shows through: draw it first.
+            drawGround(enc, U: U)
+            enc.setRenderPipelineState(pMeshDepth)
+            enc.setDepthStencilState(dsWrite)
+            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
+            enc.setRenderPipelineState(pMeshBlend)
+            if style.faces == .xray {
+                // Every layer, front and back, so overlapping walls build up and show the inside.
+                enc.setDepthStencilState(dsAlways)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: true, alphaScale: 0.16) }
+            }
+            // Faint or missing faces would hide a pick: picked and hovered faces fill in, front layer only.
+            enc.setDepthStencilState(dsTest)
+            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false, alphaScale: 0.55, highlightOnly: true) }
         }
-        // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
-        // silhouettes draw on top of the bed).
-        drawGround(enc, U: U)
 
+        // Lines on lit bodies are ink; on the background or the paper they take the wire colour,
+        // light in dark mode.
+        let lineInk = style.faces == .lit ? pal.edge : pal.wire
+        let edgeHover = LineStyle(pal.hover, width: 2.6)
+        let edgeSel = LineStyle(pal.accent, width: 3.0)
+        let outlined = opaque.filter(\.showsEdges)
         // Silhouettes of curved faces.
         enc.setRenderPipelineState(pHull)
         enc.setDepthStencilState(dsTest)
         var hull = HullDraw()
-        hull.color = pal.edge.linear
+        hull.color = lineInk.linear
         hull.width = 1.3
         enc.setVertexBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
         enc.setFragmentBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
-        for b in scene.bodies where b.visible && b.opacity >= 0.999 && b.showsEdges {
+        for b in outlined where style.showsEdges {
             drawMesh(enc, body: b, hover: hover, overhang: false)
         }
-        // Their edges.
+        // Their edges: the hidden ones first, so an edge in front always draws over them.
         enc.setRenderPipelineState(pLine)
+        if let hidden = style.hiddenEdges {
+            let dashed = hidden == .dashed
+            let alpha: Float = dashed ? 0.6 : 0.4
+            func faded(_ c: ViewportColor, width: Float) -> LineStyle { LineStyle(c.withAlpha(c.a * alpha), width: width, dashed: dashed) }
+            enc.setDepthStencilState(dsGreater)
+            for b in outlined where style.showsEdges {
+                var d = LineDraw(faded(lineInk, width: 1.1), faded(pal.hover, width: 2), faded(pal.accent, width: 2.2))
+                d.pull = 1
+                d.dashPeriod = U.viewport.w * pixelsPerPoint * 6
+                drawEdges(enc, id: b.id, draw: &d)
+            }
+        }
         enc.setDepthStencilState(dsTest)
-        let edgeHover = LineStyle(pal.hover, width: 2.6)
-        let edgeSel = LineStyle(pal.accent, width: 3.0)
-        for b in scene.bodies where b.visible && b.opacity >= 0.999 && b.showsEdges {
-            var d = LineDraw(LineStyle(pal.edge, width: 1.4), edgeHover, edgeSel)
+        for b in outlined {
+            // Without edges (shaded) only the hovered and picked ones draw: a zero width skips the rest.
+            var d = LineDraw(style.showsEdges ? LineStyle(lineInk, width: 1.4) : LineStyle(), edgeHover, edgeSel)
             d.pull = 1
             drawEdges(enc, id: b.id, draw: &d)
         }
@@ -628,10 +664,10 @@ public final class ViewportRenderer: NSObject {
     }
 
     private func drawMesh(_ enc: MTLRenderCommandEncoder, body b: SceneBody, hover: PickTarget?, overhang: Bool,
-                          alphaScale: Float = 1, pull: Bool = false) {
+                          alphaScale: Float = 1, pull: Bool = false, paper: Bool = false, highlightOnly: Bool = false) {
         guard let g = bodies[b.id], let vb = g.vertexBuffer, let ib = g.indexBuffer else { return }
         var d = MeshDraw()
-        let base = (b.color ?? palette.body)
+        let base = paper ? palette.paper : (b.color ?? palette.body)
         d.color = SIMD4(SIMD3(base.linear.x, base.linear.y, base.linear.z), b.opacity * (b.color?.a ?? 1) * alphaScale)
         var hl = b.highlight
         if scene.selection.contains(.body(b.id)) { hl = .selected } else if hl == .none, hover == .body(b.id) { hl = .hover }
@@ -642,6 +678,8 @@ public final class ViewportRenderer: NSObject {
         }
         if overhang && scene.overhang != nil { d.flags |= MeshDraw.overhang }
         if pull { d.flags |= MeshDraw.pull }
+        if paper { d.flags |= MeshDraw.unlit }
+        if highlightOnly { d.flags |= MeshDraw.highlightOnly }
         if let fs = g.faceStates {
             d.faceStateCount = UInt32(g.faceCount)
             enc.setFragmentBuffer(fs, offset: 0, index: 3)
@@ -781,8 +819,9 @@ public final class ViewportRenderer: NSObject {
             g.params = sketchGrid ? SIMD4(0, 0, 0, 1) : SIMD4(10, 50, 0, 1)
             drawGrid(enc, &g)
         }
-        // Contact shadows for bodies resting on (or near) the bed.
-        if scene.plate != nil || scene.showsGroundGrid {
+        // Contact shadows for lit bodies resting on (or near) the bed. Under see-through bodies the
+        // bed would show a dark slab, and a line drawing has no light to cast them.
+        if (scene.plate != nil || scene.showsGroundGrid) && scene.visualStyle.faces == .lit {
             enc.setRenderPipelineState(pShadow)
             enc.setDepthStencilState(dsLess)
             for b in scene.bodies where b.visible {

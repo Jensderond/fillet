@@ -320,6 +320,49 @@ public struct PickFilter: OptionSet, Hashable, Sendable {
     public static let none: PickFilter = []
 }
 
+/// How bodies are drawn, after Fusion's visual styles. Translucent bodies, previews and
+/// overlays look the same in every style.
+public enum VisualStyle: String, Hashable, Codable, Sendable, CaseIterable {
+    /// Lit faces, no lines.
+    case shaded
+    /// Lit faces with the edges in front of them (the default).
+    case shadedWithEdges
+    /// Lit faces, and the edges they hide drawn dashed through them.
+    case shadedWithHiddenEdges
+    /// Faint see-through faces over every edge, the hidden ones lighter: look into a part.
+    case xray
+    /// Edges only, hidden ones dashed.
+    case wireframe
+    /// A line drawing: faces in the paper colour, only the edges in front.
+    case hiddenLine
+
+    /// How the faces of opaque bodies are filled.
+    enum Faces { case lit, xray, paper, none }
+
+    var faces: Faces {
+        switch self {
+        case .shaded, .shadedWithEdges, .shadedWithHiddenEdges: .lit
+        case .xray: .xray
+        case .wireframe: .none
+        case .hiddenLine: .paper
+        }
+    }
+
+    /// Edges in front, and silhouettes of curved faces.
+    var showsEdges: Bool { self != .shaded }
+
+    /// How edges behind faces are drawn: nil = not at all.
+    enum HiddenEdges { case dashed, faint }
+
+    var hiddenEdges: HiddenEdges? {
+        switch self {
+        case .shadedWithHiddenEdges, .wireframe: .dashed
+        case .xray: .faint
+        case .shaded, .shadedWithEdges, .hiddenLine: nil
+        }
+    }
+}
+
 /// Everything the viewport draws. Plain value; rebuild it whenever the model changes.
 public struct ViewportScene: Sendable {
     public var bodies: [SceneBody]
@@ -342,6 +385,7 @@ public struct ViewportScene: Sendable {
     public var pickableFaces: [UUID: Set<Int>]?
     /// Infinite-feel ground grid on z = 0.
     public var showsGroundGrid: Bool
+    public var visualStyle: VisualStyle = .shadedWithEdges
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
                 plate: BuildPlate? = nil, selection: Set<PickTarget> = [], hover: PickTarget? = nil,

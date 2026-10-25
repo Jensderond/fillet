@@ -20,6 +20,7 @@ public struct ViewportView: View {
     @Binding private var camera: Camera
     private let filter: PickFilter
     private let options: ViewportOptions
+    private let visualStyle: Binding<VisualStyle>?
     private weak var delegate: (any ViewportDelegate)?
     @State private var controller: ViewportController
     @Environment(\.colorScheme) private var colorScheme
@@ -29,15 +30,17 @@ public struct ViewportView: View {
     ///   - camera: the camera; external changes animate, gestures write back when they end.
     ///   - filter: what taps, hover and tool hits can pick.
     ///   - options: input/display switches.
+    ///   - visualStyle: overrides `scene.visualStyle` and adds a picker for it under the view cube.
     ///   - delegate: receives taps, hover, tool strokes and handle drags.
     ///   - controller: pass your own to call `fitAll()`, `show(_:)` etc. from outside.
     public init(scene: ViewportScene, camera: Binding<Camera>, filter: PickFilter = .default,
-                options: ViewportOptions = ViewportOptions(), delegate: (any ViewportDelegate)? = nil,
-                controller: ViewportController? = nil) {
+                options: ViewportOptions = ViewportOptions(), visualStyle: Binding<VisualStyle>? = nil,
+                delegate: (any ViewportDelegate)? = nil, controller: ViewportController? = nil) {
         self.scene = scene
         self._camera = camera
         self.filter = filter
         self.options = options
+        self.visualStyle = visualStyle
         self.delegate = delegate
         self._controller = State(initialValue: controller ?? ViewportController())
     }
@@ -46,7 +49,14 @@ public struct ViewportView: View {
         options.appearance ?? (colorScheme == .dark ? .dark : .light)
     }
 
+    private var shownScene: ViewportScene {
+        var s = scene
+        if let visualStyle { s.visualStyle = visualStyle.wrappedValue }
+        return s
+    }
+
     public var body: some View {
+        let scene = shownScene
         ZStack(alignment: .topTrailing) {
             if controller.renderer != nil {
                 // Reading the camera here (not only passing its binding) makes a camera-only change
@@ -73,7 +83,7 @@ public struct ViewportView: View {
                     .allowsHitTesting(false)
             }
             if options.showsViewCube {
-                ViewCubeOverlay(controller: controller, appearance: appearance)
+                ViewCubeOverlay(controller: controller, appearance: appearance, visualStyle: visualStyle)
                     .padding(12)
             }
         }
@@ -334,6 +344,7 @@ extension ViewportAppearance {
 struct ViewCubeOverlay: View {
     let controller: ViewportController
     let appearance: ViewportAppearance
+    var visualStyle: Binding<VisualStyle>?
 
     var body: some View {
         VStack(spacing: 8) {
@@ -350,11 +361,15 @@ struct ViewCubeOverlay: View {
                 }
                 .accessibilityValue(perspective ? "Perspective" : "Orthographic")
             }
+            // As wide as the two buttons above: one choice of several, so a dropdown, not a button.
+            if let visualStyle {
+                VisualStyleChip(style: visualStyle, appearance: appearance, width: CubeButton.side * 2 + 6, height: CubeButton.side)
+            }
         }
     }
 }
 
-private struct CubeButton: View {
+struct CubeButton: View {
     let systemName: String
     let help: String
     let appearance: ViewportAppearance

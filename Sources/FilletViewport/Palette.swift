@@ -13,6 +13,10 @@ public struct ViewportPalette: Hashable, Sendable {
     public var backgroundBottom: ViewportColor
     public var body: ViewportColor
     public var edge: ViewportColor
+    /// Faces in the hidden-line style: the paper the drawing is on.
+    public var paper: ViewportColor
+    /// Edges on unlit faces (x-ray, wireframe, hidden line): light on the dark viewport and paper.
+    public var wire: ViewportColor
     public var accent: ViewportColor
     public var hover: ViewportColor
     /// Tint for selected faces (alpha = tint amount).
@@ -65,6 +69,8 @@ public struct ViewportPalette: Hashable, Sendable {
         backgroundBottom: ViewportColor(hex: 0xDDE1E7),
         body: .defaultBody,
         edge: ViewportColor(hex: 0x23272E, alpha: 0.92),
+        paper: ViewportColor(hex: 0xFFFFFF),
+        wire: ViewportColor(hex: 0x23272E, alpha: 0.92),
         accent: ViewportColor(hex: 0x1A73FF),
         hover: ViewportColor(hex: 0x69A6FF),
         selectionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.6),
@@ -106,6 +112,10 @@ public struct ViewportPalette: Hashable, Sendable {
         backgroundBottom: ViewportColor(hex: 0x151922),
         body: ViewportColor(hex: 0xB3BDCF),
         edge: ViewportColor(hex: 0x0B0C0E, alpha: 0.95),
+        // A step above the bed's navy (the view cube's near face), so parts read as sheets laid on it.
+        paper: ViewportColor(hex: 0x2A3344),
+        // Full strength: thin wires have to beat the bed's pale ruling.
+        wire: ViewportColor(hex: 0xDCE3EE),
         accent: ViewportColor(hex: 0x3B8BFF),
         hover: ViewportColor(hex: 0x7FB2FF),
         selectionFill: ViewportColor(hex: 0x2E9CFF, alpha: 0.6),

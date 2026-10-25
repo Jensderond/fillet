@@ -42,6 +42,7 @@ struct MeshDraw {
     static let overhang: UInt32 = 1
     static let unlit: UInt32 = 2
     static let pull: UInt32 = 4
+    static let highlightOnly: UInt32 = 8
 }
 
 struct ShadowDraw {

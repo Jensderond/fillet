@@ -83,6 +83,8 @@ struct EditorContent: View {
     @State private var width: CGFloat = 1400
     @State private var showUpdating = false
     @AppStorage("fingerDraws") private var fingerDraws = false
+    /// How bodies are drawn; one choice for every window, like Fusion's display settings.
+    @AppStorage(VisualStyle.defaultsKey) private var visualStyle = VisualStyle.shadedWithEdges
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.touchTargets) private var touch
     @Environment(\.dynamicTypeSize) private var typeSize
@@ -225,6 +227,7 @@ struct EditorContent: View {
                 options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion,
                                          cameraAnimationDuration: cameraAnimationDuration,
                                          contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary),
+                visualStyle: $visualStyle,
                 delegate: session,
                 controller: controller)
                 .background(GeometryReader { proxy in

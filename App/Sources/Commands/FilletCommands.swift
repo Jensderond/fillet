@@ -16,12 +16,16 @@ struct FilletCommands: Commands {
     @FocusedValue(\.session) private var session
     @FocusedValue(\.viewport) private var viewport
     @FocusedValue(\.isEditingText) private var isEditingText
+    @AppStorage(VisualStyle.defaultsKey) private var visualStyle = VisualStyle.shadedWithEdges
 
     var body: some Commands {
         CommandGroup(before: .toolbar) {
             Button("Zoom to Fit") { viewport?.fitAll() }
                 .keyboardShortcut("0", modifiers: .command)
                 .disabled(viewport == nil)
+            Picker("Visual Style", selection: $visualStyle) {
+                ForEach(VisualStyle.allCases, id: \.self) { Text($0.menuTitle).tag($0) }
+            }
             Divider()
         }
 
@@ -74,6 +78,22 @@ struct FilletCommands: Commands {
     /// A single-key shortcut, withdrawn while typing so it can never take a keystroke from a field.
     private func bare(_ key: KeyEquivalent) -> KeyboardShortcut? {
         isEditingText == true || session?.isTypingDimension == true ? nil : KeyboardShortcut(key, modifiers: [])
+    }
+}
+
+extension VisualStyle {
+    static let defaultsKey = "visualStyle"
+
+    /// Title Case for the menu bar (the viewport's picker uses the sentence-case `title`).
+    var menuTitle: String {
+        switch self {
+        case .shaded: "Shaded"
+        case .shadedWithEdges: "Shaded with Edges"
+        case .shadedWithHiddenEdges: "Shaded with Hidden Edges"
+        case .xray: "X-Ray"
+        case .wireframe: "Wireframe"
+        case .hiddenLine: "Hidden Line"
+        }
     }
 }
 
