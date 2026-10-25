@@ -29,9 +29,41 @@ A team picked under *Signing & Capabilities* is lost on the next `xcodegen gener
 | `Sources/FilletKernel` | Swift wrapper: `Shape`, `SketchRegions`, `Mesh`, geometry types |
 | `Sources/FilletCore` | Document model, expressions & parameters, sketch shapes & tools, persistent references, recompute engine, print analysis, 3MF/STL export |
 | `Sources/FilletViewport` | Metal renderer, camera, picking, touch/Pencil/mouse input |
+| `Sources/FilletAgent` | MCP server for AI agents: modelling tools, HTTP + stdio transports, headless workspace |
+| `Sources/fillet-mcp` | The headless MCP command (stdio), and a bridge to the running app |
 | `App/` | The SwiftUI app (XcodeGen `project.yml`) |
 | `docs/design.md` | Design and architecture |
 | `docs/icon/` | App icon sources (`build.sh` regenerates everything) |
+
+## Agents (MCP)
+
+AI agents can design in Fillet through its [MCP](https://modelcontextprotocol.io) server, while you
+watch: every step lands in the open window and undoes like your own. The tools cover the whole
+modelling workflow (sketch, extrude, revolve, loft, primitives, fillet, booleans, move/scale/mirror,
+parameters, colours, print check, export) and `render_view` returns an image so the agent can look
+at its work (`presentation: true` for a product-shot look). A step that fails or breaks later steps
+is refused with the kernel's reason instead of being added.
+
+**Live, in the app.** Turn on *Design ▸ Allow Agent Connections* (or the ✦ toolbar button, which
+also shows the setup command). Then, for Claude Code:
+
+```sh
+claude mcp add --transport http fillet http://127.0.0.1:7878/mcp
+```
+
+On iPad the server listens on the network and needs the token shown in the ✦ popover
+(`--header "Authorization: Bearer …"`). `FILLET_MCP=1` turns the server on at launch and
+`FILLET_MCP_PORT` picks another port. For stdio-only clients, `fillet-mcp --connect` bridges to the app.
+
+**Headless**, no window, saving to a file after every step:
+
+```sh
+swift build -c release --product fillet-mcp
+claude mcp add fillet-headless -- "$PWD/.build/release/fillet-mcp" ~/Designs/bracket.fillet
+```
+
+The tools live in `Sources/FilletAgent` (protocol, transports, tools, headless workspace);
+the app hosts them in `App/Sources/Agent`.
 
 ## End-to-end check (Mac)
 
