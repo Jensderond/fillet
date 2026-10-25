@@ -177,6 +177,18 @@ struct FeatureTests {
         expectKernelError("nothing is left") { _ = try a.boolean(.cut, [b, try cube(30, at: Vec3(-10, -10, -10))]) }
     }
 
+    @Test func insideOutSolidsAreTurnedRightWayOut() throws {
+        // The last line of a BRep string is the root shape ("+<index> 0"); "-" reverses it.
+        var lines = try cube(10).brepString().split(separator: "\n", omittingEmptySubsequences: false)
+        let root = try #require(lines.lastIndex { $0.hasPrefix("+") })
+        lines[root] = "-" + lines[root].dropFirst()
+        let insideOut = try Shape.fromBRep(lines.joined(separator: "\n"))
+        #expect(close(insideOut.volume, -1000))
+        // Every modelling result goes through the kernel's clean-up, which reverses it.
+        #expect(close(try insideOut.translated(by: Vec3(1, 0, 0)).volume, 1000))
+        #expect(close(try insideOut.transformed(Transform(matrix: [2, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0])).volume, 2000))
+    }
+
     @Test func fuseMergesCoplanarFaces() throws {
         let a = try cube(10)
         let b = try cube(10, at: Vec3(10, 0, 0))
