@@ -32,6 +32,10 @@ import UniformTypeIdentifiers
 enum DebugAutomation {
     static var isEnabled: Bool { ProcessInfo.processInfo.environment["FILLET_AUTOMATION"] != nil }
 
+    /// `FILLET_BLANK_EDITOR=1`: the iPad build opens the automation's blank editor without running
+    /// the script (e.g. to watch an agent design in the simulator without tapping through the browser).
+    static var opensBlankEditor: Bool { ProcessInfo.processInfo.environment["FILLET_BLANK_EDITOR"] != nil }
+
     static let outputDirectory: URL = {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fillet-automation", isDirectory: true)
         try? FileManager.default.removeItem(at: dir)

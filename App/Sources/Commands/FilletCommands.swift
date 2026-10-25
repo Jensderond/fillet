@@ -53,6 +53,17 @@ struct FilletCommands: Commands {
             Divider()
             Button("Import STEP…") { session?.importRequested = true }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
+            Divider()
+            Toggle("Allow Agent Connections", isOn: Bindable(AgentHub.shared).isEnabled)
+            Button("Copy Agent Setup Command") {
+                #if os(macOS)
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(AgentHub.shared.claudeCodeCommand, forType: .string)
+                #else
+                UIPasteboard.general.string = AgentHub.shared.claudeCodeCommand
+                #endif
+            }
+            .disabled(!AgentHub.shared.isEnabled)
         }
 
         CommandMenu("Sketch") {

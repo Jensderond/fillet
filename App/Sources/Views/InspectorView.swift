@@ -226,6 +226,8 @@ struct FeatureInspector: View {
         case .primitive(let p): primitive(p)
         case .combine(let c): combine(c)
         case .move(let m): move(m)
+        case .scale(let sc): scale(sc)
+        case .loft(let l): loft(l)
         case .mirror(let m): mirror(m)
         case .pattern(let p): pattern(p)
         case .layFlat:
@@ -374,6 +376,46 @@ struct FeatureInspector: View {
         Text("Rotate").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, Theme.Space.xs)
         AxisPicker(axis: m.rotationAxis) { var x = m; x.rotationAxis = $0; set(.move(x)) }
         ExprField(label: "Angle", value: m.rotationAngle, kind: .angle, evaluator: ev) { var x = m; x.rotationAngle = $0; set(.move(x)) }
+        // Only moves made by an agent have a centre; the axis then runs through it instead of the origin.
+        if let c = m.rotationCenter, m.rotationAxis.referencedBodies.isEmpty {
+            Text("Rotation center").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, Theme.Space.xs)
+            ExprField(label: "X", value: c.x, evaluator: ev) { var x = m; x.rotationCenter?.x = $0; set(.move(x)) }
+            ExprField(label: "Y", value: c.y, evaluator: ev) { var x = m; x.rotationCenter?.y = $0; set(.move(x)) }
+            ExprField(label: "Z", value: c.z, evaluator: ev) { var x = m; x.rotationCenter?.z = $0; set(.move(x)) }
+        }
+    }
+
+    @ViewBuilder private func scale(_ sc: Scale) -> some View {
+        SelectionCount(count: sc.bodies.count, noun: "body", plural: "bodies", hint: "\(Theme.Copy.pick) bodies to scale") {
+            var x = sc; x.bodies = []; set(.scale(x))
+        }
+        Text("Factors").font(Theme.sectionTitle).foregroundStyle(Theme.ink)
+        ExprField(label: "X", value: sc.factors.x, kind: .scalar, evaluator: ev) { var x = sc; x.factors.x = $0; set(.scale(x)) }
+        ExprField(label: "Y", value: sc.factors.y, kind: .scalar, evaluator: ev) { var x = sc; x.factors.y = $0; set(.scale(x)) }
+        ExprField(label: "Z", value: sc.factors.z, kind: .scalar, evaluator: ev) { var x = sc; x.factors.z = $0; set(.scale(x)) }
+        Text("Center").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, Theme.Space.xs)
+        ExprField(label: "X", value: sc.center.x, evaluator: ev) { var x = sc; x.center.x = $0; set(.scale(x)) }
+        ExprField(label: "Y", value: sc.center.y, evaluator: ev) { var x = sc; x.center.y = $0; set(.scale(x)) }
+        ExprField(label: "Z", value: sc.center.z, evaluator: ev) { var x = sc; x.center.z = $0; set(.scale(x)) }
+    }
+
+    /// Lofts come from agents (sections in space are hard to place by hand); here their sizes and
+    /// positions can be tuned.
+    @ViewBuilder private func loft(_ l: Loft) -> some View {
+        OperationPicker(operation: l.operation) { var x = l; x.operation = $0; set(.loft(x)) }
+        Toggle("Smooth", isOn: Binding(get: { !l.ruled }, set: { var x = l; x.ruled = !$0; set(.loft(x)) }))
+        ForEach(Array(l.sections.enumerated()), id: \.offset) { i, section in
+            Text("Section \(i + 1)").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, Theme.Space.xs)
+            ExprField(label: section.height == nil ? "Diameter" : "Width", value: section.width, evaluator: ev) { v in
+                var x = l; x.sections[i].width = v; set(.loft(x))
+            }
+            if let height = section.height {
+                ExprField(label: "Height", value: height, evaluator: ev) { v in var x = l; x.sections[i].height = v; set(.loft(x)) }
+            }
+            ExprField(label: "X", value: section.center.x, evaluator: ev) { v in var x = l; x.sections[i].center.x = v; set(.loft(x)) }
+            ExprField(label: "Y", value: section.center.y, evaluator: ev) { v in var x = l; x.sections[i].center.y = v; set(.loft(x)) }
+            ExprField(label: "Z", value: section.center.z, evaluator: ev) { v in var x = l; x.sections[i].center.z = v; set(.loft(x)) }
+        }
     }
 
     @ViewBuilder private func mirror(_ m: Mirror) -> some View {
@@ -624,6 +666,8 @@ extension FeatureKind {
             }
         case .combine: "square.on.square"
         case .move: "move.3d"
+        case .scale: "arrow.up.left.and.arrow.down.right"
+        case .loft: "point.3.connected.trianglepath.dotted"
         case .mirror: "arrow.left.and.right.righttriangle.left.righttriangle.right"
         case .pattern: "square.grid.3x1.below.line.grid.1x2"
         case .importedSTEP: "square.and.arrow.down"
@@ -646,6 +690,8 @@ extension FeatureKind {
         case .primitive(let p): "\(p.kind.rawValue.capitalized) solid"
         case .combine: "Joins, cuts or intersects bodies"
         case .move: "Moves and rotates bodies"
+        case .scale: "Stretches or squashes bodies"
+        case .loft: "Skins a solid through sections"
         case .mirror: "Mirrors bodies across a plane"
         case .pattern: "Repeats bodies"
         case .importedSTEP: "Imported geometry"

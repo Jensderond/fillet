@@ -1,0 +1,92 @@
+import FilletAgent
+import FilletCore
+import FilletViewport
+import Foundation
+
+/// An open document window as an agent workspace: changes go through the session (so the
+/// window shows them and they undo like the user's own), recompute is the session's.
+@MainActor
+final class LiveWorkspace: DesignWorkspace {
+    let id = UUID()
+    weak var session: DesignSession?
+    /// Checks candidate changes without touching the window (cached like the session's).
+    private let previewEvaluator = ModelEvaluator()
+
+    init(session: DesignSession) { self.session = session }
+
+    private var s: DesignSession {
+        get throws {
+            guard let session else { throw ToolError("This design's window was closed") }
+            return session
+        }
+    }
+
+    var title: String { session.map { $0.document.name ?? $0.documentName ?? "Untitled" } ?? "Closed" }
+    var document: Document { session?.document ?? Document() }
+    var hiddenBodies: Set<BodyRef> { session?.hiddenBodies ?? [] }
+    var camera: Camera { session?.camera ?? Camera() }
+
+    var viewAspect: Double {
+        guard let size = session?.viewSize, size.height > 0 else { return 4 / 3 }
+        return size.width / size.height
+    }
+
+    func evaluated() async -> EvaluatedModel {
+        guard let session else { return EvaluatedModel(parameters: Document().parameterTable) }
+        return await session.settledModel()
+    }
+
+    func preview(_ candidate: Document) async -> EvaluatedModel {
+        await previewEvaluator.evaluate(candidate)
+    }
+
+    func commit(_ newDocument: Document, action: String) async -> EvaluatedModel {
+        guard let session else { return await evaluated() }
+        // An agent's step replaces whatever the user had open in the inspector (like starting a tool does).
+        session.commitEdit()
+        session.perform(action) { $0 = newDocument }
+        let model = await session.settledModel()
+        session.keepModelInView()
+        return model
+    }
+
+    func undo() async -> String? {
+        guard let session, let manager = session.undoManager, manager.canUndo else { return nil }
+        session.commitEdit()
+        let name = manager.undoActionName
+        manager.undo()
+        _ = await session.settledModel()
+        return name.isEmpty ? "last step" : name
+    }
+
+    func redo() async -> String? {
+        guard let session, let manager = session.undoManager, manager.canRedo else { return nil }
+        session.commitEdit()
+        let name = manager.redoActionName
+        manager.redo()
+        _ = await session.settledModel()
+        return name.isEmpty ? "last step" : name
+    }
+
+    func show(_ camera: Camera) {
+        session?.camera = camera
+    }
+}
+
+extension DesignSession {
+    /// The model once any running recompute has caught up with the document.
+    func settledModel() async -> EvaluatedModel {
+        while isRecomputePending {
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        return model
+    }
+
+    /// After an agent's step: reframe when the design grew out of the visible part of the viewport.
+    func keepModelInView() {
+        guard hasFramedInitialView, sketchEditor == nil, let bounds = visibleBodyBounds else { return }
+        let visible = viewInsets.rect(in: viewSize).insetBy(dx: -1, dy: -1)
+        if let box = camera.screenRect(of: bounds, viewSize: viewSize), visible.contains(box) { return }
+        frameBodies()
+    }
+}

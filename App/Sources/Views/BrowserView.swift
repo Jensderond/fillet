@@ -21,8 +21,8 @@ struct BrowserView: View {
                         ForEach(session.model.bodies) { body in
                             let hidden = session.hiddenBodies.contains(body.ref)
                             BrowserRow(
-                                symbol: "cube", title: body.name, selected: session.selection.contains(.body(body.ref)),
-                                dimmed: hidden,
+                                symbol: "cube.fill", title: body.name, selected: session.selection.contains(.body(body.ref)),
+                                dimmed: hidden, tint: session.document.bodyColors[body.ref].flatMap(Color.init(bodyHex:)),
                                 trailing: {
                                     Button {
                                         if hidden { session.hiddenBodies.remove(body.ref) } else { session.hiddenBodies.insert(body.ref) }
@@ -41,6 +41,7 @@ struct BrowserView: View {
                             ) {
                                 session.toggleSelection(.body(body.ref), additive: false)
                             }
+                            .contextMenu { BodyColorMenu(session: session, bodyRef: body.ref) }
                         }
                     }
                 }
@@ -67,6 +68,39 @@ struct BrowserView: View {
     }
 }
 
+/// Display colours for bodies (context menu on a body row).
+struct BodyColorMenu: View {
+    let session: DesignSession
+    let bodyRef: BodyRef
+
+    static let swatches: [(name: String, hex: String)] = [
+        ("Slate", ""), ("Red", "#E53935"), ("Orange", "#FB8C00"), ("Yellow", "#FDD835"), ("Green", "#43A047"),
+        ("Teal", "#00897B"), ("Blue", "#1E88E5"), ("Purple", "#8E24AA"), ("Pink", "#EC407A"), ("Brown", "#8D6E63"),
+        ("White", "#F5F5F5"), ("Black", "#263238"),
+    ]
+
+    var body: some View {
+        Menu("Color") {
+            ForEach(Self.swatches, id: \.name) { swatch in
+                Button {
+                    session.perform("Color Body") { $0.bodyColors[bodyRef] = swatch.hex.isEmpty ? nil : swatch.hex }
+                } label: {
+                    Label(swatch.name, systemImage: (session.document.bodyColors[bodyRef] ?? "") == swatch.hex ? "checkmark" : "circle.fill")
+                }
+            }
+        }
+    }
+}
+
+extension Color {
+    /// A body colour as stored in the document (`#RRGGBB`).
+    init?(bodyHex: String) {
+        let s = bodyHex.hasPrefix("#") ? String(bodyHex.dropFirst()) : bodyHex
+        guard s.count == 6, let v = UInt32(s, radix: 16) else { return nil }
+        self.init(hex: v)
+    }
+}
+
 /// A sidebar row with hover, selected (picked, blue) and active (being edited, orange) states.
 struct BrowserRow<Trailing: View>: View {
     let symbol: String
@@ -74,6 +108,8 @@ struct BrowserRow<Trailing: View>: View {
     let selected: Bool
     var isActive = false
     let dimmed: Bool
+    /// The body's own colour for the symbol (when it has one and isn't picked or being edited).
+    var tint: Color? = nil
     @ViewBuilder var trailing: Trailing
     let action: () -> Void
 
@@ -86,7 +122,7 @@ struct BrowserRow<Trailing: View>: View {
                 HStack(spacing: Theme.Space.s) {
                     Image(systemName: symbol)
                         .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(isActive ? Theme.filletInk : selected ? Theme.select : dimmed ? Theme.inkTertiary : Theme.inkSecondary)
+                        .foregroundStyle(isActive ? Theme.filletInk : selected ? Theme.select : dimmed ? Theme.inkTertiary : tint ?? Theme.inkSecondary)
                         .frame(width: 18)
                         .accessibilityHidden(true)
                     Text(title)

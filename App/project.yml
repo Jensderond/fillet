@@ -34,6 +34,8 @@ targets:
         LSSupportsOpeningDocumentsInPlace: true
         UILaunchScreen: {}
         UIApplicationSupportsIndirectInputEvents: true
+        NSLocalNetworkUsageDescription: Lets AI agents on your Mac design in Fillet while you watch, when you allow agent connections.
+        NSBonjourServices: [_fillet-mcp._tcp]
         UISupportedInterfaceOrientations~ipad:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationPortraitUpsideDown
@@ -74,6 +76,8 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
+        # Agents connect to the app's MCP server (Design ▸ Allow Agent Connections).
+        com.apple.security.network.server: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.fillet.Fillet

@@ -39,6 +39,12 @@
 	<string>public.app-category.graphics-design</string>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_fillet-mcp._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Lets AI agents on your Mac design in Fillet while you watch, when you allow agent connections.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchScreen</key>

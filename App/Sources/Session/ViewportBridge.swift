@@ -33,7 +33,7 @@ extension DesignSession {
         case .fillet, .chamfer: return .edges
         case .shell: return .faces
         case .layFlat: return .singleFace
-        case .combine, .move, .mirror, .pattern: return .bodies
+        case .combine, .move, .scale, .mirror, .pattern: return .bodies
         default: return .idle
         }
     }
@@ -64,6 +64,7 @@ extension DesignSession {
             }
             scene.bodies.append(SceneBody(
                 id: body.ref.feature, mesh: mesh, version: ObjectIdentifier(body.shape).hashValue,
+                color: document.bodyColors[body.ref].flatMap(ViewportColor.init(hexString:)),
                 visible: !hiddenBodies.contains(body.ref), highlight: highlight))
         }
         scene.selection = selected.union(editingSelectionTargets())
@@ -481,11 +482,12 @@ extension Selection {
 }
 
 extension FeatureKind {
-    /// Bodies a body-level feature (combine, move, mirror, pattern) operates on.
+    /// Bodies a body-level feature (combine, move, scale, mirror, pattern) operates on.
     var selectedBodies: [BodyRef] {
         switch self {
         case .combine(let c): [c.target] + c.tools
         case .move(let m): m.bodies
+        case .scale(let s): s.bodies
         case .mirror(let m): m.bodies
         case .pattern(let p): p.bodies
         default: []

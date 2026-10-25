@@ -252,6 +252,9 @@ final class DesignSession {
 
     // MARK: Recompute
 
+    /// A recompute is running or queued, so `model` may not match `document` yet.
+    var isRecomputePending: Bool { recomputeTask != nil || pendingRecompute }
+
     func recompute() {
         pendingRecompute = true
         guard recomputeTask == nil else { return }

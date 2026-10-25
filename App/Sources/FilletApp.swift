@@ -2,6 +2,7 @@ import SwiftUI
 
 struct FilletApp: App {
     init() {
+        _ = AgentHub.shared  // listens for agents from launch when allowed
         #if DEBUG && os(macOS)
         DebugAutomation.launch()
         #endif
@@ -35,7 +36,12 @@ struct FilletApp: App {
 @main
 enum FilletLauncher {
     @MainActor static func main() {
-        if DebugAutomation.isEnabled || DemoDirector.isEnabled { AutomationApp.main() } else { FilletApp.main() }
+        if DebugAutomation.isEnabled || DemoDirector.isEnabled || DebugAutomation.opensBlankEditor {
+            _ = AgentHub.shared  // FilletApp's init starts it otherwise
+            AutomationApp.main()
+        } else {
+            FilletApp.main()
+        }
     }
 }
 #else

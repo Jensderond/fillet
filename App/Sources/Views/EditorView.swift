@@ -27,10 +27,12 @@ struct EditorView: View {
                 s.documentName = name
             }
             session = s
+            AgentHub.shared.register(s)
             #if DEBUG
             SplashFrameExporter.exportIfRequested()
             #endif
         }
+        .onDisappear { if let session { AgentHub.shared.unregister(session) } }
         .onChange(of: document.model) { _, model in session?.externalUpdate(model) }
         .onChange(of: undoManager) { _, manager in session?.undoManager = manager }
     }
@@ -82,6 +84,13 @@ struct EditorContent: View {
     /// The window's width, from a container that content can't widen (see `OfferedSpace`).
     @State private var width: CGFloat = 1400
     @State private var showUpdating = false
+    /// An agent is designing in this window (or just was).
+    @State private var agentWorking = false
+    #if os(macOS)
+    @Environment(\.controlActiveState) private var controlActiveState
+    #else
+    @Environment(\.scenePhase) private var scenePhase
+    #endif
     @AppStorage("fingerDraws") private var fingerDraws = false
     /// How bodies are drawn; one choice for every window, like Fusion's display settings.
     @AppStorage(VisualStyle.defaultsKey) private var visualStyle = VisualStyle.shadedWithEdges
@@ -161,6 +170,17 @@ struct EditorContent: View {
             await DemoDirector.run(session)
         }
         #endif
+        #endif
+        // The agent pill stays up a moment after each step, so a run of steps reads as one stretch of work.
+        .task(id: AgentHub.shared.lastActivity) {
+            agentWorking = AgentHub.shared.isWorking(on: session)
+            try? await Task.sleep(for: .seconds(2.6))
+            agentWorking = AgentHub.shared.isWorking(on: session)
+        }
+        #if os(macOS)
+        .onChange(of: controlActiveState, initial: true) { _, state in if state == .key { AgentHub.shared.activated(session) } }
+        #else
+        .onChange(of: scenePhase, initial: true) { _, phase in if phase == .active { AgentHub.shared.activated(session) } }
         #endif
         // Only show "Updating" when a recompute takes long enough to notice.
         .task(id: session.isRecomputing) {
@@ -254,6 +274,13 @@ struct EditorContent: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .transition(.panel(from: .top, reduceMotion: reduceMotion))
                 }
+                if agentWorking {
+                    AgentPill(agent: AgentHub.shared.agentName, activity: AgentHub.shared.activity)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.panel(from: .top, reduceMotion: reduceMotion))
+                }
                 if let hint = currentHint {
                     // Crossfades when the kind of hint changes (sketch, picking, getting started);
                     // within one, the text swaps instantly: it changes with every click.
@@ -286,6 +313,7 @@ struct EditorContent: View {
             .animation(Theme.Motion.enter, value: session.choosingSketchPlane)
             .animation(Theme.Motion.enter, value: session.document.activeFeatureCount < session.document.features.count)
             .animation(Theme.Motion.enter, value: session.message)
+            .animation(Theme.Motion.enter, value: agentWorking)
 
             if showUpdating {
                 HStack(spacing: Theme.Space.s) {
@@ -936,6 +964,7 @@ struct DocumentToolbar: ToolbarContent {
                 .help(session.canRedo ? "Redo \(undoManager?.redoActionName ?? "")" : "Nothing to redo")
             PrinterMenu(session: session)
             ExportMenu(session: session)
+            AgentToolbarButton()
         }
     }
 }

@@ -379,6 +379,7 @@ extension DesignSession {
                 toggle(&c.tools)
                 feature.kind = .combine(c)
             case .move(var m): toggle(&m.bodies); feature.kind = .move(m)
+            case .scale(var sc): toggle(&sc.bodies); feature.kind = .scale(sc)
             case .mirror(var m): toggle(&m.bodies); feature.kind = .mirror(m)
             case .pattern(var p): toggle(&p.bodies); feature.kind = .pattern(p)
             default: break
