@@ -1,14 +1,16 @@
 import SwiftUI
 
-/// The launch splash, laid over the first editor window of each launch.
+/// The launch splash, laid over the app as it opens (see `SplashPresenter`).
 ///
 /// Driven by the clock: a `TimelineView` feeds elapsed time into the pure
-/// `SplashArtwork(progress:)`. It never blocks the editor: the overlay takes
-/// no hits, so the editor underneath is live, and any tap, click, scroll or
-/// key press (which still reaches the editor) fades the sheet out in 0.15 s
-/// from wherever it is. With Reduce Motion it shows the finished drawing,
-/// still, and crossfades to the editor.
+/// `SplashArtwork(progress:)`. It never blocks the app: the overlay takes no
+/// hits, so whatever is underneath is live, and the first input (which still
+/// reaches the app) sets `isSkipped`, fading the sheet out in 0.15 s from
+/// wherever it is. With Reduce Motion it shows the finished drawing, still,
+/// and crossfades to the app.
 struct SplashOverlay: View {
+    /// Set on the first input: fades the sheet out from wherever it is.
+    let isSkipped: Bool
     /// Called once the splash has fully faded, so the owner can remove it.
     let onFinish: () -> Void
 
@@ -32,7 +34,9 @@ struct SplashOverlay: View {
         .ignoresSafeArea()
         .allowsHitTesting(false)
         .accessibilityHidden(true)
-        .onAnyInput(perform: skip)
+        .onChange(of: isSkipped) { _, skipped in
+            if skipped, skippedAt == nil { skippedAt = .now }
+        }
         .onAppear { start = .now }
         .task(id: skippedAt) {
             // Remove the overlay when the current ending (natural, reduced or skipped) has played.
@@ -46,29 +50,5 @@ struct SplashOverlay: View {
             guard !Task.isCancelled else { return }
             onFinish()
         }
-    }
-
-    private func skip() {
-        if skippedAt == nil { skippedAt = .now }
-    }
-}
-
-/// Shows the splash once per launch, never under the debug automation harness.
-@MainActor
-enum SplashGate {
-    private static var claimed = false
-
-    /// True for the first editor window of this launch only.
-    static func claim() -> Bool {
-        guard !claimed else { return false }
-        claimed = true
-        let environment = ProcessInfo.processInfo.environment
-        #if DEBUG
-        if environment["FILLET_SPLASH_FRAMES"] != nil {
-            SplashFrameExporter.exportToTemporaryDirectory()
-        }
-        #endif
-        // Automation window snapshots must stay clean.
-        return environment["FILLET_AUTOMATION"] == nil
     }
 }

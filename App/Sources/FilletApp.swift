@@ -5,6 +5,9 @@ struct FilletApp: App {
         #if DEBUG && os(macOS)
         DebugAutomation.launch()
         #endif
+        #if os(iOS)
+        SplashPresenter.playOnFirstScene()
+        #endif
     }
 
     var body: some Scene {

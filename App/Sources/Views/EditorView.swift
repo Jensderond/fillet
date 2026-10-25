@@ -9,7 +9,6 @@ struct EditorView: View {
     let fileURL: URL?
 
     @State private var session: DesignSession?
-    @State private var showSplash = false
     @Environment(\.undoManager) private var undoManager
 
     var body: some View {
@@ -20,7 +19,6 @@ struct EditorView: View {
                 Theme.chrome
             }
         }
-        .overlay { if showSplash { SplashOverlay { showSplash = false } } }
         .onAppear {
             let s = DesignSession(document: document.model)
             s.undoManager = undoManager
@@ -29,7 +27,9 @@ struct EditorView: View {
                 s.documentName = name
             }
             session = s
-            showSplash = SplashGate.claim()
+            #if DEBUG
+            SplashFrameExporter.exportIfRequested()
+            #endif
         }
         .onChange(of: document.model) { _, model in session?.externalUpdate(model) }
         .onChange(of: undoManager) { _, manager in session?.undoManager = manager }

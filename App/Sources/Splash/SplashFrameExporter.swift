@@ -17,15 +17,24 @@ import UniformTypeIdentifiers
 ///     cp ~/Library/Containers/app.fillet.Fillet/Data/tmp/fillet-splash/frames.png docs/splash/
 @MainActor
 enum SplashFrameExporter {
-    /// The sweep: every 0.05 of progress (0.08 s).
+    /// The sweep: every 0.05 of progress (about 0.13 s).
     static let sweep: [Double] = (0...20).map { Double($0) / 20 }
     /// Extra frames through the hero, in seconds: the pass and its spring.
-    static let heroTimes: [Double] = [0.56, 0.6, 0.64, 0.68, 0.72, 0.76, 0.8, 0.86, 0.94, 1.04]
+    static let heroTimes: [Double] = [1.01, 1.08, 1.14, 1.21, 1.27, 1.34, 1.4, 1.49, 1.6, 1.73]
 
     static let iPadLandscape = CGSize(width: 1366, height: 1024)
     static let iPadPortrait = CGSize(width: 1024, height: 1366)
     static let macSmall = CGSize(width: 900, height: 548)
     static let macLarge = CGSize(width: 1728, height: 1050)
+
+    private static var exported = false
+
+    /// Exports once per launch, when `FILLET_SPLASH_FRAMES` is set.
+    static func exportIfRequested() {
+        guard !exported, ProcessInfo.processInfo.environment["FILLET_SPLASH_FRAMES"] != nil else { return }
+        exported = true
+        exportToTemporaryDirectory()
+    }
 
     static func exportToTemporaryDirectory() {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("fillet-splash", isDirectory: true)

@@ -4,7 +4,8 @@ import SwiftUI
 /// The iPad document browser's launch scene, dressed as the splash: the
 /// icon's engineering paper behind the system's title card, and the icon's
 /// filleted block drawn on the card above the title, as the splash draws it
-/// above the wordmark. Opening a design then plays the splash on the same paper.
+/// above the wordmark. At launch the splash plays over it and lifts away onto
+/// the same paper.
 ///
 /// `layer` picks the half: the scene draws its background accessory under the
 /// title card and its overlay accessory over the card (and over the title and
