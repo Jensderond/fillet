@@ -1,18 +1,20 @@
 # Performance
 
-Recompute benchmark and baseline numbers. Measurement only: nothing here has been optimised yet.
+Recompute benchmark, the baseline numbers, and what each optimisation round changed (see
+[Round 1](#round-1-kernel-booleans-2026-10-25)).
 
 ## Running it
 
 ```sh
 swift build -c release --product fillet-bench
-.build/release/fillet-bench --booleans > bench.md    # ~10 min on an M4 Pro; progress on stderr
+.build/release/fillet-bench --booleans > bench.md    # ~40 s on an M4 Pro (10 min at baseline); progress on stderr
 ```
 
 `fillet-bench [design.fillet] [--runs N] [--query-runs M] [--top K] [--no-cascade] [--booleans]`.
 It defaults to `Benchmarks/frog-wizard.fillet`. `--runs` (default 3) sets how many cold evaluates
 and cascades it takes the median of. `--query-runs` (default 10) does the same for tessellation and
-face/edge queries. `--booleans` replays each boolean of the 5 slowest combine steps on its own.
+face/edge queries. `--booleans` replays each boolean of the 5 slowest combine steps on its own, then
+all tools of a multi-tool step in one boolean (what the evaluator does since Round 1).
 
 It measures:
 
@@ -135,7 +137,9 @@ From `sample` of the cold evaluate. Shares are of samples on the evaluating thre
   then by the session's own evaluator, which has its own cache. An agent adding step 76 therefore
   waits about 108 s instead of 54 s.
 
-## Optimisation candidates (ranked)
+## Optimisation candidates at baseline (ranked)
+
+Round 1 took care of 1 and 4; see [what's left](#whats-left-ranked) after it.
 
 1. **Faster booleans on freeform bodies (the 98.5%).** Try BRepAlgoAPI options on the
    `--booleans` replay, then check the fingerprint:
@@ -164,3 +168,172 @@ From `sample` of the cold evaluate. Shares are of samples on the evaluating thre
    A coarser angular deflection would make interactive late-step edits feel faster. Low payoff.
 7. **Parallelising independent steps**: low payoff on this fixture, which is one long dependent
    chain. The kernel already parallelises inside PerformEF.
+
+## Round 1: kernel booleans (2026-10-25)
+
+Same machine and fixture as the baseline. Cold evaluate **81.6 s → 2.39 s (34×)**, early-edit
+cascade **82.0 s → 2.38 s**. Six commits, all in the kernel except the multi-tool combine:
+
+| commit | change | cold evaluate ms |
+|---|---|---:|
+| baseline | | 81 600 |
+| `744bd00` | cap OCCT's localised edge/face search (patched `IntTools_BeanFaceIntersector`) | 7 815 |
+| `ecfd7e1` | multi-tool combines as one boolean | 4 148 |
+| `b66467a` | inside-out check by classifier instead of volume in `finish()` | 2 995 |
+| `120a2e6` | optimal bounds per face in parallel (`fk_bounds`) | 2 712 |
+| `3e86e66` | parallel `BRepCheck_Analyzer` in `finish()` | 2 472 |
+| `ec515e7` | `SetCheckInverted(false)` when every argument came out of `finish()` | 2 367 |
+
+The final bench run below gives 2 390 (runs 2 390 / 2 332 / 2 393): run-to-run noise is about ±50 ms.
+
+### What changed
+
+1. **The 98.5% was an OCCT pathology, not the B-splines as such.** For an edge against a B-spline
+   face of degree > 2 with more than one knot span in both directions, `IntTools_BeanFaceIntersector`
+   first "localises" candidate (curve range, surface patch) pairs by box overlap. Every patch box is
+   enlarged by one deflection estimated on the whole face's coarse knot grid: 5.2–7.7 mm on the
+   scaled frog body, because a full circle has only 7 grid points. Boxes therefore never shrink and
+   the recursion runs down to its minimum size along every stretch within those millimetres of the
+   face: 870 to 179 000 candidates per edge/face pair in this fixture, each followed by a
+   `math_PSO` global extremum search. One transversal crossing in "Join head" took 3.3 s (61 556
+   candidates). Even a box edge crossing a NURBS-converted (unscaled) head gives thousands.
+   `Sources/CFilletKernel/src/OCCTPatches/IntTools_BeanFaceIntersector.cpp` is a copy of the OCCT
+   8.0.1 file with one change: past 256 candidates `LocalizeSolutions` gives up, and the
+   intersector takes its generic path (the one OCCT uses for every non-B-spline surface, and when
+   localisation fails). Compiled into CFilletKernel, it replaces the archive member at link time
+   (a static archive member is only loaded for undefined symbols). An `#error` fires when the OCCT
+   version changes, so the copy gets refreshed with the next upgrade. Every replayed boolean of the
+   fixture gives the same faces, edges and bounds; "Join head" 3.4 s → 26 ms.
+2. **Multi-tool combines in one boolean** (`fk_boolean_tools`, `Shape.boolean(_:_:[Shape])`). Cut
+   and fuse put all tools into one `BRepAlgoAPI_Cut`/`Fuse`; common still chains, because OCCT
+   would intersect with the union of the tools. `ModelEvaluator.combine` falls back to one tool at a
+   time if the single boolean fails. Step 76: 3 006 → 812 ms, step 74: 1 787 → 361 ms.
+3. **`finish()` orientation by classification.** `BOPTools_AlgoTools::IsInvertedSolid` (a point
+   at infinity classified against the solid) instead of the sign of a full `BRepGProp` volume:
+   same decision for a valid closed solid, 30 ms instead of 205 ms on the 88-face frog body.
+4. **`fk_bounds` per face in parallel.** The evaluator computes optimal bounds of every final body
+   to pick the display deflection; on the frog body that was 237 ms of the 653 ms "display
+   tessellation". `AddOptimal` is a union of per-face boxes, so running faces on OCCT's thread
+   pool gives bit-identical bounds (checked on 45 dumped bodies): 36 ms.
+5. **Parallel validity check.** `BRepCheck_Analyzer(s, true, /*parallel*/ true)` in `finish()`.
+6. **`SetCheckInverted(false)` for known-good arguments.** OCCT classifies every argument solid to
+   widen the box of an inside-out one. `FKShape::solidsOriented` records that a shape came out of
+   `finish()` (kept by copy and compound); booleans skip the check only when the target and every
+   tool have it. STEP and BRep imports keep it.
+
+### Tried and dropped
+
+- **`SetUseOBB(true)`**: slower. "Join head" 3.47 → 4.73 s at baseline; over all 16 combine steps
+  (patched kernel, one boolean per tool) 5.86 → 6.12 s. Same geometry.
+- **`SetFuzzyValue(1e-5 / 1e-6)`**: no measurable effect (3.47 vs 3.54 s, 5.86 vs 5.87 s), same
+  geometry. Not worth the topology risk.
+- **`SetNonDestructive(false)`**: not tried. The arguments are cached shapes shared with earlier
+  steps, so letting OCCT modify them in place is unsafe.
+- **`SetRunParallel(false)`** for comparison: "Join head" 3.5 → 9.8 s, so the existing `true` stays.
+- **Simpler geometry from `scale`.** `BRepBuilderAPI_GTransform` already produces exact, minimal
+  rational B-splines with no approximation: degree 2×3 with 6×9 poles for the scaled frog body,
+  2×2 with 6×5 for the scaled spheres and torus, and a 2×2 B-spline for the scaled base plane. A
+  cheaper exact form exists only when the scale keeps a revolution (equal factors across the axis:
+  "Widen hat"), and it would change face types from `bspline` to `revolution`, which edge and face
+  signatures in saved documents refer to. With the localisation fixed, B-spline arguments are no
+  longer what makes booleans slow ("Join head" 26 ms), so this was not pursued. NURBS-converting the
+  *unscaled* body and head reproduces the slowness (5.3 s), which is how the real cause was found.
+- **Volume integration instead of the classifier, at lower precision**: not needed after 3.
+
+### Fingerprint
+
+New digest **`cc487b99da55f349`** (baseline `5f765134c5951dc2`). Every line is identical except
+Body 1's volume and area:
+
+```
+baseline  Body 1 [50FE499C] solids=1 faces=88 edges=268 volume=128293.00 area=17789.11 valid=true bounds=(-31.547 -29.850 -0.000)..(47.000 26.500 76.767)
+round 1   Body 1 [50FE499C] solids=1 faces=88 edges=268 volume=128296.88 area=17789.99 valid=true bounds=(-31.547 -29.850 -0.000)..(47.000 26.500 76.767)
+```
+
+The geometry is the same; the printed numbers move because `fk_volume`/`fk_surface_area` use
+`BRepGProp`'s default-precision integration, which on this body is off by 21 mm³ and reacts to how
+an edge is approximated. Two commits change such approximations (the patched intersector picks a
+different start point for one blush intersection curve; the single multi-tool boolean approximates
+its section curves in one go), with the same faces, edges, tolerances and bounds. Comparing the
+final BRep of Body 1 before and after (dumped from the evaluator):
+
+| | baseline | round 1 | difference |
+|---|---:|---:|---:|
+| volume, `BRepGProp` eps 1e-9 | 128 271.909836 | 128 271.909803 | 3.3e-5 mm³ (2.6e-10) |
+| area, eps 1e-9 | 17 760.287899 | 17 760.287896 | 2.7e-6 mm² |
+| centre of mass | | | 7.8e-9 mm apart |
+| max distance, mesh nodes of one to the other shape (~2 400 points each way) | | | 8.7e-8 mm |
+
+All other bodies have bit-identical precise volumes and areas. A future fingerprint could print
+an eps-1e-9 volume instead, so representation changes stop moving it.
+
+### Numbers after Round 1 (median of 3)
+
+| measurement | baseline ms | round 1 ms |
+|---|---:|---:|
+| cold full evaluate (runs 2 390 / 2 332 / 2 393) | 81 600 | **2 390** |
+| … modelling (sum of steps) | 80 925 | 1 955 |
+| … display tessellation, 11 bodies, 159k triangles | 669 | 425 |
+| … evaluator overhead | 6 | 10 |
+| warm re-evaluate, nothing changed | 0.1 | 0.1 |
+| early-edit cascade (step 5, 76 of 80 steps) | 82 036 | **2 377** |
+| tessellate all final bodies (outside `evaluate`) | 338 | 337 |
+| `faceInfos`, all final bodies | 604 | 609 |
+| `isSeamEdge` for every edge, all final bodies | 8.4 | 8.3 |
+
+Cost by step type:
+
+| type | steps | baseline ms | round 1 ms | share | max ms |
+|---|---:|---:|---:|---:|---:|
+| combine | 16 | 79 687 | 1 351 | 69.1% | 546 |
+| fillet | 9 | 743 | 266 | 13.6% | 62 |
+| primitive | 25 | 344 | 182 | 9.3% | 83 |
+| scale | 8 | 110 | 103 | 5.3% | 95 |
+| loft, move, mirror, sketch, revolve | 22 | 60 | 33 | 1.7% | 6 |
+
+Slowest steps:
+
+| # | step | type | baseline ms | round 1 ms | share |
+|---:|---|---|---:|---:|---:|
+| 76 | Clear accessories from frog (cut, 8 tools) | combine | 54 151 | 546 | 27.9% |
+| 67 | Join front leg | combine | 5 716 | 159 | 8.1% |
+| 74 | Join fingers (6 tools) | combine | 1 805 | 153 | 7.8% |
+| 72 | Join arm | combine | 3 085 | 119 | 6.1% |
+| 38 | Widen hat | scale | 100 | 95 | 4.9% |
+| 68 | Bed trim 2 | primitive (cut) | 220 | 83 | 4.3% |
+| 64 | Join haunches | combine | 11 194 | 83 | 4.2% |
+| 19 | Combine 2 | combine | ≤148 | 66 | 3.4% |
+| 73 | Blend shoulder | fillet | 229 | 62 | 3.1% |
+| 79 | Clear bag from strap | combine | ≤148 | 57 | 2.9% |
+
+"≤148": not in the baseline top 10, whose last entry was 148 ms. #31 "Join head" (3 377 ms at
+baseline) is no longer in the top 15 (≤36 ms; 26 ms replayed on its own).
+
+Step 76 replayed one tool at a time (`--booleans`) now costs 95–232 ms per tool (1 287 ms in
+total); all eight tools in one boolean take 540 ms.
+
+### Where the time goes now
+
+- **Booleans: about 60% of the cold evaluate** (combine steps 57%, plus primitive cuts and joins). `BOPAlgo_PaveFiller::PerformFF` (face/face
+  intersection) is now the largest part, then `PerformEF`, then `BOPAlgo_Builder` (splitting
+  faces and solids). `finish()` is down to a few percent.
+- **Display tessellation: 425 ms (18%).** Bodies are meshed one after another (each mesh is
+  parallel over its faces). Re-meshing the final bodies outside `evaluate` takes 337 ms in total;
+  the frog body's bounds take 36 ms.
+- **Fillets: 266 ms**, mostly `BRepFilletAPI_MakeFillet::Build`.
+- **"Widen hat": 95 ms** in `BRepBuilderAPI_GTransform` (converting the hat's revolutions, torus
+  and sphere to B-splines).
+
+### What's left (ranked)
+
+1. **Mesh bodies concurrently in `ModelEvaluator.displayMeshes`** (Swift side; bodies are
+   independent and the kernel meshes a copy). A large part of the 425 ms, with identical meshes;
+   the other agent's Swift-side caching work touches the same file, so it was left alone here.
+2. **Share evaluation between the app's preview and session evaluators** (baseline candidate 2):
+   still halves an agent step's wait, now about 2.4 s → 1.2 s for step 76-sized edits.
+3. **Cache `faceInfos`/`edgeInfos` per shape** (baseline candidate 3): `faceInfos` on the frog body
+   is 488 ms, now more than a fifth of a full cold evaluate.
+4. **Fingerprint with eps-1e-9 volume and area**, so future rounds can show identity directly.
+5. **Dependency-aware cache keys** (baseline candidate 5): unchanged, still fixture-dependent.
+6. **Exact revolution surfaces for revolution-preserving scales** ("Widen hat"): saves up to
+   ~90 ms here, but changes face types that saved references use. Needs a migration story first.
