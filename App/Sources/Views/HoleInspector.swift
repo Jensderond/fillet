@@ -68,7 +68,9 @@ struct HoleInspector: View {
             ForEach(Array(hole.centers.enumerated()), id: \.offset) { i, c in
                 PointField(label: "Hole \(i + 1)", value: c, evaluator: evaluator) { p in edit { $0.centers[i] = p } }
             }
-            Hint("From the middle of the face, along its sides. Type a parameter to tie a hole to it.")
+            Hint(hole.anchor == .world
+                 ? "From the origin, seen square-on to the face (X and Y like a sketch on it). Type a parameter to tie a hole to it."
+                 : "From the middle of the face, along its sides. Type a parameter to tie a hole to it.")
         }
     }
 }

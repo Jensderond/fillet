@@ -14,7 +14,7 @@ extension DesignSession {
         if let selected = sketchableFace { face = model.faceRef(body: selected.body, face: selected.index) }
         guard face != nil || !model.bodies.isEmpty else { message = "Create a body first"; return }
         selection = []
-        beginNewFeature(Feature(name: nextName("Hole"), .hole(Hole(face: face))))
+        beginNewFeature(Feature(name: nextName("Hole"), .hole(Hole(face: face, anchor: .world))))
     }
 
     /// The hole being edited, if the open feature is one.
@@ -29,7 +29,7 @@ extension DesignSession {
     /// The hole's face on the body before it (where taps are measured), and that face's plane.
     func holeFace(_ h: Hole) -> (index: Int, plane: Plane)? {
         guard let face = h.face, let before = model.bodyBefore(face.body)?.shape,
-            let i = ReferenceResolver.resolve(face.signature, in: before.faceInfos), let plane = before.facePlane(i)
+            let i = ReferenceResolver.resolve(face.signature, in: before.faceInfos), let plane = before.facePlane(i, anchor: h.anchor)
         else { return nil }
         return (i, plane)
     }
@@ -55,7 +55,7 @@ extension DesignSession {
 
         guard case .face(_, let index) = target, let ref = model.faceRefBefore(body: body, displayedFace: index),
             let before = model.bodyBefore(body)?.shape,
-            let i = ReferenceResolver.resolve(ref.signature, in: before.faceInfos), let plane = before.facePlane(i)
+            let i = ReferenceResolver.resolve(ref.signature, in: before.faceInfos), before.facePlane(i) != nil
         else {
             message = "Holes go into flat faces. \(Theme.Copy.pick) a flat face."
             return
@@ -68,7 +68,10 @@ extension DesignSession {
                 return
             }
             h.face = ref
+            // A face picked anew (no holes yet) measures from the origin, like a new sketch.
+            h.anchor = .world
         }
+        guard let plane = before.facePlane(i, anchor: h.anchor) else { return }
         // On a 0.1 mm grid, like dragging a handle, so the positions read cleanly in the inspector.
         let uv = holePlanePoint(hit.point, on: plane)
         h.centers.append(Point2Expr(Expr(uv.x), Expr(uv.y)))

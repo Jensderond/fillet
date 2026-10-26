@@ -45,7 +45,10 @@ public enum FilletMCP {
         - "xy": u = +X, v = +Y, normal +Z (offset moves it up in Z).
         - "xz": u = +X, v = +Z, normal −Y (front plane; offset 10 puts it at y = −10).
         - "yz": u = +Y, v = +Z, normal +X.
-        - a flat face: {"body": "Base", "face": 3} or {"body": "Base", "face": {"extreme": "+z"}}.
+        - a flat face: {"body": "Base", "face": 3} or {"body": "Base", "face": {"extreme": "+z"}}. Its origin is the \
+          world origin projected onto the face, so u, v stay put when the face is resized. Upright or sloped faces: \
+          v runs up the face, u = v × normal (front face: u = +X; right face: u = +Y; back face: u = −X). Horizontal \
+          faces: u = +X (top: v = +Y; bottom: v = −Y). Holes on a face use the same u, v.
 
         BUILDING SHAPES:
         - primitive: box (centred on the position, standing on the plane), cylinder/cone (base centred on the position, \

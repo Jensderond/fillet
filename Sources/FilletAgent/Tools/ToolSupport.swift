@@ -364,10 +364,10 @@ struct Resolver {
             return .standard(p, offset: offset ?? 0)
         }
         let (b, i, ref) = try faceRef(value, key: key)
-        guard let plane = b.shape.facePlane(i) else {
+        guard let plane = b.shape.facePlane(i, anchor: .world) else {
             throw ToolError("Face \(i) of “\(bodyLabel(b))” isn't flat; pick a planar face (list_faces with {\"type\": \"plane\"})")
         }
-        return .face(ref, fallback: plane)
+        return .face(ref, fallback: plane, anchor: .world)
     }
 
     /// An axis: "x" / "y" / "z" (world axes through the origin) or `{"body", "edge"}`.
@@ -611,7 +611,7 @@ enum Describe {
         case .sketch(let s):
             let plane: String = switch s.plane {
             case .standard(let p, let o): o.source == "0" ? p.rawValue.uppercased() : "\(p.rawValue.uppercased()) offset \(o)"
-            case .face(let ref, _): "a face of \(body(ref.body))"
+            case .face(let ref, _, _): "a face of \(body(ref.body))"
             }
             return "\(s.shapes.count) shapes on \(plane)"
         case .extrude(let e):

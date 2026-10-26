@@ -10,9 +10,9 @@ extension FilletTools {
             description: """
                 Drills holes into a flat face of a body, all the same size: simple, counterbore (a flat recess for a \
                 cap screw head) or countersink (a cone for a flat-head screw). Place them with `points` on the face \
-                (world [x, y, z]) or `centers` in the face's own coordinates [u, v] (mm from the face centre along \
-                its u/v axes, as returned in `face_plane`). The holes go straight in, along the face's inward normal, \
-                and follow the face when earlier steps move it.
+                (world [x, y, z]) or `centers` in the face's own coordinates [u, v] (mm along its u/v axes from its \
+                origin, as returned in `face_plane`; axes as for a sketch on a face). The holes go straight in, along \
+                the face's inward normal, and follow the face when earlier steps move it.
                 """,
             inputSchema: Self.object([
                 "body": Self.body,
@@ -38,7 +38,7 @@ extension FilletTools {
             let ws = try host.requireCurrent()
             let r = try await Resolver.load(ws, args)
             let (b, i, ref) = try r.faceRef(["body": .string(try a.string("body")), "face": a["face"] ?? .null], key: "face")
-            guard let plane = b.shape.facePlane(i) else {
+            guard let plane = b.shape.facePlane(i, anchor: .world) else {
                 throw ToolError("Face \(i) of “\(r.bodyLabel(b))” isn't flat; pick a planar face (list_faces with {\"type\": \"plane\"})")
             }
             var centers = try (a["centers"]?.array ?? []).map { try Args.point2($0, "centers") }
@@ -65,7 +65,7 @@ extension FilletTools {
                 counterboreDiameter: try a.expr("counterbore_diameter", default: d.counterboreDiameter),
                 counterboreDepth: try a.expr("counterbore_depth", default: d.counterboreDepth),
                 countersinkDiameter: try a.expr("countersink_diameter", default: d.countersinkDiameter),
-                countersinkAngle: try a.expr("countersink_angle", default: d.countersinkAngle))
+                countersinkAngle: try a.expr("countersink_angle", default: d.countersinkAngle), anchor: .world)
             let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: "Hole", in: ws.document), .hole(hole))
             let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
             let world = (try? hole.worldCenters(on: plane, using: model.parameters.evaluator)) ?? []
