@@ -54,7 +54,11 @@ struct TimelineView: View {
                         .animation(reduceMotion ? nil : Theme.Motion.move, value: markerIndex)
                     }
                     .padding(.horizontal, 4)
+                    // Room above the chips for their corner marks (a pattern's check, a failure dot),
+                    // which the scroll view would clip; the view reaches up by as much, so nothing moves.
+                    .padding(.top, Theme.Space.xs)
                 }
+                .padding(.top, -Theme.Space.xs)
                 // A long design opens on its latest steps, where the work continues.
                 .defaultScrollAnchor(.trailing, for: .initialOffset)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { visibleWidth = $0 }
@@ -120,16 +124,30 @@ struct TimelineView: View {
 
     // MARK: Stations
 
+    /// How a step reads while a feature pattern picks its steps here (nil otherwise).
+    private func patternPick(_ feature: Feature) -> StationPick? {
+        guard let (pattern, p) = session.editingFeaturePattern, feature.id != pattern.id else { return nil }
+        if p.features.contains(feature.id) { return .picked }
+        return session.patternPickRefusal(feature.id) == nil ? .pickable : .unavailable
+    }
+
     private func station(_ feature: Feature, index: Int) -> some View {
         let status = session.model.status[feature.id] ?? .inactive
         let failed: String? = if case .failed(let m) = status { m } else { nil }
+        let pick = patternPick(feature)
+        let patternName = session.editingFeaturePattern?.feature.name ?? "the pattern"
         return Button {
-            open(feature)
+            // While a feature pattern is open, the ruler picks its steps instead of opening them.
+            if session.editingFeaturePattern != nil {
+                session.toggleEditingPatternFeature(feature.id)
+            } else {
+                open(feature)
+            }
         } label: {
             StationLabel(
                 feature: feature, number: index + 1, width: stationWidth, rolledBack: index >= markerIndex,
                 editing: session.editing?.feature == feature.id, failure: failed,
-                dropTarget: dropTarget == index)
+                dropTarget: dropTarget == index, pick: pick)
         }
         .buttonStyle(PressableStyle())
         .automationFrame("station.\(index)")
@@ -139,10 +157,11 @@ struct TimelineView: View {
             hoverBody(of: feature, inside)
             if inside { hoveredStation = index } else if hoveredStation == index { hoveredStation = nil }
         }
-        .help(failed.map { "\(feature.name): \($0)" } ?? "\(feature.name). \(Theme.Copy.pick) to edit.")
+        .help(helpText(feature, pick: pick, failure: failed))
         .accessibilityLabel("Step \(index + 1), \(feature.name)")
-        .accessibilityValue(stateDescription(feature, index: index, failure: failed))
-        .accessibilityAddTraits(session.editing?.feature == feature.id ? .isSelected : [])
+        .accessibilityValue(stateDescription(feature, index: index, failure: failed, pick: pick))
+        .accessibilityHint(pick == .picked ? "Removes it from \(patternName)" : pick == .pickable ? "Adds it to \(patternName)" : "")
+        .accessibilityAddTraits(session.editing?.feature == feature.id || pick == .picked ? .isSelected : [])
         .accessibilityActions {
             if index > 0 { Button("Move earlier") { move(feature, to: index - 1) } }
             if index < doc.features.count - 1 { Button("Move later") { move(feature, to: index + 1) } }
@@ -158,6 +177,7 @@ struct TimelineView: View {
         }
         .contextMenu {
             Button { open(feature) } label: { Label("Edit", systemImage: "slider.horizontal.3") }
+            if feature.kind.canBePatterned { patternMenuItem(feature, pick: pick, patternName: patternName) }
             Button {
                 newName = feature.name
                 renaming = feature.id
@@ -216,10 +236,47 @@ struct TimelineView: View {
             }
     }
 
-    /// VoiceOver state of a step: editing, rolled back, suppressed, failed.
-    private func stateDescription(_ feature: Feature, index: Int, failure: String?) -> String {
+    /// Pattern from the context menu: a feature pattern of this step, or, while one is open,
+    /// adding the step to it or taking it out.
+    @ViewBuilder private func patternMenuItem(_ feature: Feature, pick: StationPick?, patternName: String) -> some View {
+        switch pick {
+        case .picked:
+            Button { session.toggleEditingPatternFeature(feature.id) } label: {
+                Label("Remove from \(patternName)", systemImage: "minus.circle")
+            }
+        case .pickable:
+            Button { session.toggleEditingPatternFeature(feature.id) } label: {
+                Label("Add to \(patternName)", systemImage: "plus.circle")
+            }
+        case .unavailable:
+            EmptyView()
+        case nil:
+            if session.editingFeaturePattern == nil {
+                Button {
+                    session.startIfAvailable(.pattern) { session.startPattern(features: [feature.id]) }
+                } label: { Label("Pattern", systemImage: Self.patternSymbol) }
+            }
+        }
+    }
+
+    private static let patternSymbol = FeatureKind.pattern(Pattern(features: [], layout: .linear(direction: .x, count: 1, spacing: 0))).symbol
+
+    private func helpText(_ feature: Feature, pick: StationPick?, failure: String?) -> String {
+        if let failure { return "\(feature.name): \(failure)" }
+        switch pick {
+        case .picked: return "\(feature.name). \(Theme.Copy.pick) to remove it from the pattern."
+        case .pickable: return "\(feature.name). \(Theme.Copy.pick) to add it to the pattern."
+        case .unavailable: return session.patternPickRefusal(feature.id) ?? feature.name
+        case nil: return "\(feature.name). \(Theme.Copy.pick) to edit."
+        }
+    }
+
+    /// VoiceOver state of a step: editing, picked for a pattern, rolled back, suppressed, failed.
+    private func stateDescription(_ feature: Feature, index: Int, failure: String?, pick: StationPick?) -> String {
         var parts: [String] = []
         if session.editing?.feature == feature.id { parts.append("editing") }
+        if pick == .picked { parts.append("in the pattern") }
+        if pick == .unavailable { parts.append("can't be added to the pattern") }
         if index >= markerIndex { parts.append("rolled back") }
         if feature.suppressed { parts.append("suppressed") }
         if let failure { parts.append("failed: \(failure)") }
@@ -268,6 +325,16 @@ struct TimelineView: View {
     }
 }
 
+/// A step's part in a feature pattern being edited (the timeline picks its steps).
+enum StationPick: Equatable {
+    /// Repeated by the pattern.
+    case picked
+    /// Can join the pattern.
+    case pickable
+    /// Can't be repeated, or comes after the pattern.
+    case unavailable
+}
+
 /// One step on the ruler.
 private struct StationLabel: View {
     let feature: Feature
@@ -277,12 +344,18 @@ private struct StationLabel: View {
     let editing: Bool
     let failure: String?
     let dropTarget: Bool
+    /// Set while a feature pattern picks its steps here.
+    var pick: StationPick?
 
     @State private var hovering = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var picked: Bool { pick == .picked }
+    private var unavailable: Bool { pick == .unavailable }
 
     var body: some View {
         VStack(spacing: Theme.Space.xs) {
-            ZStack(alignment: .topTrailing) {
+            ZStack {
                 Image(systemName: feature.kind.symbol)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(iconColor)
@@ -290,18 +363,29 @@ private struct StationLabel: View {
                     .background(RoundedRectangle(cornerRadius: 8, style: .continuous).fill(chipFill))
                     .overlay(
                         RoundedRectangle(cornerRadius: 8, style: .continuous)
-                            .strokeBorder(chipBorder, style: StrokeStyle(lineWidth: editing ? 1.5 : 1,
-                                                                         dash: feature.suppressed || (rolledBack && !editing) ? [3, 2] : [])))
+                            .strokeBorder(chipBorder, style: StrokeStyle(lineWidth: editing || picked ? 1.5 : 1,
+                                                                         dash: feature.suppressed || (rolledBack && !editing && !picked) ? [3, 2] : [])))
+                // A picked step's check rides the chip's corner where a failure dot would; the dot
+                // then moves to the other corner so both stay visible.
                 if failure != nil {
                     Circle().fill(Theme.danger)
                         .frame(width: 9, height: 9)
                         .overlay(Circle().strokeBorder(Theme.panel, lineWidth: 1.5))
-                        .offset(x: 3, y: -3)
+                        .offset(x: picked ? -3 : 3, y: -3)
+                        .frame(width: 40, height: 30, alignment: picked ? .topLeading : .topTrailing)
+                }
+                if picked {
+                    PickedBadge()
+                        .offset(x: 4, y: -4)
+                        .frame(width: 40, height: 30, alignment: .topTrailing)
+                        .transition(reduceMotion ? .opacity : .scale(scale: 0.3).combined(with: .opacity))
                 }
             }
+            // The check pops in with a small spring (a fade under Reduce Motion).
+            .animation(reduceMotion ? Theme.Motion.hover : .spring(duration: 0.32, bounce: 0.4), value: picked)
             Text(feature.name)
-                .font(editing ? Theme.label.weight(.semibold) : Theme.label)
-                .foregroundStyle(failure != nil ? Theme.dangerInk : rolledBack ? Theme.inkSecondary : Theme.ink)
+                .font(editing || picked ? Theme.label.weight(.semibold) : Theme.label)
+                .foregroundStyle(labelColor)
                 .strikethrough(feature.suppressed)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -321,24 +405,52 @@ private struct StationLabel: View {
         .animation(Theme.Motion.hover, value: hovering)
     }
 
+    // Picked steps take the selection blue, like the bodies a pattern picks in the viewport and
+    // its "steps picked" card, so they don't read as a second step being edited (orange). Steps that
+    // can't join recede to a bare tertiary chip; their names stay secondary ink, still legible.
+
+    private var labelColor: Color {
+        if failure != nil { return Theme.dangerInk }
+        if picked { return Theme.ink }
+        return rolledBack || unavailable ? Theme.inkSecondary : Theme.ink
+    }
+
     private var iconColor: Color {
         if failure != nil { return Theme.danger }
         if editing { return Theme.filletInk }
-        return rolledBack ? Theme.inkTertiary : Theme.ink
+        if picked { return Theme.selectInk }
+        return rolledBack || unavailable ? Theme.inkTertiary : Theme.ink
     }
 
     private var chipFill: Color {
         if editing { return Theme.filletSoft }
+        if picked { return Theme.selectSoft }
         if failure != nil { return Theme.dangerSoft }
+        if unavailable { return .clear }
         if rolledBack { return hovering ? Theme.raised.opacity(0.6) : .clear }
         return hovering ? Theme.raised : Theme.raised.opacity(0.7)
     }
 
     private var chipBorder: Color {
         if editing { return Theme.filletMark }
+        if picked { return Theme.select }
         if failure != nil { return Theme.danger.opacity(0.5) }
+        if unavailable { return Theme.hairline }
         if rolledBack { return Theme.inkTertiary }
         return hovering ? Theme.hairlineStrong : Theme.hairline
+    }
+}
+
+/// The check on a step a feature pattern repeats.
+private struct PickedBadge: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .font(.system(size: 7, weight: .heavy))
+            .foregroundStyle(.white)
+            .frame(width: 13, height: 13)
+            .background(Circle().fill(Theme.select))
+            .overlay(Circle().strokeBorder(Theme.panel, lineWidth: 1.5))
+            .accessibilityHidden(true)
     }
 }
 

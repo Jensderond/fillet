@@ -18,7 +18,7 @@ enum PickMode: Equatable {
     case faces
     /// Choosing a single face (lay flat).
     case singleFace
-    /// Choosing bodies (combine, move, mirror, pattern).
+    /// Choosing bodies (combine, move, mirror, a body pattern).
     case bodies
     /// Placing hole centres on a flat face (hole).
     case holePoints
@@ -39,6 +39,8 @@ extension DesignSession {
         case .shell, .pressPull: return .faces
         case .layFlat: return .singleFace
         case .hole: return .holePoints
+        // A feature pattern picks its steps in the timeline, not bodies in the viewport.
+        case .pattern(let p) where p.objects == .features: return .idle
         case .combine, .move, .scale, .mirror, .pattern: return .bodies
         default: return .idle
         }
@@ -509,7 +511,7 @@ extension FeatureKind {
         case .move(let m): m.bodies
         case .scale(let s): s.bodies
         case .mirror(let m): m.bodies
-        case .pattern(let p): p.bodies
+        case .pattern(let p): p.objects == .bodies ? p.bodies : []
         default: []
         }
     }
