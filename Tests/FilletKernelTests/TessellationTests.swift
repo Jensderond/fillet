@@ -163,19 +163,21 @@ struct TessellationTests {
     }
 
     @Test func serialAndParallelMeshesAreIdentical() throws {
-        // The evaluator meshes all but the largest body on one thread each, several at once.
+        // The evaluator meshes several bodies at once, each on OCCT's shared thread pool, so
+        // however many threads a body gets, its mesh must come out the same.
         let part = try cube(10).filleted(edges: Array(0..<12), radius: 2)
             .cut(by: try Shape.sphere(center: Vec3(10, 10, 10), radius: 4))
-        let parallel = try part.tessellate(linearDeflection: 0.02, angularDeflection: 0.2, parallel: true)
+        let serial = try part.tessellate(linearDeflection: 0.02, angularDeflection: 0.2, parallel: false)
         let meshes = Mutex<[Mesh]>([])
-        DispatchQueue.concurrentPerform(iterations: 4) { _ in
-            let m = try? part.copy().tessellate(linearDeflection: 0.02, angularDeflection: 0.2, parallel: false)
+        DispatchQueue.concurrentPerform(iterations: 8) { i in
+            let m = try? part.copy().tessellate(linearDeflection: 0.02, angularDeflection: 0.2, parallel: i % 4 != 0)
             meshes.withLock { $0.append(m ?? .empty) }
         }
-        for serial in meshes.withLock({ $0 }) {
-            #expect(serial.positions == parallel.positions && serial.normals == parallel.normals)
-            #expect(serial.indices == parallel.indices && serial.triangleFaces == parallel.triangleFaces)
-            #expect(serial.edges == parallel.edges)
+        #expect(meshes.withLock { $0 }.count == 8)
+        for mesh in meshes.withLock({ $0 }) {
+            #expect(mesh.positions == serial.positions && mesh.normals == serial.normals)
+            #expect(mesh.indices == serial.indices && mesh.triangleFaces == serial.triangleFaces)
+            #expect(mesh.edges == serial.edges)
         }
     }
 

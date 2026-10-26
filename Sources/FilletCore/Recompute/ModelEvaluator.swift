@@ -173,18 +173,16 @@ public actor ModelEvaluator {
     /// each shape, so bodies sharing sub-shapes never write to the same topology, and a mesh is
     /// the same whichever thread makes it.
     ///
-    /// OCCT's thread pool only has threads for whichever parallel loop asks first. If the body
-    /// with the most faces doesn't get them, it meshes on one thread and holds everything up
-    /// (on the frog body 300 ms instead of 80). So it goes first: its bounds alone, then its
-    /// mesh is the only one on the pool while the others mesh on one thread each.
+    /// Each body also meshes its faces on OCCT's thread pool. The kernel sizes that pool so
+    /// concurrent loops each find threads; otherwise whichever body started its loops last would
+    /// mesh on one thread. The critical path is then the slowest single face (about 85 ms on the
+    /// fixture) rather than a few-face body meshed serially (Body 20: 130 ms).
     private static func tessellate(_ shapes: [Shape]) -> [ObjectIdentifier: Mesh] {
-        guard let largest = shapes.indices.max(by: { shapes[$0].faceCount < shapes[$1].faceCount }) else { return [:] }
-        let largestDeflection = displayDeflection(for: shapes[largest])
         let meshes = Mutex<[ObjectIdentifier: Mesh]>([:])
         DispatchQueue.concurrentPerform(iterations: shapes.count) { i in
             let shape = shapes[i]
-            let d = i == largest ? largestDeflection : displayDeflection(for: shape)
-            let mesh = (try? shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular, parallel: i == largest)) ?? .empty
+            let d = displayDeflection(for: shape)
+            let mesh = (try? shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular)) ?? .empty
             meshes.withLock { $0[ObjectIdentifier(shape)] = mesh }
         }
         return meshes.withLock { $0 }

@@ -17,6 +17,7 @@
 #include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
 #include <OSD_Parallel.hxx>
+#include <OSD_ThreadPool.hxx>
 #include <Precision.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -63,6 +64,29 @@ std::string describeFailure(const char *operation, const char *exceptionType, co
     return op + " failed: degenerate geometry (zero-length or zero-size input)";
   if (readable) return op + " failed: " + msg;
   return op + " failed: the geometry kernel could not compute a valid result";
+}
+
+// MARK: - Thread pool
+
+void ensureThreadPool() {
+  // OCCT runs every parallel loop on one process-wide pool, and a loop locks whichever pool
+  // threads are free when it starts, up to NbDefaultThreadsToLaunch (one per logical
+  // processor). With only that many threads, two loops at once (bodies meshed concurrently)
+  // leave whoever starts second a single thread. Four times as many lets concurrent loops each
+  // get threads, while one loop on its own (a boolean) still locks no more than before. Pool
+  // threads only start when a loop first needs them.
+  static const bool sized = [] {
+    try {
+      const occ::handle<OSD_ThreadPool> &pool = OSD_ThreadPool::DefaultPool();
+      const int perLoop = pool->NbDefaultThreadsToLaunch();
+      pool->Init(4 * OSD_Parallel::NbLogicalProcessors());
+      pool->SetNbDefaultThreadsToLaunch(perLoop);
+    } catch (const Standard_Failure &) {
+      // The pool was already running a loop: keep OCCT's default size.
+    }
+    return true;
+  }();
+  (void)sized;
 }
 
 // MARK: - Conversions

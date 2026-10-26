@@ -382,8 +382,8 @@ public final class Shape: @unchecked Sendable {
     /// Triangulates the shape: triangles grouped per face (crisp normals between faces,
     /// smooth within a face, counter-clockwise seen from outside) plus one polyline per edge
     /// (empty for seams and degenerate edges). `parallel` meshes the faces on OCCT's thread
-    /// pool; when meshing several shapes at once, pass false for all but the largest so that one
-    /// gets the pool (the pool has no threads left for whoever asks last). Same mesh either way.
+    /// pool, which the kernel sizes so that several shapes meshed at once each get threads.
+    /// Same mesh either way.
     public func tessellate(linearDeflection: Double = 0.05, angularDeflection: Double = 0.3, parallel: Bool = true) throws -> Mesh {
         guard let m = fk_tessellate(handle, linearDeflection, angularDeflection, parallel) else {
             throw KernelError.last("Tessellation failed")

@@ -274,6 +274,7 @@ if !skipCascade, let (edited, what) = earlyEdit(document) {
 let bodies = finalModel.bodies
 var tessTotals: [Double] = []
 var tessPerBody: [Int: [Double]] = [:]
+var tessSerialPerBody: [Int: [Double]] = [:]
 var triangles: [Int: Int] = [:]
 progress("tessellation ×\(queryRuns)")
 for _ in 0..<queryRuns {
@@ -281,8 +282,10 @@ for _ in 0..<queryRuns {
     for (i, body) in bodies.enumerated() {
         let d = ModelEvaluator.displayDeflection(for: body.shape)
         let (mesh, t) = time { try? body.shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular) }
+        let (_, ts) = time { try? body.shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular, parallel: false) }
         total += t
         tessPerBody[i, default: []].append(t)
+        tessSerialPerBody[i, default: []].append(ts)
         triangles[i] = mesh?.triangleCount ?? 0
     }
     tessTotals.append(total)
@@ -308,16 +311,17 @@ for _ in 0..<queryRuns {
 
 print("## Final bodies: tessellation and face/edge queries (median of \(queryRuns))")
 print("")
-print("| body | faces | edges | triangles | tessellate ms | faceInfos ms | edgeInfos ms | isSeamEdge (all) ms |")
-print("|---|---:|---:|---:|---:|---:|---:|---:|")
-var sumTess = 0.0, sumF = 0.0, sumE = 0.0, sumS = 0.0
+print("| body | faces | edges | triangles | tessellate ms | … on one thread ms | faceInfos ms | edgeInfos ms | isSeamEdge (all) ms |")
+print("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+var sumTess = 0.0, sumSerial = 0.0, sumF = 0.0, sumE = 0.0, sumS = 0.0
 for (i, body) in bodies.enumerated() {
     let q = queries[i] ?? QueryTimes()
-    let t = median(tessPerBody[i] ?? []), f = median(q.faces), e = median(q.edges), s = median(q.seams)
-    sumTess += t; sumF += f; sumE += e; sumS += s
-    print("| \(body.name) | \(body.shape.faceCount) | \(body.shape.edgeCount) | \(triangles[i] ?? 0) | \(ms(t)) | \(ms(f)) | \(ms(e)) | \(ms(s)) |")
+    let t = median(tessPerBody[i] ?? []), ts = median(tessSerialPerBody[i] ?? [])
+    let f = median(q.faces), e = median(q.edges), s = median(q.seams)
+    sumTess += t; sumSerial += ts; sumF += f; sumE += e; sumS += s
+    print("| \(body.name) | \(body.shape.faceCount) | \(body.shape.edgeCount) | \(triangles[i] ?? 0) | \(ms(t)) | \(ms(ts)) | \(ms(f)) | \(ms(e)) | \(ms(s)) |")
 }
-print("| **all** | | | \(triangles.values.reduce(0, +)) | \(ms(sumTess)) | \(ms(sumF)) | \(ms(sumE)) | \(ms(sumS)) |")
+print("| **all** | | | \(triangles.values.reduce(0, +)) | \(ms(sumTess)) | \(ms(sumSerial)) | \(ms(sumF)) | \(ms(sumE)) | \(ms(sumS)) |")
 print("")
 
 // MARK: - Report queries

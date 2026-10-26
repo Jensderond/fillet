@@ -76,8 +76,12 @@ struct Error : std::exception {
 /// Turns an OCCT exception into something a user can read.
 std::string describeFailure(const char *operation, const char *exceptionType, const char *what);
 
+/// Sizes OCCT's thread pool (once per process, before the kernel's first parallel loop).
+void ensureThreadPool();
+
 /// Runs `body`, converting every exception into fk_last_error() + `failValue`.
 template <typename R, typename F> R guarded(const char *operation, R failValue, F &&body) {
+  ensureThreadPool();
   clearError();
   try {
     return body();
