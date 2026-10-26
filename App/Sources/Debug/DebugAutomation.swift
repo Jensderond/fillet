@@ -293,6 +293,7 @@ enum DebugAutomation {
             check(false, "export failed: \(error)")
         }
         try? session.document.encoded().write(to: outputDirectory.appendingPathComponent("design.fillet"))
+        await keyboardShortcuts(session)
 
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
@@ -307,6 +308,32 @@ enum DebugAutomation {
             NSApp.terminate(nil)
         }
         #endif
+    }
+
+    /// Fusion-style keys: a drawing tool's key outside sketch mode starts a sketch with that tool,
+    /// and a modelling tool's key that can't run says why instead.
+    private static func keyboardShortcuts(_ session: DesignSession) async {
+        session.startSketchTool(.circle)
+        check(session.choosingSketchPlane && session.pendingSketchTool == .circle, "C outside a sketch offers the planes")
+        session.startSketchTool(.rectangle)
+        check(session.choosingSketchPlane && session.pendingSketchTool == .rectangle, "R while choosing a plane switches the tool to come")
+        session.escape()
+        check(!session.choosingSketchPlane && session.pendingSketchTool == nil, "Escape forgets the tool to come")
+        session.startSketchTool(.rectangle)
+        session.startSketch(on: .xz)
+        await settle(session)
+        check(session.sketchEditor?.tool == .rectangle && session.pendingSketchTool == nil, "the sketch opens with Rectangle")
+        session.startSketchTool(.circle)
+        check(session.sketchEditor?.tool == .circle, "C in a sketch switches to Circle")
+        session.finishSketch()
+        session.startEdgeFeature(fillet: true)
+        session.message = nil
+        session.startIfAvailable(.extrude) { session.startExtrude() }
+        check(session.editingKind == "fillet" && session.message?.text.hasPrefix("Finish") == true,
+              "E while editing a fillet says to finish it first (\(session.message?.text ?? "no message"))")
+        session.cancelEdit()
+        session.message = nil
+        await settle(session)
     }
 
     // MARK: Helpers

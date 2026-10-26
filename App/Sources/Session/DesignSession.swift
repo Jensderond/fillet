@@ -77,6 +77,8 @@ final class DesignSession {
     /// Sketch was asked for with no flat face picked: the origin planes show in the viewport
     /// and the next tap on one of them, or on a flat face, opens the new sketch there.
     var choosingSketchPlane = false
+    /// A drawing tool's shortcut was pressed outside sketch mode: the sketch it starts opens with it.
+    var pendingSketchTool: SketchTool?
     var hiddenBodies: Set<BodyRef> = []
     var camera = Camera(target: Vec3(0, 0, 10), distance: 260)
     /// Size of the viewport in points (for converting screen tolerances to mm).
@@ -213,6 +215,7 @@ final class DesignSession {
     func commitEdit() {
         // Whatever starts next (a feature, a sketch, editing a step) replaces choosing a plane.
         choosingSketchPlane = false
+        pendingSketchTool = nil
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil
@@ -243,11 +246,13 @@ final class DesignSession {
 
     /// Creates a sketch on a plane and enters sketch mode.
     func newSketch(on plane: SketchPlaneRef) {
+        let tool = pendingSketchTool
         commitEdit()
         let feature = Feature(name: nextName("Sketch"), .sketch(Sketch(plane: plane)))
         perform("New Sketch") { _ = $0.addFeature(feature) }
         editing = FeatureEdit(feature: feature.id, isNew: false, snapshot: document)
         enterSketch(feature.id)
+        if let tool { sketchEditor?.engine.setTool(tool) }
     }
 
     // MARK: Recompute

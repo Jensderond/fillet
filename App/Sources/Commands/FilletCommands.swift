@@ -33,21 +33,22 @@ struct FilletCommands: Commands {
             // ⇧⌘S is File > Duplicate in document apps, so New Sketch is ⇧⌘K (sKetch).
             Button("New Sketch") { session?.startSketch() }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
-            Button("Extrude") { session?.startExtrude() }
-                .keyboardShortcut("e", modifiers: [.command, .shift])
-            Button("Revolve") { session?.startRevolve() }
+            // Bare letters for the common tools, as in Fusion: E, F, and R, C… in the Sketch menu.
+            Button("Extrude") { session?.startIfAvailable(.extrude) { session?.startExtrude() } }
+                .keyboardShortcut(bare("e"))
+            Button("Revolve") { session?.startIfAvailable(.revolve) { session?.startRevolve() } }
             Divider()
-            Button("Fillet") { session?.startEdgeFeature(fillet: true) }
-                .keyboardShortcut("f", modifiers: [.command, .shift])
-            Button("Chamfer") { session?.startEdgeFeature(fillet: false) }
-            Button("Shell") { session?.startShell() }
-            Button("Combine") { session?.startCombine() }
-            Button("Move") { session?.startMove() }
+            Button("Fillet") { session?.startIfAvailable(.fillet) { session?.startEdgeFeature(fillet: true) } }
+                .keyboardShortcut(bare("f"))
+            Button("Chamfer") { session?.startIfAvailable(.chamfer) { session?.startEdgeFeature(fillet: false) } }
+            Button("Shell") { session?.startIfAvailable(.shell) { session?.startShell() } }
+            Button("Combine") { session?.startIfAvailable(.combine) { session?.startCombine() } }
+            Button("Move") { session?.startIfAvailable(.move) { session?.startMove() } }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
-            Button("Mirror") { session?.startMirror() }
-            Button("Pattern") { session?.startPattern() }
+            Button("Mirror") { session?.startIfAvailable(.mirror) { session?.startMirror() } }
+            Button("Pattern") { session?.startIfAvailable(.pattern) { session?.startPattern() } }
             Divider()
-            Button("Lay Flat on Face") { session?.startLayFlat() }
+            Button("Lay Flat on Face") { session?.startIfAvailable(.layFlat) { session?.startLayFlat() } }
             Button(session?.showOverhangs == true ? "Hide Overhangs" : "Show Overhangs") { session?.showOverhangs.toggle() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
             Divider()
@@ -68,7 +69,8 @@ struct FilletCommands: Commands {
 
         CommandMenu("Sketch") {
             ForEach(SketchTool.allCases, id: \.self) { tool in
-                Button(tool.title) { session?.sketchEditor?.engine.setTool(tool) }
+                // Outside sketch mode a drawing tool's key starts a sketch with that tool.
+                Button(tool.title) { session?.startSketchTool(tool) }
                     .keyboardShortcut(bare(tool.shortcut))
             }
             Divider()

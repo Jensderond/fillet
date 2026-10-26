@@ -545,11 +545,11 @@ struct ToolStrip: View {
                         }
                         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
                         .hoverHighlight(ownsPointerHover: true)
-                        .help(onFace ? "New sketch on the selected face (⇧⌘K)" : "New sketch: pick a plane or a flat face (⇧⌘K)")
+                        .help(onFace ? "New sketch on the selected face [⇧⌘K]" : "New sketch: pick a plane or a flat face [⇧⌘K]")
                     }
                     ToolCluster {
                         ToolButton("Extrude", "square.stack.3d.up", active: session.editingKind == "extrude",
-                                   unavailable: session.unavailableReason(.extrude)) { session.startExtrude() }
+                                   unavailable: session.unavailableReason(.extrude), shortcut: "E") { session.startExtrude() }
                         ToolButton("Revolve", "arrow.triangle.2.circlepath", active: session.editingKind == "revolve",
                                    unavailable: session.unavailableReason(.revolve)) { session.startRevolve() }
                         Menu {
@@ -567,7 +567,7 @@ struct ToolStrip: View {
                     }
                     ToolCluster {
                         ToolButton("Fillet", "rectangle.roundedtop", active: session.editingKind == "fillet",
-                                   unavailable: session.unavailableReason(.fillet)) { session.startEdgeFeature(fillet: true) }
+                                   unavailable: session.unavailableReason(.fillet), shortcut: "F") { session.startEdgeFeature(fillet: true) }
                         ToolButton("Chamfer", "skew", active: session.editingKind == "chamfer",
                                    unavailable: session.unavailableReason(.chamfer)) { session.startEdgeFeature(fillet: false) }
                         ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell",
@@ -575,7 +575,7 @@ struct ToolStrip: View {
                         ToolButton("Combine", "square.on.square", active: session.editingKind == "combine",
                                    unavailable: session.unavailableReason(.combine)) { session.startCombine() }
                         ToolButton("Move", "move.3d", active: session.editingKind == "move",
-                                   unavailable: session.unavailableReason(.move)) { session.startMove() }
+                                   unavailable: session.unavailableReason(.move), shortcut: "⇧⌘M") { session.startMove() }
                         ToolButton("Mirror", "arrow.left.and.right.righttriangle.left.righttriangle.right", active: session.editingKind == "mirror",
                                    unavailable: session.unavailableReason(.mirror)) { session.startMirror() }
                         ToolButton("Pattern", "square.grid.3x1.below.line.grid.1x2", active: session.editingKind == "pattern",
@@ -697,14 +697,18 @@ struct ToolButton: View {
     var active = false
     var isToggle = false
     var unavailable: String?
+    /// Its key, shown in the tooltip: "Extrude [E]".
+    var shortcut: String?
     let action: () -> Void
     @State private var explaining = false
 
     init(_ title: String, _ symbol: String, active: Bool = false, toggle: Bool = false, unavailable: String? = nil,
-         action: @escaping () -> Void) {
+         shortcut: String? = nil, action: @escaping () -> Void) {
         self.title = title; self.symbol = symbol; self.active = active; self.isToggle = toggle
-        self.unavailable = unavailable; self.action = action
+        self.unavailable = unavailable; self.shortcut = shortcut; self.action = action
     }
+
+    private var named: String { shortcut.map { "\(title) [\($0)]" } ?? title }
 
     var body: some View {
         Button(title) {
@@ -712,7 +716,7 @@ struct ToolButton: View {
         }
         .buttonStyle(ToolButtonStyle(title: title, symbol: symbol, active: active, isToggle: isToggle, unavailable: unavailable != nil))
         .automationFrame("tool.\(title)")
-        .help(unavailable.map { "\(title). \($0)" } ?? title)
+        .help(unavailable.map { "\(named). \($0)" } ?? named)
         .accessibilityValue(unavailable == nil ? "" : "Unavailable")
         .accessibilityHint(unavailable ?? "")
         .hoverHighlight(ownsPointerHover: true)
@@ -871,7 +875,7 @@ struct SketchToolbar: View {
                 }
                 .buttonStyle(PrimaryButtonStyle())
                 .automationFrame(measuring ? nil : "finish-sketch-button")
-                .help("Finish the sketch (⌘↩)")
+                .help("Finish the sketch [⌘↩]")
                 .automationMarker(measuring ? "finish-sketch-measure" : "finish-sketch")
             }
         }
@@ -889,7 +893,7 @@ struct SketchToolbar: View {
             toolGlyph(tool.symbol, active: active)
         }
         .buttonStyle(PressableStyle())
-        .help("\(tool.title) (\(String(tool.shortcut.character).uppercased()))")
+        .help("\(tool.title) [\(String(tool.shortcut.character).uppercased())]")
         .accessibilityLabel(tool.title)
         .accessibilityAddTraits(active ? .isSelected : [])
         .hoverHighlight()

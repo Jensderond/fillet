@@ -72,7 +72,7 @@ struct SketchPlaneBar: View {
                 .frame(minHeight: touch ? 44 : 28)
                 .contentShape(Rectangle())
                 .hoverHighlight()
-                .help("Stop choosing a plane (Esc)")
+                .help("Stop choosing a plane [Esc]")
                 .automationFrame("sketch-plane.cancel")
         }
         .padding(.leading, Theme.Space.m)

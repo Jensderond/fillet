@@ -60,7 +60,25 @@ extension DesignSession {
 
     func cancelChoosingSketchPlane() {
         choosingSketchPlane = false
+        pendingSketchTool = nil
         hover = nil
+    }
+
+    /// A drawing tool's shortcut (R, C, L…). In sketch mode it switches tools; outside it starts
+    /// a sketch like Sketch does, and the sketch opens with that tool (like Fusion).
+    func startSketchTool(_ tool: SketchTool) {
+        if sketchEditor != nil {
+            sketchEditor?.engine.setTool(tool)
+            return
+        }
+        guard tool != .select else { return }
+        if isBusyEditing, let name = editingFeature?.name { message = "Finish \(name) first: Done or Cancel."; return }
+        if !choosingSketchPlane { startSketch() }
+        if sketchEditor != nil {
+            sketchEditor?.engine.setTool(tool)
+        } else if choosingSketchPlane {
+            pendingSketchTool = tool
+        }
     }
 
     /// Re-opens a sketch for editing.
@@ -194,6 +212,11 @@ extension DesignSession {
             }
             return nil
         }
+    }
+
+    /// Starts a modelling tool from a menu or shortcut, or posts why it can't run.
+    func startIfAvailable(_ tool: ModelTool, _ start: () -> Void) {
+        if let reason = unavailableReason(tool) { message = ToastMessage(reason) } else { start() }
     }
 
     // MARK: Solid features
