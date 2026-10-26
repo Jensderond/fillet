@@ -364,7 +364,7 @@ extension DesignSession: ViewportDelegate {
     }
 
     func viewportDidDoubleTap(target: PickTarget?, face: PickTarget?, location: CGPoint, modifiers: ViewportModifiers,
-                              pointer: PointerKind) {
+                              pointer: PointerKind) -> Bool {
         doubleTapped(target, face: face, modifiers: modifiers, pointer: pointer)
     }
 

@@ -231,7 +231,7 @@ extension DebugAutomation {
         let p = CGPoint(x: screen.x + toward.x / length * 4, y: screen.y + toward.y / length * 4)
         let hit = controller.pick(at: p, pointer: pointer)
         let face = controller.pick(at: p, pointer: pointer, filter: .faces)?.target
-        session.viewportDidDoubleTap(target: hit?.target, face: face, location: p, modifiers: [], pointer: pointer)
+        _ = session.viewportDidDoubleTap(target: hit?.target, face: face, location: p, modifiers: [], pointer: pointer)
     }
 }
 #endif

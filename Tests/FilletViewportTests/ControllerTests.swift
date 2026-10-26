@@ -18,7 +18,8 @@ final class Recorder: ViewportDelegate {
     var dragsFaces = false
     var drags: [(String, ViewportToolEvent?)] = []
 
-    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers) {
+    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers,
+                        pointer: PointerKind) {
         taps.append(target)
     }
     func viewportHoverChanged(target: PickTarget?) { hovers.append(target) }

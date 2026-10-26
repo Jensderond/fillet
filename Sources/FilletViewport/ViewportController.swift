@@ -205,10 +205,15 @@ public final class ViewportController {
         if count == 2 {
             // The face beside the edge, for its loop: whichever one is under the pointer.
             let face = pick(at: p, pointer: pointer, filter: .faces)?.target
-            delegate?.viewportDidDoubleTap(target: hit?.target, face: face, location: p, modifiers: modifiers, pointer: pointer)
-        } else if count == 1 {
-            delegate?.viewportDidTap(target: hit?.target, hit: hit, ray: ray(at: p), location: p, modifiers: modifiers, pointer: pointer)
+            if delegate?.viewportDidDoubleTap(target: hit?.target, face: face, location: p, modifiers: modifiers, pointer: pointer) == true {
+                return
+            }
+            // Nothing to do with a double tap there: it's a second tap.
+            lastTap?.count = 1
+        } else if count > 2 {
+            return
         }
+        delegate?.viewportDidTap(target: hit?.target, hit: hit, ray: ray(at: p), location: p, modifiers: modifiers, pointer: pointer)
     }
 
     /// Longest gap between the taps of a double tap.

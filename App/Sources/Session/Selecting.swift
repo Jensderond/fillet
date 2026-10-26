@@ -70,9 +70,11 @@ extension DesignSession {
     }
 
     /// Double tap on an edge: its loop, around the face beside it under the pointer (Fusion's
-    /// double click). It replaces what the first tap did.
-    func doubleTapped(_ target: PickTarget?, face: PickTarget?, modifiers: ViewportModifiers, pointer: PointerKind) {
-        guard case .edge(let bodyID, let index)? = target else { return }
+    /// double click). It replaces what the first tap did. False when a double tap means nothing
+    /// here (not an edge, or no edges to pick): the second tap is then an ordinary tap.
+    @discardableResult
+    func doubleTapped(_ target: PickTarget?, face: PickTarget?, modifiers: ViewportModifiers, pointer: PointerKind) -> Bool {
+        guard case .edge(let bodyID, let index)? = target else { return false }
         let body = BodyRef(bodyID)
         var faceIndex: Int?
         if case .face(let b, let f)? = face, b == bodyID { faceIndex = f }
@@ -80,24 +82,26 @@ extension DesignSession {
         case .idle:
             guard let shape = model.body(body)?.shape,
                 let loop = loopEdges(on: shape, edge: index, preferredFace: faceIndex)
-            else { return }
+            else { return false }
             undoFirstTap()
             selection = SelectionRules.apply(SelectionRules.tap(modifiers: modifiers, pointer: pointer),
                                              loop.map { .edge(body, $0) }, to: selection)
             announce("\(loop.count) edges in the loop selected")
+            return true
         case .edges:
-            guard let before = model.bodyBefore(body)?.shape else { return }
+            guard let before = model.bodyBefore(body)?.shape else { return false }
             var first: Int?
             if case .feature(_, _, let tapped?)? = tapUndo, tapped.body == body { first = tapped.index }
-            guard let edge = first ?? beforeEdge(body: body, displayedEdge: index)?.1 else { return }
+            guard let edge = first ?? beforeEdge(body: body, displayedEdge: index)?.1 else { return false }
             let beforeFace = faceIndex.flatMap { model.faceRefBefore(body: body, displayedFace: $0) }
                 .flatMap { ReferenceResolver.resolve($0.signature, in: before.faceInfos) }
-            guard let loop = loopEdges(on: before, edge: edge, preferredFace: beforeFace) else { return }
+            guard let loop = loopEdges(on: before, edge: edge, preferredFace: beforeFace) else { return false }
             undoFirstTap()
             addEditingEdges(body: body, beforeEdges: loop, toggle: false)
             announce("Loop of \(loop.count) edges picked")
+            return true
         default:
-            break
+            return false
         }
     }
 

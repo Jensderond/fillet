@@ -55,9 +55,10 @@ public protocol ViewportDelegate: AnyObject {
                         pointer: PointerKind)
     /// A second tap or click on the same element right after the first (which arrived as
     /// `viewportDidTap`): Fusion's double-click to select an edge's loop. `face` is the face under
-    /// the pointer, which says which of an edge's two faces' loops is meant.
+    /// the pointer, which says which of an edge's two faces' loops is meant. Return false when a
+    /// double tap means nothing there: the second tap then arrives as an ordinary tap.
     func viewportDidDoubleTap(target: PickTarget?, face: PickTarget?, location: CGPoint, modifiers: ViewportModifiers,
-                              pointer: PointerKind)
+                              pointer: PointerKind) -> Bool
     /// A selection box was let go: `targets` is what it selects (see ``ViewportPicker/boxSelect``),
     /// `box` how it was drawn (its mode and what it does to the selection).
     func viewportDidBoxSelect(_ targets: [PickTarget], box: SelectionBox)
@@ -101,7 +102,7 @@ public extension ViewportDelegate {
         viewportDidTap(target: target, hit: hit, ray: ray, location: location, modifiers: modifiers, pointer: .touch)
     }
     func viewportDidDoubleTap(target: PickTarget?, face: PickTarget?, location: CGPoint, modifiers: ViewportModifiers,
-                              pointer: PointerKind) {}
+                              pointer: PointerKind) -> Bool { false }
     func viewportDidBoxSelect(_ targets: [PickTarget], box: SelectionBox) {}
     func viewportHoverChanged(target: PickTarget?) {}
     func viewportToolHover(_ event: ViewportToolEvent) {}

@@ -169,8 +169,10 @@ private final class SelectionRecorder: ViewportDelegate {
     }
 
     func viewportDidDoubleTap(target: PickTarget?, face: PickTarget?, location: CGPoint, modifiers: ViewportModifiers,
-                              pointer: PointerKind) {
+                              pointer: PointerKind) -> Bool {
         doubles.append((target, face))
+        if case .edge? = target { return true }
+        return false
     }
 
     func viewportDidBoxSelect(_ targets: [PickTarget], box: SelectionBox) { boxes.append((targets, box)) }
@@ -201,6 +203,20 @@ struct ControllerSelectionTests {
         c.tap(at: edge, pointer: .touch, modifiers: [], time: 101)
         c.tap(at: edge, pointer: .touch, modifiers: [], time: 101.6)
         #expect(r.taps.count == 3 && r.doubles.count == 1)
+    }
+
+    @Test func doubleTapWithoutMeaningIsASecondTap() {
+        let r = SelectionRecorder()
+        let c = controller(r)
+        // The front face's middle: the recorder only uses double taps on edges.
+        let face = screen(Vec3(0, -10, 0))
+        c.tap(at: face, pointer: .touch, modifiers: [], time: 100)
+        c.tap(at: face, pointer: .touch, modifiers: [], time: 100.1)
+        #expect(r.doubles.count == 1)
+        #expect(r.taps.count == 2)
+        // A third quick tap pairs with the second: again no double tap here, so a tap.
+        c.tap(at: face, pointer: .touch, modifiers: [], time: 100.2)
+        #expect(r.doubles.count == 2 && r.taps.count == 3)
     }
 
     @Test func quickTapsOnDifferentThingsStayTaps() {
