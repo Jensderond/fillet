@@ -164,6 +164,16 @@ for run in 0..<runs {
     finalModel = model
     warm = ev
 }
+// The bodies whose report values get digested (at the end), collected before the cascade
+// replaces the warm evaluator's cached shapes.
+var reportShapes = finalModel.bodies.map(\.shape)
+if allBodies {
+    progress("collecting the bodies before every step")
+    for f in active {
+        reportShapes += (await warm.evaluate(document, before: f.id).bodiesBefore ?? []).map(\.shape)
+    }
+}
+
 let coldTotal = median(coldTotals)
 let coldModelling = median(coldSteps)
 let coldMesh = median(coldMeshes)
@@ -468,13 +478,6 @@ print("display meshes: \(meshTriangles) triangles, digest \(meshHash.hex); face/
         hash.add([fresh.volume, fresh.surfaceArea]); hash.add([fresh.isValid ? 1 : 0])
     }
     return (hash.hex, seen.count)
-}
-var reportShapes = finalModel.bodies.map(\.shape)
-if allBodies {
-    progress("report digest over the bodies before every step")
-    for f in active {
-        reportShapes += (await warm.evaluate(document, before: f.id).bodiesBefore ?? []).map(\.shape)
-    }
 }
 let (reportHash, reportCount) = reportDigest(reportShapes)
 print("report values (volume, surfaceArea, isValid) of \(reportCount) bodies: digest \(reportHash)")

@@ -1,8 +1,9 @@
 # Performance
 
 Recompute benchmark, the baseline numbers, and what each optimisation round changed (see
-[Round 1](#round-1-kernel-booleans-2026-10-25), [Round 1b](#round-1b-agent-steps-candidates-2-and-3)
-and [Round 2](#round-2-meshing-face-infos-and-report-queries-2026-10-25)).
+[Round 1](#round-1-kernel-booleans-2026-10-25), [Round 1b](#round-1b-agent-steps-candidates-2-and-3),
+[Round 2](#round-2-meshing-face-infos-and-report-queries-2026-10-25) and
+[Round 3](#round-3-report-values-solid-classification-and-meshing-2026-10-26)).
 
 ## Running it
 
@@ -11,11 +12,12 @@ swift build -c release --product fillet-bench
 .build/release/fillet-bench --booleans > bench.md    # ~40 s on an M4 Pro (10 min at baseline); progress on stderr
 ```
 
-`fillet-bench [design.fillet] [--runs N] [--query-runs M] [--top K] [--no-cascade] [--booleans]`.
+`fillet-bench [design.fillet] [--runs N] [--query-runs M] [--top K] [--no-cascade] [--booleans] [--all-bodies]`.
 It defaults to `Benchmarks/frog-wizard.fillet`. `--runs` (default 3) sets how many cold evaluates
 and cascades it takes the median of. `--query-runs` (default 10) does the same for tessellation and
 face/edge queries. `--booleans` replays each boolean of the 5 slowest combine steps on its own, then
 all tools of a multi-tool step in one boolean (what the evaluator does since Round 1).
+`--all-bodies` extends the report-value digest (below) to every distinct body before each step.
 
 It measures:
 
@@ -39,6 +41,9 @@ It measures:
 - **Mesh and face-info digests**: bit-exact FNV digests of the evaluator's display meshes and of
   every final body's face and edge infos (which feed persistent reference signatures). Reference:
   meshes `8cb4b3419e1f5575` (159 433 triangles), face/edge infos `78ee99c9d3ec3ba6`.
+- **Report-value digest** (since Round 3): bit-exact FNV digest of the default-precision `volume`,
+  `surfaceArea` and `isValid` that agent tools report, each on a fresh handle. Reference: 11 final
+  bodies `a4497fd231990065`; with `--all-bodies`, 80 bodies `4610a59b64605b24`.
 
 ## Fixture
 
@@ -479,3 +484,139 @@ document. `measure` (470 ms) is the same volume and area on a body not described
 5. **UI:** `planarFaces` is cheap (5 ms for the frog body, cached per shape); `makeScene`'s bounds
    are cached now, and the `faceInfos` it resolves a lay-flat's face against are cached and 8×
    faster on first use. No other kernel query in `makeScene` showed up.
+
+## Round 3: report values, solid classification and meshing (2026-10-26)
+
+Same machine and fixture, release build. Another agent's builds shared the CPU (load 7–15), so
+every comparison below is back to back with the build before it, median of 3–5 runs. Five commits:
+
+| commit | change |
+|---|---|
+| `9a63b56` | volume and area integrated per face in parallel (`fk_volume`, `fk_surface_area`) |
+| `109077b` | `fk_is_valid` with `BRepCheck_Analyzer`'s parallel mode |
+| `e99c150` | a solid classifier's face intersectors built in parallel (patched `BRepClass3d_SolidExplorer`) |
+| `75ac43b` | OCCT's pool sized to 4× the processors, every body meshed in parallel |
+| `5698f7d` | the evaluator keeps the previous evaluate's display meshes, so undo doesn't re-mesh |
+
+Whole branch, two back-to-back pairs of full `fillet-bench --booleans` runs (Round 2's `0cab901`
+first in each pair):
+
+| measurement | round 2 ms | round 3 ms |
+|---|---:|---:|
+| cold full evaluate | 2 112 / 2 141 | **1 839 / 1 868** |
+| … modelling | 1 923 / 1 952 | 1 688 / 1 690 |
+| … display tessellation, 11 bodies | 187 / 184 | 145 / 178 |
+| early-edit cascade (76 of 80 steps) | 2 136 / 2 165 | **1 809 / 1 827** |
+| … its display tessellation | 189 / 183 | 166 / 149 |
+| combine steps (16) | 1 339 / 1 356 | 1 176 / 1 179 |
+| fillet steps (9) | 265 / 267 | 221 / 219 |
+| first `volume` / `surfaceArea` / `isValid`, frog body | 209 / 187 / 63 | **25 / 22 / 12** |
+| … all 11 final bodies | 233 / 208 / 74 | 41 / 37 / 18 |
+
+The display tessellation varies most: the dedicated comparison for `75ac43b` (three pairs) gave
+187 / 183 / 187 → 142 / 146 / 143 ms. Slowest steps: "Join front leg" 160 → 103 ms, "Join
+fingers" 147 → 94 ms, "Join arm" 114 → 77 ms, "Bed trim 2" 83 → 56 ms. Step 76 "Clear
+accessories" is 545 → 537 ms (see below).
+
+Headless MCP server (`fillet-mcp` on a fresh copy of the fixture, requests over stdio, two
+back-to-back pairs of 3 runs each):
+
+| request | round 2 ms | round 3 ms |
+|---|---:|---:|
+| `get_design` (opens the file: cold evaluate) | 2 173 / 2 168 | **1 809 / 1 850** |
+| first `list_faces` on the frog body | 59 / 61 | 57 / 59 |
+| `fillet` of the frog body's straight edges (r 0.3) | 672 / 675 | **230 / 230** |
+| `undo` | 59 / 69 | **2 / 2** |
+| `measure` of the frog body | 462 / 462 | **58 / 59** |
+
+Fingerprint `c9740640fe841e22`, mesh digest `8cb4b3419e1f5575` and face/edge-info digest
+`78ee99c9d3ec3ba6` are unchanged after every commit. The new report-value digest (default-precision
+`volume`, `surfaceArea`, `isValid`) is `4610a59b64605b24` over the 80 bodies before every step,
+before and after.
+
+### What changed
+
+1. **Parallel volume and area.** `BRepGProp` integrates each face on its own against one
+   reference point for the whole shape (the mean of every vertex the explorer visits) and adds the
+   masses up in explorer order: `dim = dim + Item.dim * 1.0`. `massOf` in `Shapes.cpp` does the
+   same per face on OCCT's pool and sums in the same order, starting from 0, so the double is the
+   same. It only takes OCCT's per-face path: shapes with a shared solid (OCCT integrates per
+   solid then), faces without a surface (triangulation), shapes without vertices and any face that
+   throws go to `BRepGProp` itself. `volumeOf` (also the shell feature's check) uses it too. A test
+   compares `volume`/`surfaceArea` bit for bit with `massProperties(precision: 1)`, which is
+   OCCT's own serial loop at default precision. The fingerprint's eps-1e-9 integration stays serial,
+   as an independent reference.
+2. **Parallel validity check** in `fk_is_valid`: the same checks per sub-shape, as `finish()`
+   has done since Round 1.
+3. **Solid classifier set-up in parallel.** Every `BRepClass3d_SolidClassifier` first builds an
+   `IntCurvesFace_Intersector` per face (a sampled polyhedron for B-spline faces), one face after
+   another, before it classifies anything. Profiling the cold evaluate showed that set-up at about
+   20% of the evaluating thread: `BOPAlgo_BuilderSolid::PerformAreas` classifies a boolean's result
+   shells to tell holes from solids (on the calling thread, while the pool idles), and `finish()`'s
+   inside-out check (`IsInvertedSolid`) does it again. `OCCTPatches/BRepClass3d_SolidExplorer.cpp`
+   is a copy of the OCCT 8.0.1 file (same linking trick and version `#error` as Round 1's patch)
+   whose `InitShape` builds the intersectors on the pool, then binds them in face order with the
+   original's last-wins binding and first-exception-in-order behaviour. Each intersector depends
+   only on its face, so every classification is unchanged. `finish()`'s orientation check went
+   from 208 to 83 ms per cold evaluate, and most combine steps on the frog body got 30–40% faster
+   (single "Join fingers" tools replayed: 98–111 → 44–56 ms; step 76 is the exception, below). A test cuts a B-spline cavity out of a box
+   (a hole shell) and fills it again on 8 threads at once.
+4. **A bigger OCCT pool, every body meshed in parallel.** A parallel loop locks whichever pool
+   threads are free when it starts, at most one per processor. With OCCT's default pool (one thread
+   per processor) a second concurrent loop gets one thread, which is why Round 2 meshed only the
+   body with the most faces in parallel. That left Body 20 (5 faces, 24 578 triangles) meshing on
+   one thread for about 130 ms, the critical path. The kernel now sizes the pool to 4× the logical
+   processors on its first call (`fk::ensureThreadPool`, from `guarded`) and keeps the per-loop
+   limit at one per processor, so a boolean on its own locks no more threads than before. The
+   evaluator meshes every body with `parallel: true`, and the critical path is the slowest single
+   face (Body 18, about 85 ms). Meshing everything in parallel without the bigger pool was bimodal:
+   147 or 337 ms. Modelling did not get slower (1 709 / 1 695 / 1 742 → 1 676 / 1 662 / 1 657 ms;
+   possibly because nested loops inside booleans now find threads). The cost: one body meshed on its
+   own is 5–8 ms slower (frog body 62–64 → 68–71 ms), for the same reason.
+5. **Undo without re-meshing.** The evaluator's mesh cache held only the current bodies, so undoing
+   a step re-meshed the bodies it brought back (the frog body: about 65 ms of the 70 ms `undo`).
+   It now also keeps the previous evaluate's cache, which costs one more generation of meshes (and
+   their shapes) in memory. Redo still recomputes the step, because the step cache holds one
+   document.
+
+### Step 76 and what the booleans spend now
+
+Step 76 "Clear accessories" (cut, 8 tools in one boolean) gained little: 545 → 537 ms, replayed
+on its own about 530 ms. Sampled in a loop, its calling thread spends 83% in `BOPAlgo_PaveFiller`
+(face/face 43%, edge/face 31%) and 11% in `BOPAlgo_Builder`, and 24% of the step waiting for the
+last few face/face and edge/face pairs to finish on other threads.
+
+Over the whole cold evaluate (sampled after commit 3), the evaluating thread spends 63% in OCCT's
+boolean `Build` (pave filler 50%: face/face 28%, edge/face 16%; builder 13%), 11% in fillets
+(`ChFi3d_Builder::Compute`), 11% in `finish()` after any operation (validity 5%, orientation 4%),
+11% meshing (before commit 4) and 7% in the scale steps' `BRepBuilderAPI_GTransform`.
+
+### Tried and dropped
+
+- **A 2× pool** (28 threads): meshing everything in parallel was still bimodal once (about 300 ms).
+- **Lazy, box-rejected face intersectors** in the classifier: the box `IntCurvesFace_Intersector`
+  rejects a line with is its own polyhedron's, which needs the polyhedron, so a cheaper pre-check
+  can't be shown to give the same answer. Building them in parallel can.
+- **Section-curve tolerances** (`IntTools_FaceFace::ComputeTolReached3d` →
+  `GeomLib_CheckCurveOnSurface`, about 29% of face/face CPU): they become edge tolerances, so any
+  shortcut changes the result. Not touched.
+- **Skipping `finish()`'s orientation check after booleans** of oriented arguments: OCCT's builder
+  already classifies the shells it builds, so it is likely redundant, but there is no guarantee to
+  point to. About 50 ms per cold evaluate after 3; left as a candidate.
+
+### What's left (ranked)
+
+1. **The tail of the face/face and edge/face loops** (24% of step 76): OCCT runs the pairs in
+   index order, so an expensive pair that starts late finishes alone. Starting the pairs with the
+   most surface spans first would shorten that tail without changing results (they are stored by
+   index). Needs a patched `BOPAlgo_PaveFiller`; up to about 100 ms on step 76.
+2. **Skip the orientation check after booleans of `finish()`ed arguments** (above): about 50 ms
+   per cold evaluate, medium-low risk; the volume sign in the fingerprint would catch a mistake on
+   the fixture, but not in general.
+3. **Fillets** (220 ms, 13% of modelling): `ChFi3d_Builder::Compute`, then `finish()`.
+4. **Redo and toggled edits**: a second generation of step states (like the meshes in 5) would
+   make redo free instead of recomputing the step.
+5. **"Widen hat"** (`BRepBuilderAPI_GTransform`, 94 ms): unchanged; exact revolutions need a
+   migration for saved face references (see Round 1).
+6. **Single-body meshing** is 5–8 ms slower with the bigger pool (nested loops). If that matters
+   more than the cold and cascade gains, mesh bodies with only a few faces serially.
