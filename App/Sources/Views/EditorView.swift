@@ -963,7 +963,7 @@ struct PressableStyle: ButtonStyle {
     }
 }
 
-/// Undo/redo, printer and export in the window toolbar.
+/// Undo/redo, printer, export and agents in the window toolbar, and on the Mac an update on offer.
 struct DocumentToolbar: ToolbarContent {
     @Bindable var session: DesignSession
     @Environment(\.undoManager) private var undoManager
@@ -981,6 +981,11 @@ struct DocumentToolbar: ToolbarContent {
             PrinterMenu(session: session)
             ExportMenu(session: session)
             AgentToolbarButton()
+            #if os(macOS)
+            if let release = Updater.shared.offered {
+                UpdateToolbarButton(release: release, isReady: Updater.shared.phase == .ready(release))
+            }
+            #endif
         }
     }
 }

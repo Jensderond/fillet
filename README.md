@@ -24,6 +24,22 @@ A team picked under *Signing & Capabilities* is lost on the next `xcodegen gener
 `scripts/release.sh 0.2.0` builds the Mac release: `build/release/Fillet-0.2.0.dmg`, with the
 `fillet-mcp` helper inside the app (set the version in `App/project.yml` first).
 
+### Updates (Mac)
+
+The Mac app updates itself from this repository's GitHub releases. Once a day (while *Check for
+updates automatically* is on) and from *Fillet ▸ Check for Updates…*, it looks for the newest
+release with a version above its own: a `v0.3.2` tag (prereleases count) with the DMG attached.
+A new version shows as an orange *Update* button in the window toolbar. *Install Update* downloads
+the DMG, checks it against the SHA-256 GitHub lists for the asset, and stages the new app; it
+replaces the old one when Fillet quits (*Relaunch Now* quits and reopens). The swap is done by
+`FilletUpdater.xpc` (`App/Updater`), which runs outside the app's sandbox. Where Fillet can't
+replace itself (run from the DMG or a folder it can't write to, or macOS's App Management
+refuses), the DMG opens for the usual drag to Applications. Offline, checks fail quietly.
+
+To publish an update: run `scripts/release.sh`, then attach the DMG to a (pre)release tagged
+`v<version>`. Release notes come from the release body; its *Install* and *Checksum* sections are left
+out of the in-app notes. `FILLET_UPDATE_AS_VERSION=0.3.0` makes a build act as that version, to try an update.
+
 ## Layout
 
 | Path | What |
@@ -34,7 +50,7 @@ A team picked under *Signing & Capabilities* is lost on the next `xcodegen gener
 | `Sources/FilletViewport` | Metal renderer, camera, picking, touch/Pencil/mouse input |
 | `Sources/FilletAgent` | MCP server for AI agents: modelling tools, HTTP + stdio transports, headless workspace |
 | `Sources/fillet-mcp` | The headless MCP command (stdio), and a bridge to the running app |
-| `App/` | The SwiftUI app (XcodeGen `project.yml`) |
+| `App/` | The SwiftUI app (XcodeGen `project.yml`); `App/Updater` is the Mac updater's XPC service |
 | `docs/design.md` | Design and architecture |
 | `docs/icon/` | App icon sources (`build.sh` regenerates everything) |
 

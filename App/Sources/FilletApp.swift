@@ -8,6 +8,8 @@ struct FilletApp: App {
         #endif
         #if os(iOS)
         SplashPresenter.playOnFirstScene()
+        #else
+        Updater.shared.start()
         #endif
     }
 
@@ -16,6 +18,15 @@ struct FilletApp: App {
             EditorView(document: file.$document, fileURL: file.fileURL)
         }
         .commands { FilletCommands() }
+
+        #if os(macOS)
+        Window("Software Update", id: UpdateWindow.id) { UpdateWindow() }
+            .windowResizability(.contentSize)
+            .windowMinimizeBehavior(.disabled)
+            .defaultLaunchBehavior(.suppressed)
+            .restorationBehavior(.disabled)
+            .commandsRemoved()
+        #endif
 
         #if os(iOS)
         DocumentGroupLaunchScene("Fillet") {
