@@ -230,32 +230,6 @@ struct FilletTools {
         }
     }
 
-    private var measure: MCPTool {
-        MCPTool(
-            name: "measure", title: "Measure",
-            description: "Volume, surface area, bounds and validity of bodies; with `to`, also the minimum distance between two bodies (0 = touching or overlapping).",
-            inputSchema: Self.object(["body": Self.body, "to": Self.string("Second body, to measure the distance between them")]),
-            readOnly: true
-        ) { args in
-            let a = Args(args)
-            let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
-            guard let name = a.optionalString("body") else {
-                return .json(["bodies": .array(r.model.bodies.map { Describe.body($0, r, detail: true) })])
-            }
-            let b = try r.body(name)
-            var out: [String: JSONValue] = ["body": Describe.body(b, r, detail: true)]
-            if let other = a.optionalString("to") {
-                let o = try r.body(other)
-                if let d = b.shape.distance(to: o.shape) {
-                    out["distance"] = .rounded(d.distance, 3)
-                    out["closest_points"] = [.vec(d.pointA, 2), .vec(d.pointB, 2)]
-                }
-            }
-            return .json(.object(out))
-        }
-    }
-
     private var checkPrint: MCPTool {
         MCPTool(
             name: "check_print", title: "Check printability",

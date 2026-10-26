@@ -50,6 +50,7 @@ struct FilletCommands: Commands {
             Button("Lay Flat on Face") { session?.startLayFlat() }
             Button(session?.showOverhangs == true ? "Hide Overhangs" : "Show Overhangs") { session?.showOverhangs.toggle() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
+            Button("Measure") { session?.startMeasure() }
             Divider()
             Button("Import STEP…") { session?.importRequested = true }
                 .keyboardShortcut("i", modifiers: [.command, .shift])

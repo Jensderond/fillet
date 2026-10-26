@@ -42,6 +42,11 @@ const ShapeMap &FKShape::edges() const {
   return edgeMap;
 }
 
+const ShapeMap &FKShape::vertices() const {
+  std::call_once(verticesOnce, [this] { TopExp::MapShapes(shape, TopAbs_VERTEX, vertexMap); });
+  return vertexMap;
+}
+
 namespace fk {
 
 // MARK: - Errors

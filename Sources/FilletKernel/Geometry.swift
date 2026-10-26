@@ -228,10 +228,13 @@ public struct Mesh: Sendable {
     public var triangleFaces: [Int32]
     /// One polyline per B-rep edge, indexed like `Shape.edgeInfo`.
     public var edges: [[SIMD3<Float>]]
+    /// Position of each B-rep vertex (the corners where edges meet), indexed like `Shape.vertexPoint`.
+    public var brepVertices: [SIMD3<Float>]
 
-    public init(positions: [SIMD3<Float>], normals: [SIMD3<Float>], indices: [UInt32], triangleFaces: [Int32], edges: [[SIMD3<Float>]]) {
+    public init(positions: [SIMD3<Float>], normals: [SIMD3<Float>], indices: [UInt32], triangleFaces: [Int32], edges: [[SIMD3<Float>]],
+                brepVertices: [SIMD3<Float>] = []) {
         self.positions = positions; self.normals = normals; self.indices = indices
-        self.triangleFaces = triangleFaces; self.edges = edges
+        self.triangleFaces = triangleFaces; self.edges = edges; self.brepVertices = brepVertices
     }
 
     public static let empty = Mesh(positions: [], normals: [], indices: [], triangleFaces: [], edges: [])

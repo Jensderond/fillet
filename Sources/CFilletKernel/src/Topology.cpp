@@ -49,6 +49,14 @@ const TopoDS_Edge &edgeAt(const FKShape *shape, int32_t index) {
   return TopoDS::Edge(edges(index + 1));
 }
 
+const TopoDS_Vertex &vertexAt(const FKShape *shape, int32_t index) {
+  const ShapeMap &vertices = shape->vertices();
+  if (index < 0 || index >= vertices.Extent())
+    fail("Vertex " + std::to_string(index) + " does not exist (the body has " + std::to_string(vertices.Extent()) +
+         " vertices)");
+  return TopoDS::Vertex(vertices(index + 1));
+}
+
 FKSurfaceType surfaceType(GeomAbs_SurfaceType t) {
   switch (t) {
   case GeomAbs_Plane: return FK_SURF_PLANE;
@@ -155,6 +163,35 @@ FKFaceInfo faceInfoOf(const TopoDS_Face &face) {
   return info;
 }
 
+/// The direction an angle is measured from: a flat face's outward normal or a straight edge's
+/// direction (which has no sense, so only its line counts).
+struct Direction {
+  gp_Dir dir;
+  bool isPlane;
+};
+
+Direction directionOf(const TopoDS_Shape &s, const char *which) {
+  if (s.ShapeType() == TopAbs_FACE) {
+    const TopoDS_Face &face = TopoDS::Face(s);
+    TopLoc_Location loc;
+    occ::handle<Geom_Surface> surf = BRep_Tool::Surface(face, loc);
+    if (surf.IsNull() || !GeomLib_IsPlanarSurface(surf, 1e-6).IsPlanar())
+      fail(std::string("The ") + which + " face is not flat, so it has no single direction to measure an angle from");
+    GProp_GProps props;
+    BRepGProp::SurfaceProperties(face, props);
+    return {normalNear(face, props.CentreOfMass()), true};
+  }
+  if (s.ShapeType() == TopAbs_EDGE) {
+    const TopoDS_Edge &edge = TopoDS::Edge(s);
+    if (BRep_Tool::Degenerated(edge)) fail(std::string("The ") + which + " edge has no length");
+    BRepAdaptor_Curve c(edge);
+    if (c.GetType() != GeomAbs_Line)
+      fail(std::string("The ") + which + " edge is not straight, so it has no single direction to measure an angle from");
+    return {c.Line().Direction(), false};
+  }
+  fail("Angles are measured between flat faces and straight edges");
+}
+
 } // namespace
 
 extern "C" int32_t fk_face_count(const FKShape *shape) {
@@ -168,6 +205,22 @@ extern "C" int32_t fk_edge_count(const FKShape *shape) {
   return guarded("Edge count", (int32_t)0, [&] {
     shapeOf(shape);
     return (int32_t)shape->edges().Extent();
+  });
+}
+
+extern "C" int32_t fk_vertex_count(const FKShape *shape) {
+  return guarded("Vertex count", (int32_t)0, [&] {
+    shapeOf(shape);
+    return (int32_t)shape->vertices().Extent();
+  });
+}
+
+extern "C" bool fk_vertex_point(const FKShape *shape, int32_t vertexIndex, FKVec3 *out) {
+  return guarded("Vertex", false, [&] {
+    shapeOf(shape);
+    if (!out) fail("Missing output pointer");
+    *out = fkv(BRep_Tool::Pnt(vertexAt(shape, vertexIndex)));
+    return true;
   });
 }
 
@@ -383,5 +436,42 @@ extern "C" FKShape *fk_subshape_edge(const FKShape *shape, int32_t edgeIndex) {
   return guarded("Edge", (FKShape *)nullptr, [&] {
     shapeOf(shape);
     return wrap(edgeAt(shape, edgeIndex));
+  });
+}
+
+extern "C" FKShape *fk_subshape_vertex(const FKShape *shape, int32_t vertexIndex) {
+  return guarded("Vertex", (FKShape *)nullptr, [&] {
+    shapeOf(shape);
+    return wrap(vertexAt(shape, vertexIndex));
+  });
+}
+
+extern "C" bool fk_face_radius(const FKShape *shape, int32_t faceIndex, double *radius) {
+  return guarded("Face radius", false, [&] {
+    shapeOf(shape);
+    if (!radius) fail("Missing output pointer");
+    BRepAdaptor_Surface surf(faceAt(shape, faceIndex), false);
+    switch (surf.GetType()) {
+    case GeomAbs_Cylinder: *radius = surf.Cylinder().Radius(); return true;
+    case GeomAbs_Sphere: *radius = surf.Sphere().Radius(); return true;
+    default: fk::setError("The face is not cylindrical or spherical"); return false;
+    }
+  });
+}
+
+extern "C" bool fk_angle(const FKShape *a, const FKShape *b, double *radians) {
+  return guarded("Angle", false, [&] {
+    Direction da = directionOf(shapeOf(a, "first shape"), "first");
+    Direction db = directionOf(shapeOf(b, "second shape"), "second");
+    if (!radians) fail("Missing output pointer");
+    double angle = da.dir.Angle(db.dir); // 0…π
+    if (da.isPlane && db.isPlane) {
+      *radians = angle;
+    } else if (da.isPlane != db.isPlane) {
+      *radians = std::fabs(M_PI / 2 - angle); // between the line and the plane, not its normal
+    } else {
+      *radians = std::min(angle, M_PI - angle);
+    }
+    return true;
   });
 }

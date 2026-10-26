@@ -77,6 +77,8 @@ final class DesignSession {
     /// Sketch was asked for with no flat face picked: the origin planes show in the viewport
     /// and the next tap on one of them, or on a flat face, opens the new sketch there.
     var choosingSketchPlane = false
+    /// Measure is on (see `MeasureState`); nil otherwise.
+    var measure: MeasureState?
     var hiddenBodies: Set<BodyRef> = []
     var camera = Camera(target: Vec3(0, 0, 10), distance: 260)
     /// Size of the viewport in points (for converting screen tolerances to mm).
@@ -213,6 +215,7 @@ final class DesignSession {
     func commitEdit() {
         // Whatever starts next (a feature, a sketch, editing a step) replaces choosing a plane.
         choosingSketchPlane = false
+        measure = nil
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil
@@ -267,6 +270,7 @@ final class DesignSession {
                 let previousBodies = self.model.bodies.count
                 let previousStatus = self.model.status
                 self.model = result
+                self.measure?.dropStale(in: result)
                 self.reframeAfterRecompute(previousBodyCount: previousBodies)
                 self.announceFailures(previous: previousStatus)
             }

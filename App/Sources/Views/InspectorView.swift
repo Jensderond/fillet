@@ -16,6 +16,8 @@ struct InspectorView: View {
                 VStack(alignment: .leading, spacing: Theme.Space.xl) {
                     if session.sketchEditor != nil {
                         SketchInspector(session: session)
+                    } else if session.measure != nil {
+                        MeasureInspector(session: session)
                     } else if let feature = session.editingFeature {
                         FeatureInspector(session: session, feature: feature)
                     } else {
@@ -33,6 +35,8 @@ struct InspectorView: View {
             .scrollEdgeFade()
             if session.sketchEditor != nil {
                 if showsSketchFooter { SketchFooter(finish: session.finishSketch) }
+            } else if let measure = session.measure {
+                MeasureFooter(canClear: !measure.picks.isEmpty, clear: session.escapeMeasure, done: session.endMeasure)
             } else if session.editingFeature != nil {
                 InspectorFooter(cancel: session.cancelEdit, done: session.commitEdit)
             }

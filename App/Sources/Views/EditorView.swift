@@ -104,7 +104,7 @@ struct EditorContent: View {
     /// doesn't jump 320 pt as the selection changes, and the empty document gets its starter.
     private var showInspector: Bool {
         layout == .regular || session.editing != nil || session.sketchEditor != nil || !session.selection.isEmpty
-            || !session.model.bodies.isEmpty
+            || !session.model.bodies.isEmpty || session.measure != nil
     }
 
     /// The browser floats over the viewport below regular width, and at accessibility text
@@ -388,6 +388,7 @@ struct EditorContent: View {
         case .faces: return ("\(pick) faces to remove them", "hand.tap", "pick")
         case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap", "pick")
         case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap", "pick")
+        case .measure: return (session.measureHint, "ruler", "pick")
         default: break
         }
         // Without the always-visible inspector (narrow layouts), the empty document still needs a first step.
@@ -586,6 +587,8 @@ struct ToolStrip: View {
                                    unavailable: session.unavailableReason(.layFlat)) { session.startLayFlat() }
                         ToolButton("Overhangs", "angle", active: session.showOverhangs, toggle: true,
                                    unavailable: session.showOverhangs ? nil : session.unavailableReason(.overhangs)) { session.showOverhangs.toggle() }
+                        ToolButton("Measure", "ruler", active: session.measure != nil,
+                                   unavailable: session.measure != nil ? nil : session.measureUnavailableReason) { session.startMeasure() }
                     }
                 }
                 .padding(.vertical, 1)

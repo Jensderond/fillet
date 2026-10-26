@@ -20,12 +20,15 @@ enum PickMode: Equatable {
     case singleFace
     /// Choosing bodies (combine, move, mirror, pattern).
     case bodies
+    /// Picking things to measure (see `MeasureState`).
+    case measure
 }
 
 extension DesignSession {
     var pickMode: PickMode {
         if sketchEditor != nil { return .sketch }
         if choosingSketchPlane { return .sketchPlane }
+        if measure != nil { return .measure }
         guard let feature = editingFeature else { return .idle }
         switch feature.kind {
         case .extrude(let e): return .regions(sketch: e.sketch)
@@ -46,6 +49,7 @@ extension DesignSession {
         case .regions: [.regions, .handles]
         case .edges: [.edges]
         case .faces, .singleFace, .bodies: [.faces]
+        case .measure: measure?.picksBodies == true ? [.bodies] : [.faces, .edges, .vertices]
         }
     }
 
@@ -83,6 +87,7 @@ extension DesignSession {
         scene.handles = editingHandles()
         scene.measures = sketchMeasures() + handleMeasures(scene.handles)
         scene.edgeHighlights = edgeHighlights()
+        applyMeasure(to: &scene)
         return scene
     }
 
@@ -341,6 +346,8 @@ extension DesignSession: ViewportDelegate {
         case .bodies:
             guard let bodyID = target?.bodyID else { return }
             toggleEditingBody(BodyRef(bodyID))
+        case .measure:
+            measureTapped(target)
         }
     }
 

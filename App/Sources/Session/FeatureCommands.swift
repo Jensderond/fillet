@@ -151,11 +151,13 @@ extension DesignSession {
         editing?.snapshot = document
     }
 
-    /// Escape, from the keyboard on both platforms: stop choosing a sketch plane, stop typing a
+    /// Escape, from the keyboard on both platforms: clear Measure's picks or leave it, stop choosing a sketch plane, stop typing a
     /// size, cancel the stroke in progress, then leave sketch mode, then cancel the feature being edited, then
     /// clear the selection.
     func escape() {
-        if choosingSketchPlane {
+        if measure != nil {
+            escapeMeasure()
+        } else if choosingSketchPlane {
             cancelChoosingSketchPlane()
         } else if stopTypingDimension() {
             return

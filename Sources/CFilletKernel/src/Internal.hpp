@@ -39,10 +39,11 @@ struct FKShape {
 
   const ShapeMap &faces() const;
   const ShapeMap &edges() const;
+  const ShapeMap &vertices() const;
 
 private:
-  mutable std::once_flag facesOnce, edgesOnce;
-  mutable ShapeMap faceMap, edgeMap;
+  mutable std::once_flag facesOnce, edgesOnce, verticesOnce;
+  mutable ShapeMap faceMap, edgeMap, vertexMap;
 };
 
 struct FKShapeList {
@@ -55,6 +56,7 @@ struct FKMesh {
   std::vector<uint32_t> indices;
   std::vector<int32_t> triangleFaces;
   std::vector<std::vector<float>> edges;
+  std::vector<float> brepVertices; // xyz per B-rep vertex
 };
 
 namespace fk {
