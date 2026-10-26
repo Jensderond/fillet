@@ -259,7 +259,7 @@ struct FilletTools {
     private var checkPrint: MCPTool {
         MCPTool(
             name: "check_print", title: "Check printability",
-            description: "Print check for the visible bodies on the selected printer: fits on the bed, size, overhang area beyond the angle, watertightness, estimated PLA grams.",
+            description: "Print check for the visible bodies on the selected printer: fits on the bed, size, overhang area beyond the angle, watertightness (open and non-manifold edge counts), estimated PLA grams.",
             inputSchema: Self.object(["overhang_angle": Self.number("Overhang threshold in degrees from vertical (default 45)")]),
             readOnly: true
         ) { args in
@@ -274,6 +274,7 @@ struct FilletTools {
                 "size": .vec(p.size, 2), "fits_on_bed": .bool(p.fitsOnBed), "fits_only_rotated": .bool(p.fitsOnlyRotated),
                 "lowest_z": p.boundsMin.map { .rounded($0.z, 3) } ?? .null,
                 "overhang_area_mm2": .rounded(p.overhangArea, 1), "watertight": .bool(p.isWatertight),
+                "open_edges": .number(Double(p.boundaryEdgeCount)), "non_manifold_edges": .number(Double(p.nonManifoldEdgeCount)),
                 "volume_mm3": .rounded(p.volume, 1), "pla_grams": .rounded(p.grams(.pla), 1),
             ])
         }
