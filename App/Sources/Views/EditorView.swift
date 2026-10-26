@@ -385,7 +385,9 @@ struct EditorContent: View {
         case .sketchPlane: return nil  // the plane bar says what to pick
         case .regions: return ("\(pick) the profiles to use", "hand.tap", "pick")
         case .edges: return ("\(pick) edges to add or remove them", "hand.tap", "pick")
-        case .faces: return ("\(pick) faces to remove them", "hand.tap", "pick")
+        case .faces:
+            if session.editingKind == "pressPull" { return ("\(pick) faces to move, or again to drop them", "hand.tap", "pick") }
+            return ("\(pick) faces to remove them", "hand.tap", "pick")
         case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap", "pick")
         case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap", "pick")
         default: break
@@ -566,6 +568,8 @@ struct ToolStrip: View {
                         ToolButton("Import", "square.and.arrow.down", unavailable: busyReason) { session.importRequested = true }
                     }
                     ToolCluster {
+                        ToolButton("Press Pull", "arrow.up.and.down.square", active: session.editingKind == "pressPull",
+                                   unavailable: session.unavailableReason(.pressPull)) { session.startPressPull() }
                         ToolButton("Fillet", "rectangle.roundedtop", active: session.editingKind == "fillet",
                                    unavailable: session.unavailableReason(.fillet), shortcut: "F") { session.startEdgeFeature(fillet: true) }
                         ToolButton("Chamfer", "skew", active: session.editingKind == "chamfer",

@@ -85,7 +85,7 @@ enum Change {
             let distinct = { (refs: [ResolvedReference?]) in Set(refs.compactMap { $0?.index }).count }
             let merged = distinct(was) - distinct(now)
             var problems: [String] = []
-            let noun = ["shell", "layFlat", "hole"].contains(f.kind.typeName) ? "face" : "edge"
+            let noun = ["shell", "layFlat", "hole", "pressPull"].contains(f.kind.typeName) ? "face" : "edge"
             if !moved.isEmpty {
                 let far = String(format: "%.1f", moved.max() ?? 0)
                 problems.append(now.count == 1 ? "its \(noun) is now found \(far) mm from where it was picked"

@@ -120,6 +120,10 @@ FKShape *fk_chamfer(const FKShape *shape, const int32_t *edgeIndices, int32_t co
 /// Hollows the solid, removing the given faces (may be empty for a closed
 /// hollow). Positive thickness grows the wall inward.
 FKShape *fk_shell(const FKShape *shape, const int32_t *faceIndices, int32_t count, double thickness);
+/// Press Pull (Fusion's offset face): moves the given faces along their outward normals by
+/// `distance`; positive adds material, negative removes it. Neighbouring faces stretch to
+/// follow. The body must be one solid and stays one.
+FKShape *fk_offset_faces(const FKShape *shape, const int32_t *faceIndices, int32_t count, double distance);
 
 typedef enum { FK_HOLE_SIMPLE = 0, FK_HOLE_COUNTERBORE = 1, FK_HOLE_COUNTERSINK = 2 } FKHoleType;
 

@@ -161,6 +161,7 @@ extension DesignSession {
         case .fillet(let f), .chamfer(let f): picked(f.edges.count, "edge").map { parts.append($0) }
         case .shell(let s): picked(s.removeFaces.count, "face").map { parts.append($0) }
         case .hole(let h): parts.append(h.centers.isEmpty ? "\(Theme.Copy.pick) a flat face to place a hole" : "\(h.centers.count) \(h.centers.count == 1 ? "hole" : "holes") placed")
+        case .pressPull(let p): picked(p.faces.count, "face").map { parts.append($0) }
         case .extrude(let e): picked(e.regions.count, "profile").map { parts.append($0) }
         case .revolve(let r): picked(r.regions.count, "profile").map { parts.append($0) }
         default:

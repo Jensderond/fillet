@@ -224,6 +224,7 @@ struct FeatureInspector: View {
         case .chamfer(let f): edgeFeature(f, fillet: false)
         case .shell(let s): shell(s)
         case .hole(let h): HoleInspector(hole: h, evaluator: ev) { set(.hole($0)) }
+        case .pressPull(let p): PressPullInspector(session: session, pressPull: p)
         case .primitive(let p): primitive(p)
         case .combine(let c): combine(c)
         case .move(let m): move(m)
@@ -665,6 +666,7 @@ extension FeatureKind {
         case .fillet: "rectangle.roundedtop"
         case .chamfer: "skew"
         case .shell: "cube.transparent"
+        case .pressPull: "arrow.up.and.down.square"
         case .primitive(let p):
             switch p.kind {
             case .box: "cube"
@@ -697,6 +699,7 @@ extension FeatureKind {
         case .fillet: "Rounds edges"
         case .chamfer: "Bevels edges"
         case .shell: "Hollows a body"
+        case .pressPull: "Moves faces in or out"
         case .primitive(let p): "\(p.kind.rawValue.capitalized) solid"
         case .combine: "Joins, cuts or intersects bodies"
         case .move: "Moves and rotates bodies"

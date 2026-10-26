@@ -634,6 +634,7 @@ enum Describe {
         case .hole(let h):
             let extent = h.extent == .throughAll ? "through all" : "depth \(h.depth)"
             return "\(h.centers.count) \(h.holeType.rawValue) holes ⌀\(h.diameter), \(extent)\(h.face.map { " in a face of \(body($0.body))" } ?? "")"
+        case .pressPull(let p): return "distance \(p.distance) on \(p.faces.count) faces of \(body(p.body))"
         case .unknown(let t, _): return "unsupported \(t)"
         }
     }

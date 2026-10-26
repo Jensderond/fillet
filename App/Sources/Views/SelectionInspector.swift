@@ -136,6 +136,7 @@ struct SelectionInspector: View {
                     ActionRow(symbol: "arrow.down.to.line", title: "Lay flat on the bed") { session.startLayFlat() }
                 }
                 if !session.selectedFaces.isEmpty {
+                    ActionRow(symbol: "arrow.up.and.down.square", title: "Press Pull these faces") { session.startPressPullFaces() }
                     ActionRow(symbol: "cube.transparent", title: "Shell, removing these faces") { session.startShell() }
                 }
             }

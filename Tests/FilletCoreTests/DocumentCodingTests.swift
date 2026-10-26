@@ -79,6 +79,7 @@ func everyFeatureKind() -> [FeatureKind] {
         .hole(Hole(face: face, centers: [Point2Expr(1, 2), Point2Expr("w/2", 0)], diameter: "d", extent: .throughAll)),
         .hole(Hole(face: face, holeType: .counterbore, tipAngle: 0, counterboreDiameter: 8, counterboreDepth: "2 mm")),
         .hole(Hole(face: nil, holeType: .countersink, countersinkAngle: 82)),
+        .pressPull(PressPull(body: b, faces: [face], distance: "-lift")),
     ]
 }
 

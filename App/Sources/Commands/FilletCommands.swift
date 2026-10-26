@@ -38,6 +38,8 @@ struct FilletCommands: Commands {
                 .keyboardShortcut(bare("e"))
             Button("Revolve") { session?.startIfAvailable(.revolve) { session?.startRevolve() } }
             Divider()
+            Button("Press Pull") { session?.startIfAvailable(.pressPull) { session?.startPressPull() } }
+                .keyboardShortcut(bare("q"))
             Button("Fillet") { session?.startIfAvailable(.fillet) { session?.startEdgeFeature(fillet: true) } }
                 .keyboardShortcut(bare("f"))
             Button("Chamfer") { session?.startIfAvailable(.chamfer) { session?.startEdgeFeature(fillet: false) } }

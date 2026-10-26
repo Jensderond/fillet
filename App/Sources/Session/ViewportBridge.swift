@@ -14,7 +14,7 @@ enum PickMode: Equatable {
     case regions(sketch: UUID)
     /// Choosing edges (fillet, chamfer).
     case edges
-    /// Choosing faces (shell).
+    /// Choosing faces (shell, press pull).
     case faces
     /// Choosing a single face (lay flat).
     case singleFace
@@ -33,7 +33,7 @@ extension DesignSession {
         case .extrude(let e): return .regions(sketch: e.sketch)
         case .revolve(let r): return .regions(sketch: r.sketch)
         case .fillet, .chamfer: return .edges
-        case .shell: return .faces
+        case .shell, .pressPull: return .faces
         case .layFlat: return .singleFace
         case .hole: return .holePoints
         case .combine, .move, .scale, .mirror, .pattern: return .bodies
@@ -138,6 +138,8 @@ extension DesignSession {
             {
                 targets.insert(.face(body: l.body.feature, index: i))
             }
+        case .pressPull(let p):
+            targets.formUnion(pressPullSelectionTargets(p))
         default: break
         }
         return targets
@@ -267,6 +269,7 @@ extension DesignSession {
     }
 
     private func editingHandles() -> [Handle] {
+        if case .pressPull(let p) = editingFeature?.kind { return pressPullHandles(p) }
         guard case .extrude(let e) = editingFeature?.kind, let sketch = model.sketches[e.sketch],
             let regions = sketch.regions, let first = e.regions.first,
             let distance = try? model.parameters.evaluator.length(e.distance)
@@ -387,6 +390,7 @@ extension DesignSession: ViewportDelegate {
     }
 
     func viewportHandleDragged(id: String, value: Double) {
+        if id == Self.pressPullHandleID { dragPressPullHandle(to: value); return }
         guard id == "distance" else { return }
         let rounded = (value * 10).rounded() / 10
         updateEditing { feature in

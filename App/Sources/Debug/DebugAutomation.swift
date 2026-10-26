@@ -297,6 +297,8 @@ enum DebugAutomation {
 
         await holeScenario(session)
 
+        await pressPull(session)
+
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         #if os(macOS)
