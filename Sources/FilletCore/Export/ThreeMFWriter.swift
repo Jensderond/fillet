@@ -2,8 +2,12 @@ import FilletKernel
 import Foundation
 import simd
 
-/// Writes a 3MF package (3MF Core Specification 1.3): one `<object>` per body
-/// in millimetres, placed together so the set rests on the bed (min z = 0) and,
+/// Writes a 3MF package (3MF Core Specification 1.3): one mesh `<object>` per
+/// body in millimetres. Several bodies are grouped as components of a single
+/// build object, so slicers load the design as one object with a part per body,
+/// as it was modelled; separate objects at different heights make Bambu Studio
+/// ask whether to merge them, and a tiny body on its own (< 8 mm³) makes it ask
+/// whether the file is in inches. The build rests on the bed (min z = 0) and,
 /// when a printer is given, is centred on its bed.
 public enum ThreeMFWriter {
     static let modelPath = "3D/3dmodel.model"
@@ -65,10 +69,20 @@ public enum ThreeMFWriter {
             }
             xml += "    </triangles>\n   </mesh>\n  </object>\n"
         }
+        var buildID = ids.first
+        if ids.count > 1 {
+            let id = objects.count + 1
+            buildID = id
+            xml += "  <object id=\"\(id)\" type=\"model\" name=\"\(escape(title ?? "Fillet design"))\">\n   <components>\n"
+            for part in ids {
+                xml += "    <component objectid=\"\(part)\"/>\n"
+            }
+            xml += "   </components>\n  </object>\n"
+        }
         xml += " </resources>\n <build>\n"
-        let transform = "1 0 0 0 1 0 0 0 1 \(number(offset.x)) \(number(offset.y)) \(number(offset.z))"
-        for id in ids {
-            xml += "  <item objectid=\"\(id)\" transform=\"\(transform)\"/>\n"
+        if let buildID {
+            let transform = "1 0 0 0 1 0 0 0 1 \(number(offset.x)) \(number(offset.y)) \(number(offset.z))"
+            xml += "  <item objectid=\"\(buildID)\" transform=\"\(transform)\"/>\n"
         }
         xml += " </build>\n</model>\n"
         return xml

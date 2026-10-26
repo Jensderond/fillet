@@ -28,7 +28,7 @@ iCloud Drive / Files, and send a 3MF to Bambu Studio.
 - 3D‑print first: printer bed presets (A1 mini 180³, A1 256³, P1S/X1C 256³,
   H2D 325×320×325), fits-on-bed indicator, overhang highlight (> 45°
   configurable), lay‑flat on a face, validity/watertight check,
-  export **3MF** (one object per body, mm), **STL**, **STEP**; import STEP.
+  export **3MF** (one object with a part per body, mm), **STL**, **STEP**; import STEP.
 - First-class iPad: Pencil draws/selects, fingers navigate; big touch
   targets; numeric entry that works with on-screen keyboard. Mac: mouse,
   trackpad, keyboard shortcuts.

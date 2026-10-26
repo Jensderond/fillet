@@ -36,12 +36,16 @@ struct ExportTests {
         #expect(model.unit == "millimeter")
         #expect(model.metadata["Title"] == "Hook & Clip")
         #expect(model.metadata["Application"] == "Fillet")
-        #expect(model.objects.count == 2)
+        #expect(model.objects.count == 3)
         #expect(model.objects[0].name == "Body <1>")
         #expect(model.objects[0].type == "model")
         #expect(model.objects[0].vertexCount == 8)  // welded from 36
         #expect(model.objects[0].triangleCount == 12)
-        #expect(model.items.count == 2)
+        // The bodies are parts of one build object, so slicers load a single multi-part object.
+        #expect(model.objects[2].name == "Hook & Clip")
+        #expect(model.objects[2].components == ["1", "2"])
+        #expect(model.objects[2].triangleCount == 0)
+        #expect(model.items.map(\.objectID) == ["3"])
         // Combined bounds x -5…14, y -5…5, z 5…15 → centred on the 180×180 bed, resting on z = 0.
         let t = try #require(model.items.first?.transform.split(separator: " ").compactMap { Double($0) })
         #expect(t.count == 12)
@@ -55,6 +59,8 @@ struct ExportTests {
         let xml = ThreeMFWriter.modelXML(
             objects: [(name: "A", mesh: TestMeshes.cube(SIMD3(3, 4, -2), size: 1))], preset: nil, title: nil)
         let model = try ModelXML.parse(Data(xml.utf8))
+        #expect(model.objects.count == 1)  // a single body needs no assembly
+        #expect(model.items.map(\.objectID) == ["1"])
         #expect(model.items.first?.transform == "1 0 0 0 1 0 0 0 1 0 0 2")
     }
 
@@ -92,9 +98,9 @@ struct ExportTests {
                 #expect(listing.contains(entry))
             }
             let model = try ModelXML.parse(try Unzip.run(["-p", url.path, "3D/3dmodel.model"]).output)
-            #expect(model.objects.map(\.name) == ["Holder", "Clip"])
-            #expect(model.objects.map(\.vertexCount) == [8, 5])
-            #expect(model.objects.map(\.triangleCount) == [12, 6])
+            #expect(model.objects.map(\.name) == ["Holder", "Clip", "Toothpaste holder"])
+            #expect(model.objects.map(\.vertexCount) == [8, 5, 0])
+            #expect(model.objects.map(\.triangleCount) == [12, 6, 0])
             #expect(model.metadata["Title"] == "Toothpaste holder")
             let rels = String(decoding: try Unzip.run(["-p", url.path, "_rels/.rels"]).output, as: UTF8.self)
             #expect(rels.contains("Target=\"/3D/3dmodel.model\""))
@@ -129,7 +135,10 @@ struct ExportTests {
 
 /// Tiny 3MF model parser for assertions.
 final class ModelXML: NSObject, XMLParserDelegate {
-    struct Object { var name = "", type = "", vertexCount = 0, triangleCount = 0 }
+    struct Object {
+        var name = "", type = "", vertexCount = 0, triangleCount = 0
+        var components: [String] = []
+    }
     struct Item { var objectID = "", transform = "" }
 
     var unit = ""
@@ -157,6 +166,7 @@ final class ModelXML: NSObject, XMLParserDelegate {
         case "object": objects.append(Object(name: a["name"] ?? "", type: a["type"] ?? ""))
         case "vertex": objects[objects.count - 1].vertexCount += 1
         case "triangle": objects[objects.count - 1].triangleCount += 1
+        case "component": objects[objects.count - 1].components.append(a["objectid"] ?? "")
         case "item": items.append(Item(objectID: a["objectid"] ?? "", transform: a["transform"] ?? ""))
         default: break
         }
