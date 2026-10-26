@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds the Mac release: Fillet.app (Release, arm64 only, ad-hoc signed with the hardened runtime
-# and the app's entitlements) with the fillet-mcp helper embedded in Contents/Helpers, staged with
-# an Applications link in build/release/stage and packed as build/release/Fillet-<version>.dmg.
+# and the app's entitlements) with the fillet-mcp helper embedded in Contents/Helpers, packed as
+# build/release/Fillet-<version>.dmg with the drawing-sheet window from docs/dmg.
+# Needs xcodegen and uv (dmgbuild runs through uv).
 #
 # Usage: scripts/release.sh <version>      e.g. scripts/release.sh 0.2.0
 # The version must match MARKETING_VERSION in App/project.yml.
@@ -48,15 +49,15 @@ codesign --verify --strict "$HELPER"
 codesign --verify --strict --deep "$APP"
 
 echo "==> Making the DMG"
+# dmgbuild lays out the window (docs/dmg/background.tiff, the icons, an Applications link) by
+# writing the .DS_Store itself; scripts/dmg-settings.py has the layout.
 OUT="$ROOT/build/release"
-STAGE="$OUT/stage"
 DMG="$OUT/Fillet-$VERSION.dmg"
-rm -rf "$STAGE"
-mkdir -p "$STAGE"
-ditto "$APP" "$STAGE/Fillet.app"
-ln -s /Applications "$STAGE/Applications"
+mkdir -p "$OUT"
 rm -f "$DMG"
-hdiutil create -quiet -volname Fillet -srcfolder "$STAGE" -format UDZO "$DMG"
+uv run --quiet --no-project --with dmgbuild==1.6.7 dmgbuild -s scripts/dmg-settings.py \
+  -D app="$APP" -D background="$ROOT/docs/dmg/background.tiff" Fillet "$DMG" \
+  2> >(grep -v 'is deprecated' >&2) >/dev/null
 
 echo "==> $DMG ($(du -h "$DMG" | awk '{ print $1 }'))"
 shasum -a 256 "$DMG" | awk -v name="$(basename "$DMG")" '{ print "SHA-256  " $1 "  " name }'
