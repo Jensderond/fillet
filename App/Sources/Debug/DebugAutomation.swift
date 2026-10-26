@@ -29,7 +29,8 @@ import UniformTypeIdentifiers
 /// its window, the tool strip and timeline sit inside it, and in sketch mode every sketch
 /// tool is either visible in the viewport or folded into "More shapes".
 ///
-/// `FILLET_SCENARIO=featurePattern` runs only the feature pattern scenario (Automation+Pattern.swift).
+/// `FILLET_SCENARIO=featurePattern` runs only the feature pattern scenario (Automation+Pattern.swift),
+/// `FILLET_SCENARIO=selection` only the selection one: chains, loops, clicks and boxes (Automation+Selection.swift).
 @MainActor
 enum DebugAutomation {
     static var isEnabled: Bool { ProcessInfo.processInfo.environment["FILLET_AUTOMATION"] != nil }
@@ -100,6 +101,11 @@ enum DebugAutomation {
         await snap(session, "01-empty")
         if ProcessInfo.processInfo.environment["FILLET_SCENARIO"] == "featurePattern" {
             await featurePatternScenario(session)
+            log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
+            return
+        }
+        if ProcessInfo.processInfo.environment["FILLET_SCENARIO"] == "selection" {
+            await selectionScenario(session)
             log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
             return
         }
