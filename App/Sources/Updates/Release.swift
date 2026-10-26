@@ -14,6 +14,9 @@ struct Release: Equatable, Sendable {
     /// Hex SHA-256 of the disk image, which GitHub computes on upload.
     let sha256: String?
 
+    /// Fillet's GitHub project, shown in the About panel and Software Update.
+    static let project = URL(string: "https://github.com/Jensderond/fillet")!
+
     /// Where the app looks for releases. Every release so far is a prerelease, which
     /// `/releases/latest` leaves out, so this lists them and picks the newest.
     static let feed = URL(string: "https://api.github.com/repos/Jensderond/fillet/releases?per_page=10")!

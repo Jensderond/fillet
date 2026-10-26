@@ -20,7 +20,10 @@ struct FilletCommands: Commands {
 
     var body: some Commands {
         #if os(macOS)
-        CommandGroup(after: .appInfo) { CheckForUpdatesButton() }
+        CommandGroup(replacing: .appInfo) {
+            AboutButton()
+            CheckForUpdatesButton()
+        }
         #endif
 
         CommandGroup(before: .toolbar) {

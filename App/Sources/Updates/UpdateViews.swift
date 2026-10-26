@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import SwiftUI
 
 /// Fillet ▸ Check for Updates…: what's new, and the download and install.
@@ -18,10 +19,15 @@ struct UpdateWindow: View {
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: Theme.Space.m) {
                     content
-                    Toggle("Check for updates automatically", isOn: $updater.automaticallyChecks)
-                        .toggleStyle(.checkbox)
-                        .font(Theme.caption)
-                        .foregroundStyle(Theme.inkSecondary)
+                    HStack(spacing: Theme.Space.m) {
+                        Toggle("Check for updates automatically", isOn: $updater.automaticallyChecks)
+                            .toggleStyle(.checkbox)
+                            .foregroundStyle(Theme.inkSecondary)
+                        Spacer(minLength: 0)
+                        Link("Fillet on GitHub", destination: Release.project)
+                            .help(Release.project.absoluteString)
+                    }
+                    .font(Theme.caption)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -313,6 +319,24 @@ private struct ReleaseNotes: View {
 
 private extension ReleaseNotes.Block {
     var isHeading: Bool { if case .heading = self { true } else { false } }
+}
+
+/// Fillet ▸ About Fillet: the standard panel, with a link to the GitHub project.
+struct AboutButton: View {
+    var body: some View {
+        Button("About Fillet") {
+            let link = Release.project.absoluteString.replacingOccurrences(of: "https://", with: "")
+            let centered = NSMutableParagraphStyle()
+            centered.alignment = .center
+            let credits = NSAttributedString(string: link, attributes: [
+                .link: Release.project,
+                .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
+                .paragraphStyle: centered,
+            ])
+            NSApp.orderFrontStandardAboutPanel(options: [.credits: credits])
+            NSApp.activate()
+        }
+    }
 }
 
 /// Fillet ▸ Check for Updates…
