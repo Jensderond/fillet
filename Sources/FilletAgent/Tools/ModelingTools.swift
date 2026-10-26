@@ -27,7 +27,7 @@ extension FilletTools {
             let name = try a.string("name")
             if let problem = Parameter.validationError(forName: name) { throw ToolError(problem) }
             let expression = try a.expr("expression")
-            let model = try await Change.apply(ws, action: "Set \(name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
+            let (model, warnings) = try await Change.apply(ws, action: "Set \(name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
                 if let i = doc.parameters.firstIndex(where: { $0.name == name }) {
                     doc.parameters[i].expression = expression
                     if let c = a.optionalString("comment") { doc.parameters[i].comment = c }
@@ -38,7 +38,7 @@ extension FilletTools {
             guard let p = ws.document.parameters.first(where: { $0.name == name }) else { return .error("Parameter not saved") }
             if let e = model.parameters.errors[p.id] { return .error("\(name) = \(expression): \(e.message)") }
             let value = model.parameters.values[name].map { JSONValue.rounded($0.value, 4) } ?? .null
-            return .json(["parameter": .string(name), "value": value, "design": Report.brief(ws, model)])
+            return .json(["parameter": .string(name), "value": value, "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -51,10 +51,10 @@ extension FilletTools {
             let ws = try host.requireCurrent()
             let name = try a.string("name")
             guard ws.document.parameters.contains(where: { $0.name == name }) else { throw ToolError("No parameter named \(name)") }
-            let model = try await Change.apply(ws, action: "Delete \(name)", allowFailures: a.bool("allow_failures", default: false)) {
+            let (model, warnings) = try await Change.apply(ws, action: "Delete \(name)", allowFailures: a.bool("allow_failures", default: false)) {
                 $0.parameters.removeAll { $0.name == name }
             }
-            return .json(["deleted": .string(name), "design": Report.brief(ws, model)])
+            return .json(["deleted": .string(name), "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -96,8 +96,8 @@ extension FilletTools {
             let shapes = try ShapeInput.shapes(a["shapes"])
             let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: "Sketch", in: ws.document),
                                   .sketch(Sketch(plane: plane, shapes: shapes)))
-            let model = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
-            return Report.added(ws, model, feature: feature.id, extra: Self.sketchInfo(feature, model))
+            let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
+            return Report.added(ws, model, warnings: warnings, feature: feature.id, extra: Self.sketchInfo(feature, model))
         }
     }
 
@@ -114,9 +114,9 @@ extension FilletTools {
             var (feature, sketch, _) = try r.sketch(try a.string("sketch"))
             sketch.shapes += try ShapeInput.shapes(a["shapes"])
             feature.kind = .sketch(sketch)
-            let model = try await Change.apply(ws, action: "Edit \(feature.name)", newFeature: feature.id,
+            let (model, warnings) = try await Change.apply(ws, action: "Edit \(feature.name)", newFeature: feature.id,
                                                allowFailures: a.bool("allow_failures", default: false)) { try $0.updateFeature(feature) }
-            return Report.added(ws, model, feature: feature.id, extra: Self.sketchInfo(feature, model))
+            return Report.added(ws, model, warnings: warnings, feature: feature.id, extra: Self.sketchInfo(feature, model))
         }
     }
 
@@ -438,10 +438,10 @@ extension FilletTools {
                 scratch.features.append(f)
                 features.append(f)
             }
-            let model = try await Change.apply(ws, action: features[0].name, newFeature: features.last?.id) { d in
+            let (model, warnings) = try await Change.apply(ws, action: features[0].name, newFeature: features.last?.id) { d in
                 for f in features { _ = d.addFeature(f) }
             }
-            return Report.added(ws, model, feature: features.last!.id,
+            return Report.added(ws, model, warnings: warnings, feature: features.last!.id,
                                 extra: ["steps_added": .array(features.map { .string($0.name) })])
         }
     }
@@ -579,9 +579,9 @@ extension FilletTools {
             }
             f.id = old.id
             let allow = a.bool("allow_failures", default: false)
-            let model = try await Change.apply(ws, action: "Edit \(f.name)", newFeature: allow || f.suppressed ? nil : f.id,
+            let (model, warnings) = try await Change.apply(ws, action: "Edit \(f.name)", newFeature: allow || f.suppressed ? nil : f.id,
                                                allowFailures: allow) { try $0.updateFeature(f) }
-            return Report.added(ws, model, feature: f.id, extra: Self.sketchInfo(f, model))
+            return Report.added(ws, model, warnings: warnings, feature: f.id, extra: Self.sketchInfo(f, model))
         }
     }
 
@@ -598,12 +598,12 @@ extension FilletTools {
             let r = try await Resolver.load(ws, args)
             let f = try r.feature(try a.string("feature"))
             var removed: [UUID] = []
-            let model = try await Change.apply(ws, action: "Delete \(f.name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
+            let (model, warnings) = try await Change.apply(ws, action: "Delete \(f.name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
                 removed = try doc.deleteFeature(f.id, cascade: a.bool("cascade", default: false)).removed
                 for id in removed { doc.bodyColors[BodyRef(id)] = nil }
             }
             let names = removed.compactMap { id in r.document.feature(id)?.name }
-            return .json(["deleted": .array(names.map { .string($0) }), "design": Report.brief(ws, model)])
+            return .json(["deleted": .array(names.map { .string($0) }), "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -621,11 +621,11 @@ extension FilletTools {
             let bodies = try r.bodies(a["bodies"], key: "bodies")
             let input = try a.string("color")
             let hex = try NamedColor.hex(input)
-            let model = try await Change.apply(ws, action: "Color \(bodies.count == 1 ? r.bodyLabel(bodies[0]) : "Bodies")") { doc in
+            let (model, warnings) = try await Change.apply(ws, action: "Color \(bodies.count == 1 ? r.bodyLabel(bodies[0]) : "Bodies")") { doc in
                 for b in bodies { doc.bodyColors[b.ref] = hex }
             }
             return .json(["colored": .array(bodies.map { .string(r.bodyLabel($0)) }), "color": hex.map { .string($0) } ?? "default",
-                          "design": Report.brief(ws, model)])
+                          "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -672,8 +672,8 @@ extension FilletTools {
     /// Adds a feature built by a tool (named from `name` or `base`) and reports it.
     private func add(_ ws: any DesignWorkspace, _ kind: FeatureKind, base: String, _ a: Args) async throws -> ToolResult {
         let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: base, in: ws.document), kind)
-        let model = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
-        return Report.added(ws, model, feature: feature.id)
+        let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
+        return Report.added(ws, model, warnings: warnings, feature: feature.id)
     }
 
     nonisolated static func decodingMessage(_ error: Error) -> String {

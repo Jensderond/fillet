@@ -225,6 +225,18 @@ struct ModelingToolTests {
         #expect(gone.isError && gone.text.contains("changed by later steps"))
     }
 
+    @Test func warnsWhenReferencesLandElsewhere() async throws {
+        let c = Client()
+        try await c.ok("set_parameter", ["name": "shift", "expression": 0])
+        try await c.ok("primitive", ["kind": "box", "dimensions": [40, 40, 10], "position": ["shift", 0], "name": "Block"])
+        try await c.ok("fillet", ["body": "Block", "edges": ["parallel_to": [0, 0, 1], "near": [20, 20, 5], "limit": 1], "radius": 3, "name": "Corner"])
+        let nudged = try await c.ok("set_parameter", ["name": "shift", "expression": 0.5])
+        #expect(nudged["design"]?["warnings"] == nil)
+        let moved = try await c.ok("set_parameter", ["name": "shift", "expression": 12])
+        let warning = try #require(moved["design"]?["warnings"]?.array?.first?.string)
+        #expect(warning.contains("“Corner”") && warning.contains("12.0 mm"))
+    }
+
     @Test func shapeInputAcceptsArraysAndBulges() throws {
         let shapes = try ShapeInput.shapes([
             ["type": "polyline", "vertices": [[0, 0], [10, 0, 2], [10, 10]], "closed": true, "construction": true],

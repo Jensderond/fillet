@@ -20,6 +20,7 @@ public actor ModelEvaluator {
         var sketches: [UUID: EvaluatedSketch] = [:]
         var status: [UUID: FeatureStatus] = [:]
         var resolvedEdges: [UUID: [EdgeInfo]] = [:]
+        var references: [UUID: [ResolvedReference?]] = [:]
         var bodyCounter = 0
     }
 
@@ -119,6 +120,7 @@ public actor ModelEvaluator {
         model.sketches = state.sketches
         model.status = state.status
         model.resolvedEdges = state.resolvedEdges
+        model.references = state.references
         let meshStart = recordsTimings ? ContinuousClock.now : nil
         model.meshes = displayMeshes(for: state.bodies, preview: preview)
         if let meshStart {
@@ -321,15 +323,19 @@ public actor ModelEvaluator {
         let infos = body.shape.edgeInfos
         var indices: [Int] = []
         var missing = 0
+        var found: [ResolvedReference?] = []
         for ref in f.edges {
-            if let i = ReferenceResolver.resolve(ref.signature, in: infos) {
-                if !indices.contains(i) { indices.append(i) }
+            if let m = ReferenceResolver.match(ref.signature, in: infos) {
+                if !indices.contains(m.index) { indices.append(m.index) }
+                found.append(ResolvedReference(m, offset: ref.signature.mid.distance(to: infos[m.index].mid)))
             } else {
                 missing += 1
+                found.append(nil)
             }
         }
         // What the kernel is asked to round, recorded before it runs so a failed step shows it too.
         state.resolvedEdges[feature.id] = indices.map { infos[$0] }
+        state.references[feature.id] = found
         if missing > 0 {
             throw FeatureError(missing == 1 ? "1 edge can no longer be found — reselect it" : "\(missing) edges can no longer be found — reselect them")
         }
@@ -346,12 +352,15 @@ public actor ModelEvaluator {
         let (index, body) = try bodyIndex(s.body, state)
         let infos = body.shape.faceInfos
         var faces: [Int] = []
+        var found: [ResolvedReference?] = []
         for ref in s.removeFaces {
-            guard let i = ReferenceResolver.resolve(ref.signature, in: infos) else {
+            guard let m = ReferenceResolver.match(ref.signature, in: infos) else {
                 throw FeatureError("A selected face can no longer be found — reselect it")
             }
-            faces.append(i)
+            faces.append(m.index)
+            found.append(ResolvedReference(m, offset: ref.signature.centroid.distance(to: infos[m.index].centroid)))
         }
+        state.references[feature.id] = found
         let thickness = try ev.length(s.thickness)
         guard thickness != 0 else { throw FeatureError("Thickness must not be zero") }
         state.bodies[index].shape = try body.shape.shelled(removing: faces, thickness: thickness)
@@ -524,9 +533,12 @@ public actor ModelEvaluator {
 
     private func layFlat(_ l: LayFlat, _ feature: Feature, _ state: inout State) throws {
         let (i, body) = try bodyIndex(l.body, state)
-        guard let face = ReferenceResolver.resolve(l.face.signature, in: body.shape.faceInfos) else {
+        let infos = body.shape.faceInfos
+        guard let m = ReferenceResolver.match(l.face.signature, in: infos) else {
             throw FeatureError("The selected face can no longer be found — reselect it")
         }
+        let face = m.index
+        state.references[feature.id] = [ResolvedReference(m, offset: l.face.signature.centroid.distance(to: infos[face].centroid))]
         guard let plane = body.shape.facePlane(face) else { throw FeatureError("Lay flat needs a flat face") }
         let n = plane.normal, down = -Vec3.unitZ
         var rotation = Transform.identity

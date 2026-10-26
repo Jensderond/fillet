@@ -71,8 +71,11 @@ public enum FilletMCP {
         {"created_by": "Join arm"} is the seam the join left, ready to fillet, however the numbering shifts.
 
         CHECK YOUR WORK: call render_view often (it returns an image) and get_design for bounds. A step that fails is \
-        not added (you get the kernel's reason); fix the input and retry. Fillet radii must be smaller than the \
-        faces they round; boolean tools must overlap their targets. Use undo to take back the last step.
+        not added (you get the kernel's reason); fix the input and retry. A change that makes later steps fail is \
+        refused too. When a change makes a later fillet, chamfer, shell or lay-flat find its edges/faces somewhere \
+        else, it is made but the result has "warnings" naming that step: check it, and redo it if it went wrong. \
+        Fillet radii must be smaller than the faces they round; boolean tools must overlap their targets. \
+        Use undo to take back the last step.
         """
     }
 }
