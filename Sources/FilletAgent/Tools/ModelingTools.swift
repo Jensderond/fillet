@@ -6,7 +6,7 @@ import simd
 extension FilletTools {
     var modelingTools: [MCPTool] {
         [setParameter, deleteParameter, createSketch, addSketchShapes, extrude, revolve, primitive,
-         loft, fillet, chamfer, shell, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
+         loft, fillet, chamfer, shell, hole, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
          editFeature, deleteFeature, setBodyColor, export]
     }
 

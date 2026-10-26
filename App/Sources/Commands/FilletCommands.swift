@@ -42,6 +42,8 @@ struct FilletCommands: Commands {
                 .keyboardShortcut(bare("f"))
             Button("Chamfer") { session?.startIfAvailable(.chamfer) { session?.startEdgeFeature(fillet: false) } }
             Button("Shell") { session?.startIfAvailable(.shell) { session?.startShell() } }
+            Button("Hole") { session?.startIfAvailable(.hole) { session?.startHole() } }
+                .keyboardShortcut(bare("h"))
             Button("Combine") { session?.startIfAvailable(.combine) { session?.startCombine() } }
             Button("Move") { session?.startIfAvailable(.move) { session?.startMove() } }
                 .keyboardShortcut("m", modifiers: [.command, .shift])

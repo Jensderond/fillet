@@ -121,6 +121,28 @@ FKShape *fk_chamfer(const FKShape *shape, const int32_t *edgeIndices, int32_t co
 /// hollow). Positive thickness grows the wall inward.
 FKShape *fk_shell(const FKShape *shape, const int32_t *faceIndices, int32_t count, double thickness);
 
+typedef enum { FK_HOLE_SIMPLE = 0, FK_HOLE_COUNTERBORE = 1, FK_HOLE_COUNTERSINK = 2 } FKHoleType;
+
+/// Size of the holes fk_holes drills (like Fusion's hole types).
+typedef struct {
+  FKHoleType type;
+  double diameter;
+  /// Depth of the full-diameter part from the face (the drill point adds below it); <= 0 = through all.
+  double depth;
+  /// Drill point included angle (e.g. 118°); 0 = flat bottom. Through-all holes ignore it.
+  double tipAngle;
+  /// Counterbore or countersink diameter at the face.
+  double headDiameter;
+  /// Counterbore depth.
+  double headDepth;
+  /// Countersink included angle (e.g. 90°).
+  double headAngle;
+} FKHoleSpec;
+
+/// Drills one hole per centre (points on the face drilled into) along unit vector `dir` (into
+/// the material), all the same size, in one boolean cut.
+FKShape *fk_holes(const FKShape *shape, const FKVec3 *centers, int32_t count, FKVec3 dir, const FKHoleSpec *spec);
+
 /// One cross-section of a loft: an ellipse in `frame` (width along xDir, height along
 /// yDir; equal = circle). Width and height 0 make a point (first or last section only).
 typedef struct {

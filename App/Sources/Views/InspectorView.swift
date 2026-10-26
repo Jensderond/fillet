@@ -223,6 +223,7 @@ struct FeatureInspector: View {
         case .fillet(let f): edgeFeature(f, fillet: true)
         case .chamfer(let f): edgeFeature(f, fillet: false)
         case .shell(let s): shell(s)
+        case .hole(let h): HoleInspector(hole: h, evaluator: ev) { set(.hole($0)) }
         case .primitive(let p): primitive(p)
         case .combine(let c): combine(c)
         case .move(let m): move(m)
@@ -680,6 +681,7 @@ extension FeatureKind {
         case .pattern: "square.grid.3x1.below.line.grid.1x2"
         case .importedSTEP: "square.and.arrow.down"
         case .layFlat: "arrow.down.to.line"
+        case .hole: "smallcircle.filled.circle"
         case .unknown: "questionmark.square.dashed"
         }
     }
@@ -704,6 +706,7 @@ extension FeatureKind {
         case .pattern: "Repeats bodies"
         case .importedSTEP: "Imported geometry"
         case .layFlat: "Puts a face on the print bed"
+        case .hole: "Drills holes into a flat face"
         case .unknown: "Needs a newer version of Fillet"
         }
     }

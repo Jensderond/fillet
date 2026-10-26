@@ -572,6 +572,8 @@ struct ToolStrip: View {
                                    unavailable: session.unavailableReason(.chamfer)) { session.startEdgeFeature(fillet: false) }
                         ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell",
                                    unavailable: session.unavailableReason(.shell)) { session.startShell() }
+                        ToolButton("Hole", "smallcircle.filled.circle", active: session.editingKind == "hole",
+                                   unavailable: session.unavailableReason(.hole)) { session.startHole() }
                         ToolButton("Combine", "square.on.square", active: session.editingKind == "combine",
                                    unavailable: session.unavailableReason(.combine)) { session.startCombine() }
                         ToolButton("Move", "move.3d", active: session.editingKind == "move",

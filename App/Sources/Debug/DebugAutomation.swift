@@ -295,6 +295,8 @@ enum DebugAutomation {
         try? session.document.encoded().write(to: outputDirectory.appendingPathComponent("design.fillet"))
         await keyboardShortcuts(session)
 
+        await holeScenario(session)
+
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         #if os(macOS)
@@ -340,13 +342,13 @@ enum DebugAutomation {
 
     private static var failures = 0
 
-    private static func check(_ ok: Bool, _ what: String) {
+    static func check(_ ok: Bool, _ what: String) {
         if !ok { failures += 1 }
         log("\(ok ? "✔" : "✘") \(what)")
     }
 
     /// The toolbar's undo state matches the undo manager (and the expectation).
-    private static func checkUndoState(_ session: DesignSession, expectUndo: Bool, expectRedo: Bool? = nil, _ what: String) {
+    static func checkUndoState(_ session: DesignSession, expectUndo: Bool, expectRedo: Bool? = nil, _ what: String) {
         guard let manager = session.undoManager else { log("no undo manager; skipped: \(what)"); return }
         let truthful = session.canUndo == manager.canUndo && session.canRedo == manager.canRedo
         let expected = session.canUndo == expectUndo && (expectRedo.map { session.canRedo == $0 } ?? true)
@@ -502,7 +504,7 @@ enum DebugAutomation {
               + (unreachable.isEmpty ? "" : ", unreachable: \(unreachable.joined(separator: ", "))"))
     }
 
-    private static func log(_ s: String) {
+    static func log(_ s: String) {
         print("[automation] \(s)")
         let url = outputDirectory.appendingPathComponent("log.txt")
         let line = Data((s + "\n").utf8)
@@ -514,7 +516,7 @@ enum DebugAutomation {
     }
 
     /// Waits for recompute to finish.
-    private static func settle(_ session: DesignSession) async {
+    static func settle(_ session: DesignSession) async {
         try? await Task.sleep(for: .milliseconds(150))
         while session.isRecomputing { try? await Task.sleep(for: .milliseconds(30)) }
         try? await Task.sleep(for: .milliseconds(250))
@@ -537,7 +539,7 @@ enum DebugAutomation {
     }
 
     /// What a tap on a world point would pick, through the editor's viewport (its scene and filter).
-    private static func pick(_ session: DesignSession, at world: Vec3) -> PickHit? {
+    static func pick(_ session: DesignSession, at world: Vec3) -> PickHit? {
         guard let screen = session.camera.project(world, viewSize: session.viewSize) else { return nil }
         if let controller { return controller.pick(at: screen, pointer: .mouse) }
         return ViewportPicker().pick(scene: session.makeScene(), camera: session.camera, at: screen, viewSize: session.viewSize,
@@ -742,7 +744,7 @@ enum DebugAutomation {
     /// screen. The token tells a view's own entry from that of a newer view with the same name.
     static var frames: [String: (token: UUID, rect: CGRect)] = [:]
 
-    private static func snap(_ session: DesignSession, _ name: String) async {
+    static func snap(_ session: DesignSession, _ name: String) async {
         checkLayout(session, name)
         let size = CGSize(width: max(session.viewSize.width, 400), height: max(session.viewSize.height, 300))
         if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2,

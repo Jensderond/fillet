@@ -76,6 +76,9 @@ func everyFeatureKind() -> [FeatureKind] {
         .pattern(Pattern(bodies: [b], layout: .circular(axis: .z, count: 6, angle: 360))),
         .importedSTEP(ImportedSTEP(name: "bracket.step", brep: "DBRep_DrawableShape ...")),
         .layFlat(LayFlat(body: b, face: face)),
+        .hole(Hole(face: face, centers: [Point2Expr(1, 2), Point2Expr("w/2", 0)], diameter: "d", extent: .throughAll)),
+        .hole(Hole(face: face, holeType: .counterbore, tipAngle: 0, counterboreDiameter: 8, counterboreDepth: "2 mm")),
+        .hole(Hole(face: nil, holeType: .countersink, countersinkAngle: 82)),
     ]
 }
 
