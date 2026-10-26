@@ -68,8 +68,8 @@ struct FilletMCPCommand {
 
           fillet-mcp --connect [URL] [--token TOKEN]
               Bridges to the running Fillet app (Design ▸ Allow Agent Connections), so the user sees
-              the agent work in their window. Without a URL it finds the app: on 127.0.0.1 ports
-              7878-7888, then the endpoint the Mac app writes, then Bonjour (an iPad), and finally
+              the agent work in their window. Without a URL it finds the app: the endpoint the Mac
+              app writes, then 127.0.0.1 ports 7878-7888, then Bonjour (an iPad), and finally
               http://127.0.0.1:7878/mcp. TOKEN (or $FILLET_MCP_TOKEN) is needed for an iPad.
         """
 

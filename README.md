@@ -76,9 +76,9 @@ popover shows the setup for your copy). Then connect an agent:
 
 The server prefers port 7878. When that is taken (another app, or a second copy of Fillet) it
 uses the first free port of 7879–7888 and remembers it for the next launch; the popover always
-shows the actual address. `fillet-mcp --connect` finds the app by itself: it looks on
-127.0.0.1:7878–7888, then at the endpoint the Mac app writes to its Application Support folder,
-then for an iPad over Bonjour. `--connect http://…/mcp` connects to an exact address.
+shows the actual address. `fillet-mcp --connect` finds the app by itself: it reads the endpoint
+the Mac app writes to its Application Support folder, then looks on 127.0.0.1:7878–7888, then for
+an iPad over Bonjour. `--connect http://…/mcp` connects to an exact address.
 `FILLET_MCP=1` turns the server on at launch and `FILLET_MCP_PORT` forces one port (no fallback).
 
 On iPad the server listens on the network and needs the token shown in the ✦ popover

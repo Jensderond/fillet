@@ -5,11 +5,11 @@ import Synchronization
 /// Finds the running Fillet app for `fillet-mcp --connect` without a URL.
 ///
 /// In order:
-/// 1. **Loopback**: 127.0.0.1 on the app's ports (7878, then the fallbacks 7879…7888 it moves to
-///    when a port is taken), checking that the answer to `GET /` is Fillet's. Needs no file access
-///    or permission, so it comes first.
-/// 2. **Endpoint file**: the Mac app writes its endpoint to `Application Support/Fillet/mcp-endpoint`,
-///    which for the sandboxed app is inside its container (covers a port set with `FILLET_MCP_PORT`).
+/// 1. **Endpoint file**: the Mac app writes its endpoint to `Application Support/Fillet/mcp-endpoint`,
+///    which for the sandboxed app is inside its container. It names the Mac app itself, where a
+///    port scan could find another Fillet first (an iPad simulator, an older copy).
+/// 2. **Loopback**: 127.0.0.1 on the app's ports (7878, then the fallbacks 7879…7888 it moves to
+///    when a port is taken), checking that the answer to `GET /` is Fillet's.
 /// 3. **Bonjour**: a Fillet advertising `_fillet-mcp._tcp` on the network (the iPad app).
 /// 4. **Default**: http://127.0.0.1:7878/mcp, so the error names the usual address.
 public enum MCPDiscovery {
@@ -39,8 +39,8 @@ public enum MCPDiscovery {
     /// The app's endpoint, and how it was found.
     public static func discover(ports: [UInt16] = appPorts, endpointFiles files: [URL] = endpointFiles(),
                                 bonjourTimeout: Duration = .seconds(2)) async -> (url: URL, source: Source) {
-        if let url = await scanLoopback(ports: ports) { return (url, .loopback) }
         if let url = await fromEndpointFiles(files) { return (url, .file) }
+        if let url = await scanLoopback(ports: ports) { return (url, .loopback) }
         if bonjourTimeout > .zero, let url = await browseBonjour(timeout: bonjourTimeout) { return (url, .bonjour) }
         return (defaultEndpoint, .fallback)
     }

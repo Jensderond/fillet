@@ -599,9 +599,18 @@ struct HTTPTransportTests {
         try Data("http://127.0.0.1:\(base + 1)/mcp\n".utf8).write(to: file)
         let none = await MCPDiscovery.discover(ports: [base + 1], endpointFiles: [file], bonjourTimeout: .zero)
         #expect(none.url == MCPDiscovery.defaultEndpoint && none.source == .fallback)
-        // The loopback scan comes first.
+        // Without a live file, the loopback scan finds it.
         let scanned = await MCPDiscovery.discover(ports: ports, endpointFiles: [file], bonjourTimeout: .zero)
         #expect(scanned.url == MCPDiscovery.endpoint(port: base + 2) && scanned.source == .loopback)
+        // The file wins over the scan: it names the Mac app, where the scan takes the lowest port
+        // that answers (here a second server, standing in for an iPad simulator).
+        let other2 = MCPHTTPTransport(server: FilletMCP.makeServer(host: HeadlessHost(workspace: HeadlessWorkspace())), port: base + 1)
+        other2.start()
+        defer { other2.stop() }
+        try await waitUntilSettled(other2)
+        try Data("\(MCPDiscovery.endpoint(port: base + 2).absoluteString)\n".utf8).write(to: file)
+        let preferred = await MCPDiscovery.discover(ports: ports, endpointFiles: [file], bonjourTimeout: .zero)
+        #expect(preferred.url == MCPDiscovery.endpoint(port: base + 2) && preferred.source == .file)
         #expect(MCPDiscovery.endpointFiles(home: URL(fileURLWithPath: "/Users/x")).first?.path
                 == "/Users/x/Library/Containers/app.fillet.Fillet/Data/Library/Application Support/Fillet/mcp-endpoint")
     }
