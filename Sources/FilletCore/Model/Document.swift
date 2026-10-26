@@ -38,6 +38,9 @@ public struct Document: Hashable, Sendable, Codable {
     public var rollbackIndex: Int?
     /// Display colour per body as `#RRGGBB`; bodies without one use the viewport's default.
     public var bodyColors: [BodyRef: String] = [:]
+    /// Bodies hidden in the viewport; exports leave them out. A view setting saved with the design
+    /// (not an undo step in the app). Only bodies whose step is still in the timeline are kept.
+    public var hiddenBodies: Set<BodyRef> = []
 
     /// A new, empty design for the default printer (A1 mini).
     public init(
@@ -56,7 +59,7 @@ public struct Document: Hashable, Sendable, Codable {
     // MARK: Coding
 
     private enum CodingKeys: String, CodingKey {
-        case formatVersion, name, units, printer, customBedSize, parameters, features, rollbackIndex, bodyColors
+        case formatVersion, name, units, printer, customBedSize, parameters, features, rollbackIndex, bodyColors, hiddenBodies
     }
 
     public init(from decoder: Decoder) throws {
@@ -73,6 +76,9 @@ public struct Document: Hashable, Sendable, Codable {
         // Keyed by body id string; entries that aren't ids are dropped.
         let colors = (try? c.decodeIfPresent([String: String].self, forKey: .bodyColors)) ?? [:]
         bodyColors = Dictionary(colors.compactMap { k, v in UUID(uuidString: k).map { (BodyRef($0), v) } }, uniquingKeysWith: { a, _ in a })
+        // Missing (older files): nothing hidden.
+        hiddenBodies = Set((try? c.decodeIfPresent([BodyRef].self, forKey: .hiddenBodies)) ?? [])
+        pruneHiddenBodies()
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -87,6 +93,10 @@ public struct Document: Hashable, Sendable, Codable {
         try c.encodeIfPresent(rollbackIndex, forKey: .rollbackIndex)
         if !bodyColors.isEmpty {
             try c.encode(Dictionary(uniqueKeysWithValues: bodyColors.map { ($0.feature.uuidString, $1) }), forKey: .bodyColors)
+        }
+        let hidden = hiddenBodies.filter(hasStep(for:))
+        if !hidden.isEmpty {
+            try c.encode(hidden.sorted { $0.feature.uuidString < $1.feature.uuidString }, forKey: .hiddenBodies)
         }
     }
 
@@ -128,4 +138,13 @@ public struct Document: Hashable, Sendable, Codable {
 
     /// Position of the feature in the timeline.
     public func index(of id: UUID) -> Int? { features.firstIndex { $0.id == id } }
+
+    /// Whether the step that makes `body` is still in the timeline (it may be rolled back,
+    /// suppressed or failing, so the body can come back).
+    public func hasStep(for body: BodyRef) -> Bool { features.contains { body.isMade(by: $0.id) } }
+
+    /// Drops hidden bodies whose step is gone from the timeline.
+    public mutating func pruneHiddenBodies() {
+        hiddenBodies = hiddenBodies.filter(hasStep(for:))
+    }
 }

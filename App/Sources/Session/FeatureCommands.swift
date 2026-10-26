@@ -37,8 +37,9 @@ extension DesignSession {
 
     /// New sketch on a planar face of a body (displayed face index).
     func startSketch(onFace body: BodyRef, _ index: Int) {
-        guard let ref = model.faceRef(body: body, face: index), let plane = model.body(body)?.shape.facePlane(index) else { return }
-        newSketch(on: .face(ref, fallback: plane))
+        guard let ref = model.faceRef(body: body, face: index), let plane = model.body(body)?.shape.facePlane(index, anchor: .world)
+        else { return }
+        newSketch(on: .face(ref, fallback: plane, anchor: .world))
         // Frame the face's body footprint, so the new sketch starts where the part is.
         frameSketch(on: plane, bounds: sketchFrameBounds(sketch: nil, plane: plane, on: body))
     }

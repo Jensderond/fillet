@@ -68,7 +68,9 @@ warning naming that step. A fillet or chamfer that fails says which edges can't 
 the largest size the others take. `undo` and `redo` say exactly what they took back (a new step, an
 edit, a parameter…), take an optional `expect: "Edit Hat"` guard, and never undo one of your own
 changes in the app unless the agent names it. `scale_bodies` can scale along turned axes (the
-inspector then shows the turn under *Axes turned about*).
+inspector then shows the turn under *Axes turned about*). `hole` takes screw presets (`"preset": "m3-clearance"`;
+M2–M6 clearance, counterbore, countersink, tap or heat-set insert); clearance fits add the design's `clearance`
+parameter (0.2 mm to start), so setting it once fits every screw hole to your printer.
 
 Faces and edges are picked by index or by a filter that survives renumbering, such as
 `{"created_by": "Join arm"}`: what that step made (here the seam the join left, ready to fillet).

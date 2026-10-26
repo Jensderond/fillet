@@ -19,6 +19,14 @@ public struct BodyRef: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 
     public var description: String { "body(\(feature.uuidString.prefix(8)))" }
+
+    /// Whether `step` makes this body: its first body has the step's id, extra bodies (a pattern's
+    /// copies, a split) an id that differs only in the last three bytes (see `ModelEvaluator.derivedRef`).
+    public func isMade(by step: UUID) -> Bool {
+        let a = feature.uuid, b = step.uuid
+        return a.0 == b.0 && a.1 == b.1 && a.2 == b.2 && a.3 == b.3 && a.4 == b.4 && a.5 == b.5 && a.6 == b.6
+            && a.7 == b.7 && a.8 == b.8 && a.9 == b.9 && a.10 == b.10 && a.11 == b.11 && a.12 == b.12
+    }
 }
 
 /// A persistent reference to a face of a body, re-found on recompute by signature.
@@ -79,20 +87,48 @@ public enum StandardPlane: String, Hashable, Sendable, Codable, CaseIterable {
     }
 }
 
+/// Where the coordinates of a sketch or hole on a flat face start and which way they run.
+public enum FaceAnchor: String, Hashable, Sendable, Codable {
+    /// Origin at the face's centroid, u along its longest straight edge (``Shape/facePlane(_:)``).
+    /// What files from before anchors existed use: it moves when the face is resized, and a
+    /// square face can turn its axes after an edit.
+    case centroid
+    /// Like the origin planes, and like Fusion: the origin is the world origin projected onto
+    /// the face, so resizing the face moves nothing. On a face that isn't horizontal, v runs up
+    /// the face (world +Z projected onto it) and u = v × normal, so u is +X on a front face and
+    /// +Y on a right face (as on XZ and YZ). On a horizontal face u is world +X and v = normal × u
+    /// (+Y on a top face, as on XY). Only the face's normal and height decide it, so it never flips.
+    case world
+
+    /// The frame for a face whose plane (as ``Shape/facePlane(_:)`` gives it) is `facePlane`.
+    public func frame(_ facePlane: Plane) -> Plane {
+        guard self == .world else { return facePlane }
+        let n = facePlane.normal
+        let origin = n * facePlane.origin.dot(n)
+        let up = Vec3.unitZ - n * n.z
+        if up.length > 1e-6 {
+            let v = up.normalized
+            return Plane(origin: origin, normal: n, xDir: v.cross(n))
+        }
+        return Plane(origin: origin, normal: n, xDir: .unitX)
+    }
+}
+
 /// Where a sketch (or a mirror/primitive) is placed.
 public enum SketchPlaneRef: Hashable, Sendable, Codable {
     /// An origin plane, offset along its normal by a length expression.
     case standard(StandardPlane, offset: Expr)
-    /// A planar face of a body. `fallback` is the plane at the time the
-    /// reference was made, used when the face can no longer be resolved.
-    case face(FaceRef, fallback: Plane)
+    /// A planar face of a body. `fallback` is the plane at the time the reference was made, used
+    /// when the face can no longer be resolved. `anchor` lays out the coordinates on the face:
+    /// new sketches use ``FaceAnchor/world``; a missing key (older files) reads as `centroid`.
+    case face(FaceRef, fallback: Plane, anchor: FaceAnchor = .centroid)
 
     /// The XY plane without offset.
     public static let xy = SketchPlaneRef.standard(.xy, offset: 0)
 
     /// Body features this placement depends on.
     public var referencedBodies: Set<BodyRef> {
-        if case .face(let f, _) = self { return [f.body] }
+        if case .face(let f, _, _) = self { return [f.body] }
         return []
     }
 
@@ -103,12 +139,12 @@ public enum SketchPlaneRef: Hashable, Sendable, Codable {
         switch self {
         case .standard(let p, let offset):
             return p.plane.offset(by: try evaluator.length(offset))
-        case .face(let f, let fallback):
-            return facePlane(f) ?? fallback
+        case .face(let f, let fallback, let anchor):
+            return anchor.frame(facePlane(f) ?? fallback)
         }
     }
 
-    private enum CodingKeys: String, CodingKey { case plane, offset, face, fallback }
+    private enum CodingKeys: String, CodingKey { case plane, offset, face, fallback, anchor }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -116,7 +152,8 @@ public enum SketchPlaneRef: Hashable, Sendable, Codable {
         case "face":
             self = .face(
                 try c.decode(FaceRef.self, forKey: .face),
-                fallback: try c.decode(Plane.self, forKey: .fallback))
+                fallback: try c.decode(Plane.self, forKey: .fallback),
+                anchor: try c.decodeIfPresent(FaceAnchor.self, forKey: .anchor) ?? .centroid)
         default:
             self = .standard(
                 try c.decode(StandardPlane.self, forKey: .plane),
@@ -131,11 +168,20 @@ public enum SketchPlaneRef: Hashable, Sendable, Codable {
             try encoder.encodeTagged("standard")
             try c.encode(p, forKey: .plane)
             try c.encode(offset, forKey: .offset)
-        case .face(let f, let fallback):
+        case .face(let f, let fallback, let anchor):
             try encoder.encodeTagged("face")
             try c.encode(f, forKey: .face)
             try c.encode(fallback, forKey: .fallback)
+            // Centroid faces write what they always did, so older files save unchanged.
+            if anchor != .centroid { try c.encode(anchor, forKey: .anchor) }
         }
+    }
+}
+
+extension Shape {
+    /// The plane of a flat face laid out by `anchor` (nil when the face isn't flat).
+    public func facePlane(_ index: Int, anchor: FaceAnchor) -> Plane? {
+        facePlane(index).map(anchor.frame)
     }
 }
 

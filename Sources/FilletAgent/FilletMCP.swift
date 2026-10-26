@@ -45,7 +45,10 @@ public enum FilletMCP {
         - "xy": u = +X, v = +Y, normal +Z (offset moves it up in Z).
         - "xz": u = +X, v = +Z, normal −Y (front plane; offset 10 puts it at y = −10).
         - "yz": u = +Y, v = +Z, normal +X.
-        - a flat face: {"body": "Base", "face": 3} or {"body": "Base", "face": {"extreme": "+z"}}.
+        - a flat face: {"body": "Base", "face": 3} or {"body": "Base", "face": {"extreme": "+z"}}. Its origin is the \
+          world origin projected onto the face, so u, v stay put when the face is resized. Upright or sloped faces: \
+          v runs up the face, u = v × normal (front face: u = +X; right face: u = +Y; back face: u = −X). Horizontal \
+          faces: u = +X (top: v = +Y; bottom: v = −Y). Holes on a face use the same u, v.
 
         BUILDING SHAPES:
         - primitive: box (centred on the position, standing on the plane), cylinder/cone (base centred on the position, \
@@ -59,7 +62,7 @@ public enum FilletMCP {
         - scale_bodies: non-uniform scale about a centre — squash a sphere into a mochi-like head or a flat foot. \
           With `axes` ({"z": [0, -0.5, 0.87]}) the factors apply along tilted directions: a disc on a sloped cheek \
           in one step, no squash-then-rotate.
-        - Then fillet/chamfer edges, shell, hole (drilled, counterbored or countersunk holes in a flat face), press_pull faces (move them in or out), combine, move_bodies (rotate about a centre, translate), mirror, pattern.
+        - Then fillet/chamfer edges, shell, hole (drilled, counterbored or countersunk holes in a flat face; screw presets like "m3-clearance" use the `clearance` parameter for the printer's fit), press_pull faces (move them in or out), combine, move_bodies (rotate about a centre, translate), mirror, pattern.
         - Soft, organic characters: overlap rounded parts and join them (combine), then fillet the seams where they \
           meet (edges {"created_by": "<the join step>"}) with small radii.
         - set_body_color gives bodies display colours (hex like "#4CAF50" or a name like "green").

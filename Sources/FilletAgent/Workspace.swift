@@ -91,7 +91,8 @@ public final class HeadlessWorkspace: DesignWorkspace {
     public private(set) var document: Document
     /// Saved after every change when set.
     public var fileURL: URL?
-    public var hiddenBodies: Set<BodyRef> = []
+    /// Hidden in the file (the app's eye toggles); renders and exports leave them out, as in the app.
+    public var hiddenBodies: Set<BodyRef> { document.hiddenBodies }
     public private(set) var camera = Camera()
     public let viewAspect = 4.0 / 3.0
 

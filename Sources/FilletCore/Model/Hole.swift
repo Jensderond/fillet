@@ -16,13 +16,15 @@ public enum HoleExtent: String, Hashable, Sendable, Codable, CaseIterable {
 
 /// Holes drilled into a flat face of a body, all the same size (like Fusion's Hole).
 ///
-/// The centres are in the face's plane coordinates (origin at the face centroid, axes as
-/// ``Shape/facePlane(_:)`` gives them, like a sketch on that face), so the holes follow the
-/// face when an earlier step moves or resizes it.
+/// The centres are in the face's plane coordinates, laid out by `anchor` like a sketch on that
+/// face, so the holes follow the face when an earlier step moves it.
 public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
     /// The face drilled into; nil until one is picked.
     public var face: FaceRef?
     public var centers: [Point2Expr]
+    /// Where `centers` are measured from on the face: new holes use ``FaceAnchor/world``, so
+    /// resizing the face doesn't move them; a missing key (older files) reads as `centroid`.
+    public var anchor: FaceAnchor
     /// Simple, counterbore or countersink (not `type`: that key names the feature kind in JSON).
     public var holeType: HoleType
     public var diameter: Expr
@@ -36,6 +38,8 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
     public var countersinkDiameter: Expr
     /// Included angle of the countersink cone.
     public var countersinkAngle: Expr
+    /// The screw preset the sizes came from (they may have been edited since; see ``presetTitle``).
+    public var preset: HolePreset?
 
     /// A standard twist drill's point.
     public static let drillPoint: Expr = 118
@@ -44,9 +48,11 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
         face: FaceRef?, centers: [Point2Expr] = [], holeType: HoleType = .simple, diameter: Expr = 5,
         extent: HoleExtent = .distance, depth: Expr = 10, tipAngle: Expr = Hole.drillPoint,
         counterboreDiameter: Expr = 9, counterboreDepth: Expr = 3,
-        countersinkDiameter: Expr = 10, countersinkAngle: Expr = 90
+        countersinkDiameter: Expr = 10, countersinkAngle: Expr = 90, anchor: FaceAnchor = .centroid,
+        preset: HolePreset? = nil
     ) {
-        self.face = face; self.centers = centers; self.holeType = holeType; self.diameter = diameter
+        self.preset = preset
+        self.face = face; self.centers = centers; self.anchor = anchor; self.holeType = holeType; self.diameter = diameter
         self.extent = extent; self.depth = depth; self.tipAngle = tipAngle
         self.counterboreDiameter = counterboreDiameter; self.counterboreDepth = counterboreDepth
         self.countersinkDiameter = countersinkDiameter; self.countersinkAngle = countersinkAngle
@@ -55,8 +61,8 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
     public var referencedFeatures: Set<UUID> { face.map { [$0.body.feature] } ?? [] }
 
     private enum CodingKeys: String, CodingKey {
-        case face, centers, holeType, diameter, extent, depth, tipAngle
-        case counterboreDiameter, counterboreDepth, countersinkDiameter, countersinkAngle
+        case face, centers, anchor, holeType, diameter, extent, depth, tipAngle
+        case counterboreDiameter, counterboreDepth, countersinkDiameter, countersinkAngle, preset
     }
 
     /// Everything but the face may be left out (agents write holes by hand); defaults as `init`.
@@ -65,6 +71,7 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
         let d = Hole(face: nil)
         face = try c.decodeIfPresent(FaceRef.self, forKey: .face)
         centers = try c.decodeIfPresent([Point2Expr].self, forKey: .centers) ?? []
+        anchor = try c.decodeIfPresent(FaceAnchor.self, forKey: .anchor) ?? .centroid
         holeType = try c.decodeIfPresent(HoleType.self, forKey: .holeType) ?? d.holeType
         diameter = try c.decodeIfPresent(Expr.self, forKey: .diameter) ?? d.diameter
         extent = try c.decodeIfPresent(HoleExtent.self, forKey: .extent) ?? d.extent
@@ -74,6 +81,26 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
         counterboreDepth = try c.decodeIfPresent(Expr.self, forKey: .counterboreDepth) ?? d.counterboreDepth
         countersinkDiameter = try c.decodeIfPresent(Expr.self, forKey: .countersinkDiameter) ?? d.countersinkDiameter
         countersinkAngle = try c.decodeIfPresent(Expr.self, forKey: .countersinkAngle) ?? d.countersinkAngle
+        // A preset this version doesn't know leaves the sizes as they are, without a name.
+        preset = try? c.decodeIfPresent(HolePreset.self, forKey: .preset)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(face, forKey: .face)
+        try c.encode(centers, forKey: .centers)
+        // Centroid holes write what they always did, so older files save unchanged.
+        if anchor != .centroid { try c.encode(anchor, forKey: .anchor) }
+        try c.encode(holeType, forKey: .holeType)
+        try c.encode(diameter, forKey: .diameter)
+        try c.encode(extent, forKey: .extent)
+        try c.encode(depth, forKey: .depth)
+        try c.encode(tipAngle, forKey: .tipAngle)
+        try c.encode(counterboreDiameter, forKey: .counterboreDiameter)
+        try c.encode(counterboreDepth, forKey: .counterboreDepth)
+        try c.encode(countersinkDiameter, forKey: .countersinkDiameter)
+        try c.encode(countersinkAngle, forKey: .countersinkAngle)
+        try c.encodeIfPresent(preset, forKey: .preset)
     }
 
     /// The kernel's hole size, with the expressions evaluated.
@@ -96,7 +123,7 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
             throw FeatureError("The hole face can no longer be found — reselect it")
         }
         let found = ResolvedReference(m, offset: face.signature.centroid.distance(to: infos[m.index].centroid))
-        guard let plane = shape.facePlane(m.index) else { throw FeatureError("Holes need a flat face") }
+        guard let plane = shape.facePlane(m.index, anchor: anchor) else { throw FeatureError("Holes need a flat face") }
         return (m.index, found, plane)
     }
 
