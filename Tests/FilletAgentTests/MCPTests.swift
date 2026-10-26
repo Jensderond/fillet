@@ -475,8 +475,9 @@ struct HTTPTransportTests {
         let transport = MCPHTTPTransport(server: server, port: port)
         transport.start()
         defer { transport.stop() }
-        for _ in 0..<100 where transport.state != .listening(port: port) { try await Task.sleep(for: .milliseconds(20)) }
-        #expect(transport.state == .listening(port: port))
+        // Up to 10 s: under a loaded parallel test run the listener has taken over 2 s to come up.
+        for _ in 0..<500 where transport.state != .listening(port: port) { try await Task.sleep(for: .milliseconds(20)) }
+        try #require(transport.state == .listening(port: port))
 
         let (status, data) = try await post(port, #"{"jsonrpc":"2.0","id":1,"method":"tools/list"}"#)
         #expect(status == 200)
