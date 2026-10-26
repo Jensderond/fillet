@@ -74,6 +74,7 @@ func everyFeatureKind() -> [FeatureKind] {
         .mirror(Mirror(bodies: [b], plane: .standard(.yz, offset: 0), merge: false)),
         .pattern(Pattern(bodies: [b], layout: .linear(direction: .x, count: 3, spacing: 10))),
         .pattern(Pattern(bodies: [b], layout: .circular(axis: .z, count: 6, angle: 360))),
+        .pattern(Pattern(features: [UUID(), UUID()], layout: .linear(direction: .edge(edge), count: "n", spacing: 5))),
         .importedSTEP(ImportedSTEP(name: "bracket.step", brep: "DBRep_DrawableShape ...")),
         .layFlat(LayFlat(body: b, face: face)),
         .hole(Hole(face: face, centers: [Point2Expr(1, 2), Point2Expr("w/2", 0)], diameter: "d", extent: .throughAll)),
@@ -202,6 +203,25 @@ struct DocumentCodingTests {
         let named = try JSONDecoder().decode(
             FaceSignature.self, from: try JSONEncoder().encode(FaceSignature(surface: .torus, centroid: .zero, normal: .unitZ, area: 1, extent: .zero)))
         #expect(named.surface == .torus)
+    }
+
+    /// Body patterns saved before feature patterns existed still read, and still write the same keys.
+    @Test func bodyPatternsKeepTheirOldForm() throws {
+        let body = "00000000-0000-0000-0000-000000000001"
+        let json = """
+            {"type": "pattern", "bodies": ["\(body)"],
+             "layout": {"type": "linear", "direction": {"type": "x"}, "count": 3, "spacing": "10"}}
+            """
+        let kind = try JSONDecoder().decode(FeatureKind.self, from: Data(json.utf8))
+        let expected = Pattern(bodies: [BodyRef(UUID(uuidString: body)!)], layout: .linear(direction: .x, count: 3, spacing: 10))
+        #expect(kind == .pattern(expected))
+        let written = String(decoding: try JSONEncoder().encode(kind), as: UTF8.self)
+        #expect(!written.contains("objects") && !written.contains("features"))
+
+        let features = FeatureKind.pattern(Pattern(features: [UUID()], layout: .circular(axis: .z, count: 4, angle: 360)))
+        let encoded = String(decoding: try JSONEncoder().encode(features), as: UTF8.self)
+        #expect(encoded.contains(#""objects":"features""#))
+        #expect(try JSONDecoder().decode(FeatureKind.self, from: Data(encoded.utf8)) == features)
     }
 
     @Test func rejectsNewerFormat() {

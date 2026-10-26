@@ -381,6 +381,7 @@ struct EditorContent: View {
             let name = title.prefix(1) + title.dropFirst().lowercased()
             return ("\(name) · \(sketchHint(editor, verb: pick))", editor.tool == .select ? "cursorarrow" : "pencil.tip", "sketch")
         }
+        if session.editingFeaturePattern != nil { return ("\(pick) steps in the timeline to add or remove them", "hand.tap", "pick") }
         switch session.pickMode {
         case .sketchPlane: return nil  // the plane bar says what to pick
         case .regions: return ("\(pick) the profiles to use", "hand.tap", "pick")

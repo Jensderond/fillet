@@ -327,12 +327,52 @@ extension DesignSession {
         beginNewFeature(Feature(name: nextName("Mirror"), .mirror(Mirror(bodies: bodies, plane: .standard(.yz, offset: 0)))))
     }
 
+    /// A body pattern of the selected bodies (or the newest body).
     func startPattern() {
         let bodies = selectedBodies.isEmpty ? model.bodies.suffix(1).map(\.ref) : selectedBodies
         guard !bodies.isEmpty else { message = "Create a body first"; return }
         selection = []
         beginNewFeature(Feature(name: nextName("Pattern"), .pattern(Pattern(
             bodies: bodies, layout: .linear(direction: .x, count: 3, spacing: 20)))))
+    }
+
+    /// A feature pattern that starts with these steps picked (the timeline's Pattern command).
+    /// The new pattern lands at the rollback marker, so each step must come before it.
+    func startPattern(features ids: [UUID]) {
+        let marker = document.activeFeatureCount
+        for id in ids {
+            guard let feature = document.feature(id), let index = document.index(of: id) else { return }
+            if let reason = Self.patternRefusal(feature) { message = ToastMessage(reason); return }
+            if index >= marker { message = ToastMessage("\(feature.name) is rolled back. Move the marker past it first."); return }
+        }
+        selection = []
+        beginNewFeature(Feature(name: nextName("Pattern"), .pattern(Pattern(
+            features: ids, layout: .linear(direction: .x, count: 3, spacing: 20)))))
+    }
+
+    /// The feature pattern being edited (not a body pattern): the timeline picks its steps.
+    var editingFeaturePattern: (feature: Feature, pattern: Pattern)? {
+        guard sketchEditor == nil, let feature = editingFeature, case .pattern(let p) = feature.kind,
+            p.objects == .features
+        else { return nil }
+        return (feature, p)
+    }
+
+    /// Why a step can't join the feature pattern being edited, or nil when it can. The pattern's
+    /// own step gets nil too: tapping it does nothing.
+    func patternPickRefusal(_ id: UUID) -> String? {
+        guard let (pattern, _) = editingFeaturePattern, id != pattern.id,
+            let feature = document.feature(id), let index = document.index(of: id),
+            let patternIndex = document.index(of: pattern.id)
+        else { return nil }
+        if let reason = Self.patternRefusal(feature) { return reason }
+        if index > patternIndex { return "\(feature.name) comes after \(pattern.name). A pattern repeats earlier steps." }
+        return nil
+    }
+
+    private static func patternRefusal(_ feature: Feature) -> String? {
+        feature.kind.canBePatterned ? nil
+            : "\(feature.name) can't be patterned. Pick an extrude, revolve, primitive, loft or hole."
     }
 
     func startLayFlat() {
@@ -416,6 +456,18 @@ extension DesignSession {
             case .pattern(var p): toggle(&p.bodies); feature.kind = .pattern(p)
             default: break
             }
+        }
+    }
+
+    /// Adds a step to the feature pattern being edited, or takes it out again. Steps that can't
+    /// be repeated (or come after the pattern) post why instead.
+    func toggleEditingPatternFeature(_ id: UUID) {
+        guard let (pattern, _) = editingFeaturePattern, id != pattern.id else { return }
+        if let reason = patternPickRefusal(id) { message = ToastMessage(reason); return }
+        updateEditing { feature in
+            guard case .pattern(var p) = feature.kind else { return }
+            if let i = p.features.firstIndex(of: id) { p.features.remove(at: i) } else { p.features.append(id) }
+            feature.kind = .pattern(p)
         }
     }
 

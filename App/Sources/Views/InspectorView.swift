@@ -441,8 +441,29 @@ struct FeatureInspector: View {
     }
 
     @ViewBuilder private func pattern(_ p: Pattern) -> some View {
-        SelectionCount(count: p.bodies.count, noun: "body", plural: "bodies", hint: "\(Theme.Copy.pick) bodies to pattern") {
-            var x = p; x.bodies = []; set(.pattern(x))
+        // Like Fusion: repeat whole bodies, or timeline steps (a cut repeats as more cuts).
+        Labeled("Objects") {
+            ThemeSegmented("Objects", selection: p.objects, options: [(.bodies, "Bodies"), (.features, "Features")]) { objects in
+                var x = p; x.objects = objects; x.bodies = []; x.features = []; set(.pattern(x))
+            }
+        }
+        switch p.objects {
+        case .bodies:
+            SelectionCount(count: p.bodies.count, noun: "body", plural: "bodies", hint: "\(Theme.Copy.pick) bodies to pattern") {
+                var x = p; x.bodies = []; set(.pattern(x))
+            }
+        case .features:
+            SelectionCount(count: p.features.count, noun: "step", plural: "steps", hint: "\(Theme.Copy.pick) steps in the timeline") {
+                var x = p; x.features = []; set(.pattern(x))
+            }
+            if !p.features.isEmpty {
+                // In timeline order, the order the pattern repeats them in.
+                let doc = session.document
+                let ordered = p.features.sorted { (doc.index(of: $0) ?? .max) < (doc.index(of: $1) ?? .max) }
+                PatternStepList(steps: ordered.map { (id: $0, feature: doc.feature($0)) }) { id in
+                    var x = p; x.features.removeAll { $0 == id }; set(.pattern(x))
+                }
+            }
         }
         Labeled("Type") {
             ThemeSegmented("Type", selection: { if case .linear = p.layout { 0 } else { 1 } }(),
@@ -462,6 +483,54 @@ struct FeatureInspector: View {
             ExprField(label: "Count", value: count, kind: .scalar, evaluator: ev) { var x = p; x.layout = .circular(axis: axis, count: $0, angle: angle); set(.pattern(x)) }
             ExprField(label: "Angle", value: angle, kind: .angle, evaluator: ev) { var x = p; x.layout = .circular(axis: axis, count: count, angle: $0); set(.pattern(x)) }
         }
+    }
+}
+
+/// The steps a feature pattern repeats, in the order picked, each with a way to drop it.
+private struct PatternStepList: View {
+    let steps: [(id: UUID, feature: Feature?)]
+    let remove: (UUID) -> Void
+    @Environment(\.touchTargets) private var touch
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(steps.enumerated()), id: \.element.id) { i, step in
+                if i > 0 { Theme.hairline.frame(height: 1).padding(.leading, Theme.Space.m + 26 + Theme.Space.s) }
+                row(step.id, step.feature)
+            }
+        }
+        .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.raised.opacity(0.5)))
+        .overlay(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).strokeBorder(Theme.hairline))
+        .animation(Theme.Motion.hover, value: steps.map(\.id))
+    }
+
+    private func row(_ id: UUID, _ feature: Feature?) -> some View {
+        // A step deleted since it was picked stays listed, so the pattern's error makes sense.
+        let name = feature?.name ?? "Missing step"
+        return HStack(spacing: Theme.Space.s) {
+            IconChip(symbol: feature?.kind.symbol ?? "questionmark.square.dashed",
+                     tint: feature == nil ? Theme.dangerInk : Theme.ink, size: 26)
+            Text(name)
+                .font(Theme.body)
+                .foregroundStyle(feature == nil ? Theme.dangerInk : Theme.ink)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 0)
+            Button { remove(id) } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Theme.inkSecondary)
+                    .frame(width: Theme.Metrics.targetCompact(touch: touch), height: Theme.Metrics.targetCompact(touch: touch))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(PressableStyle())
+            .hoverHighlight()
+            .help("Remove \(name) from the pattern")
+            .accessibilityLabel("Remove \(name)")
+        }
+        .padding(.leading, Theme.Space.m)
+        .padding(.trailing, Theme.Space.xs)
+        .padding(.vertical, touch ? 0 : 2)
     }
 }
 
@@ -710,7 +779,7 @@ extension FeatureKind {
         case .scale: "Stretches or squashes bodies"
         case .loft: "Skins a solid through sections"
         case .mirror: "Mirrors bodies across a plane"
-        case .pattern: "Repeats bodies"
+        case .pattern(let p): p.objects == .features ? "Repeats steps from the timeline" : "Repeats bodies"
         case .importedSTEP: "Imported geometry"
         case .layFlat: "Puts a face on the print bed"
         case .hole: "Drills holes into a flat face"

@@ -557,13 +557,21 @@ extension FilletTools {
     private var pattern: MCPTool {
         MCPTool(
             name: "pattern", title: "Pattern",
-            description: "Repeats bodies along a direction (linear) or around an axis through the origin (circular); copies fuse with the originals.",
+            description: """
+                Repeats bodies or steps along a direction (linear) or around an axis through the origin (circular). \
+                Give exactly one of `bodies` (copies fuse with the originals) or `features` (extrude, revolve, primitive, \
+                loft or hole steps, repeated at each copy: a cut cuts again, a join adds again, a hole drills again, a new body \
+                makes a new body per copy).
+                """,
             inputSchema: Self.object([
-                "bodies": Self.bodies, "layout": Self.string("Pattern type", enum: ["linear", "circular"]),
+                "bodies": Self.bodies,
+                "features": ["type": ["string", "array"], "items": ["type": "string"],
+                             "description": "Instead of bodies: one step name or id, or a list of them"],
+                "layout": Self.string("Pattern type", enum: ["linear", "circular"]),
                 "axis": Self.axis, "count": Self.expr("Total count including the original"),
                 "spacing": Self.expr("Linear: distance between copies"),
                 "angle": Self.expr("Circular: total angle (default 360)"), "name": Self.name,
-            ], required: ["bodies", "layout", "axis", "count"])
+            ], required: ["layout", "axis", "count"])
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
@@ -574,7 +582,25 @@ extension FilletTools {
             case "circular": .circular(axis: axis, count: try a.expr("count"), angle: try a.expr("angle", default: 360))
             default: throw ToolError("`layout` must be linear or circular")
             }
-            let p = Pattern(bodies: try r.bodies(a["bodies"], key: "bodies").map(\.ref), layout: layout)
+            let p: Pattern
+            switch (a["bodies"], a["features"]) {
+            case (let bodies?, nil):
+                p = Pattern(bodies: try r.bodies(bodies, key: "bodies").map(\.ref), layout: layout)
+            case (nil, let features?):
+                let names = features.string.map { [$0] } ?? features.array?.compactMap(\.string) ?? []
+                guard !names.isEmpty, names.count == (features.array?.count ?? 1) else {
+                    throw ToolError("`features` must be a step name or a list of them")
+                }
+                p = Pattern(features: try names.map { name in
+                    let f = try r.feature(name)
+                    guard f.kind.canBePatterned else {
+                        throw ToolError("“\(f.name)” is a \(f.kind.typeName) step; only extrude, revolve, primitive, loft and hole steps can be patterned")
+                    }
+                    return f.id
+                }, layout: layout)
+            default:
+                throw ToolError("Give exactly one of `bodies` or `features`")
+            }
             return try await add(ws, .pattern(p), base: "Pattern", a)
         }
     }

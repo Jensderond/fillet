@@ -628,7 +628,11 @@ enum Describe {
             return "scale \(sc.bodies.map(body).joined(separator: ", ")) by (\(sc.factors.x), \(sc.factors.y), \(sc.factors.z))\(turned)"
         case .loft(let l): return "\(l.operation.rawValue) loft through \(l.sections.count) sections"
         case .mirror(let m): return "mirror \(m.bodies.map(body).joined(separator: ", "))\(m.merge ? " merged" : "")"
-        case .pattern(let p): return "pattern \(p.bodies.map(body).joined(separator: ", "))"
+        case .pattern(let p):
+            return switch p.objects {
+            case .bodies: "pattern \(p.bodies.map(body).joined(separator: ", "))"
+            case .features: "pattern steps \(p.features.map(name).joined(separator: ", "))"
+            }
         case .importedSTEP(let s): return "imported \(s.name)"
         case .layFlat(let l): return "lay \(body(l.body)) flat"
         case .hole(let h):

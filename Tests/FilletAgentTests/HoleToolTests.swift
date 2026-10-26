@@ -48,6 +48,19 @@ struct HoleToolTests {
         #expect(abs(try await volume(c) - (60 * 40 * 20 - wider)) < 1e-3)
     }
 
+    @Test func patternRepeatsTheHoleStep() async throws {
+        let c = try await base()
+        try await c.ok("hole", ["body": "Base", "face": ["extreme": "+z"], "points": [[-20, 0, 20]],
+                                "diameter": 6, "through_all": true, "name": "Bolt hole"])
+        let both = try await c.call("pattern", ["bodies": "Base", "features": "Bolt hole", "layout": "linear",
+                                                "axis": "x", "count": 3, "spacing": 20])
+        #expect(both.isError && both.text.contains("exactly one"))
+        try await c.ok("pattern", ["features": ["Bolt hole"], "layout": "linear", "axis": "x", "count": 3, "spacing": 20])
+        guard case .pattern(let p) = c.workspace.document.features.last?.kind else { Issue.record("not a pattern"); return }
+        #expect(p.objects == .features && p.features.count == 1)
+        #expect(abs(try await volume(c) - (60.0 * 40 * 20 - 3 * .pi * 9 * 20)) < 1e-3)
+    }
+
     @Test func refusesBadInput() async throws {
         let c = try await base()
         let off = try await c.call("hole", ["body": "Base", "face": ["extreme": "+z"], "points": [[0, 0, 5]]])
