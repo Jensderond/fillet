@@ -561,6 +561,8 @@ enum Describe {
             "bounds": bounds(b.shape),
         ]
         if let c = r.document.bodyColors[b.ref] { o["color"] = .string(c) }
+        // Hidden by the user (saved in the file): renders and exports leave it out.
+        if r.document.hiddenBodies.contains(b.ref) { o["hidden"] = true }
         if let f = r.document.feature(b.lastFeature), b.lastFeature != b.ref.feature { o["last_changed_by"] = .string(f.name) }
         if detail {
             o["volume_mm3"] = .rounded(b.shape.volume, 1)

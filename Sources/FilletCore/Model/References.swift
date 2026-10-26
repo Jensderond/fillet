@@ -19,6 +19,14 @@ public struct BodyRef: Hashable, Sendable, Codable, CustomStringConvertible {
     }
 
     public var description: String { "body(\(feature.uuidString.prefix(8)))" }
+
+    /// Whether `step` makes this body: its first body has the step's id, extra bodies (a pattern's
+    /// copies, a split) an id that differs only in the last three bytes (see `ModelEvaluator.derivedRef`).
+    public func isMade(by step: UUID) -> Bool {
+        let a = feature.uuid, b = step.uuid
+        return a.0 == b.0 && a.1 == b.1 && a.2 == b.2 && a.3 == b.3 && a.4 == b.4 && a.5 == b.5 && a.6 == b.6
+            && a.7 == b.7 && a.8 == b.8 && a.9 == b.9 && a.10 == b.10 && a.11 == b.11 && a.12 == b.12
+    }
 }
 
 /// A persistent reference to a face of a body, re-found on recompute by signature.

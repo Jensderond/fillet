@@ -75,6 +75,7 @@ extension Document {
         }
         features.removeAll { removedSet.contains($0.id) }
         if let r = rollbackIndex { setRollback(r) }
+        pruneHiddenBodies()
         return FeatureDeletion(removed: removed, brokenDependents: cascade ? [] : dependents)
     }
 

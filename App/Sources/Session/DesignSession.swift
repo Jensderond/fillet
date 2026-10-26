@@ -81,7 +81,17 @@ final class DesignSession {
     var pendingSketchTool: SketchTool?
     /// Measure is on (see `MeasureState`); nil otherwise.
     var measure: MeasureState?
-    var hiddenBodies: Set<BodyRef> = []
+    /// Bodies hidden in the viewport (and left out of exports). Saved with the document so they
+    /// stay hidden on reopen, but not an undo step (like Fusion's eye toggles); see `setDocument`.
+    var hiddenBodies: Set<BodyRef> {
+        get { document.hiddenBodies }
+        set {
+            guard newValue != document.hiddenBodies else { return }
+            document.hiddenBodies = newValue
+            // Marks the file dirty so it saves; visibility doesn't change the model, so no recompute.
+            onDocumentChange?(document)
+        }
+    }
     var camera = Camera(target: Vec3(0, 0, 10), distance: 260)
     /// Size of the viewport in points (for converting screen tolerances to mm).
     @ObservationIgnored var viewSize = CGSize(width: 1000, height: 800)
@@ -142,8 +152,10 @@ final class DesignSession {
     /// Applies a change as one undoable step.
     func perform(_ actionName: String, _ change: (inout Document) -> Void) {
         let before = document
-        var after = document
-        change(&after)
+        var changed = document
+        change(&changed)
+        // Visibility isn't a step: an agent's change made from an older copy may differ only there.
+        let after = keepingVisibility(changed)
         guard after != before else { return }
         setDocument(after)
         registerUndo(from: before, to: after, actionName: actionName)
@@ -157,11 +169,22 @@ final class DesignSession {
     }
 
     private func setDocument(_ newDocument: Document) {
-        document = newDocument
+        document = keepingVisibility(newDocument)
         // An error is about the last action; the next edit moves on from it.
         if message?.kind == .error, message?.failedFeature == nil { message = nil }
-        onDocumentChange?(newDocument)
+        onDocumentChange?(document)
         recompute()
+    }
+
+    /// `newDocument` with today's hidden bodies. Visibility isn't an undo step, so a snapshot coming
+    /// back (undo, redo, cancel, an agent's change made from an older copy) mustn't undo a toggle
+    /// made since; only bodies whose step the snapshot brings back take the snapshot's visibility.
+    private func keepingVisibility(_ newDocument: Document) -> Document {
+        var doc = newDocument
+        let returning = newDocument.hiddenBodies.filter { !document.hasStep(for: $0) }
+        doc.hiddenBodies = document.hiddenBodies.union(returning)
+        doc.pruneHiddenBodies()
+        return doc
     }
 
     private func registerUndo(from before: Document, to after: Document, actionName: String) {
@@ -222,7 +245,8 @@ final class DesignSession {
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil
-        guard document != edit.snapshot else { return }
+        // Showing or hiding a body while the step was open isn't a change to it.
+        guard document != keepingVisibility(edit.snapshot) else { return }
         let name = document.feature(edit.feature)?.name ?? "Edit"
         registerUndo(from: edit.snapshot, to: document, actionName: edit.isNew ? "New \(name)" : "Edit \(name)")
     }
