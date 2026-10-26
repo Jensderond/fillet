@@ -141,7 +141,16 @@ public actor ModelEvaluator {
         model.resolvedEdges = state.resolvedEdges
         model.references = state.references
         let meshStart = recordsTimings ? ContinuousClock.now : nil
-        model.meshes = displayMeshes(for: state.bodies, preview: preview)
+        // A fillet or chamfer being edited picks on the bodies before it, and its picked edges are
+        // theirs: mesh the bodies it changed as they were, so the viewport can tell which side of
+        // the part those edges are on. Usually a cache hit: they were on screen before the step.
+        var changedBefore: [EvaluatedBody] = []
+        switch active.first(where: { $0.id == before })?.kind {
+        case .fillet, .chamfer:
+            changedBefore = (bodiesBefore ?? []).filter { b in state.bodies.first { $0.ref == b.ref }?.shape !== b.shape }
+        default: break
+        }
+        (model.meshes, model.meshesBefore) = displayMeshes(for: state.bodies, before: changedBefore, preview: preview)
         if let meshStart {
             lastStepTimings = timings
             lastMeshSeconds = Self.seconds(since: meshStart)
@@ -169,21 +178,22 @@ public actor ModelEvaluator {
         return (min(max(diagonal * 0.0005, 0.005), 0.5), 0.2)
     }
 
-    private func displayMeshes(for bodies: [EvaluatedBody], preview: Bool) -> [BodyRef: Mesh] {
+    private func displayMeshes(for bodies: [EvaluatedBody], before: [EvaluatedBody] = [],
+                               preview: Bool) -> (shown: [BodyRef: Mesh], before: [BodyRef: Mesh]) {
         func cached(_ id: ObjectIdentifier) -> Mesh? {
             meshCache[id]?.mesh ?? previewMeshCache[id]?.mesh ?? previousMeshCache[id]?.mesh
         }
         // Shapes without a cached mesh, each once.
         var pending: [Shape] = []
         var seen = Set<ObjectIdentifier>()
-        for body in bodies {
+        for body in bodies + before {
             let id = ObjectIdentifier(body.shape)
             if cached(id) == nil, seen.insert(id).inserted { pending.append(body.shape) }
         }
         let fresh = Self.tessellate(pending)
         lastTessellatedCount = pending.count
 
-        var result: [BodyRef: Mesh] = [:]
+        var result: [BodyRef: Mesh] = [:], resultBefore: [BodyRef: Mesh] = [:]
         var kept: MeshCache = [:]
         for body in bodies {
             let id = ObjectIdentifier(body.shape)
@@ -191,13 +201,19 @@ public actor ModelEvaluator {
             kept[id] = (body.shape, mesh)
             result[body.ref] = mesh
         }
+        for body in before {
+            let id = ObjectIdentifier(body.shape)
+            let mesh = cached(id) ?? fresh[id] ?? .empty
+            kept[id] = (body.shape, mesh)
+            resultBefore[body.ref] = mesh
+        }
         if preview {
             previewMeshCache = kept
         } else {
             previousMeshCache = meshCache
             meshCache = kept
         }
-        return result
+        return (result, resultBefore)
     }
 
     /// Display meshes of distinct shapes, tessellated concurrently. The kernel meshes a copy of

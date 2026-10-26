@@ -99,6 +99,19 @@ struct RecomputeTests {
         let before = try #require(wider.bodiesBefore?.first?.shape)
         let direct = refs.compactMap { ReferenceResolver.resolve($0.signature, in: before.edgeInfos) }.map { before.edgeInfos[$0] }
         #expect(Set(direct) == Set(resolved))
+        // The body before the fillet is meshed too, for the viewport to test those edges' depth
+        // against; editing again (a new radius) finds it cached.
+        let meshBefore = try #require(wider.meshesBefore[body.ref])
+        #expect(!meshBefore.indices.isEmpty)
+        #expect(meshBefore.indices != wider.meshes[body.ref]?.indices)  // not the rounded result
+        if case .fillet(var f) = doc.features[2].kind {
+            f.size = 2
+            doc.features[2].kind = .fillet(f)
+        }
+        let smaller = await evaluator.evaluate(doc, before: filletID)
+        #expect(smaller.meshesBefore[body.ref] != nil)
+        #expect(await evaluator.lastTessellatedCount == 1)  // only the new result
+        #expect(await evaluator.evaluate(doc).meshesBefore.isEmpty)
 
         // A radius the plate can't take: the step fails, but still reports what it tried to round.
         if case .fillet(var f) = doc.features[2].kind {
