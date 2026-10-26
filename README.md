@@ -74,6 +74,9 @@ parameter (0.2 mm to start), so setting it once fits every screw hole to your pr
 
 Faces and edges are picked by index or by a filter that survives renumbering, such as
 `{"created_by": "Join arm"}`: what that step made (here the seam the join left, ready to fillet).
+Edges can also be picked as `{"chain_of": 12}` (edge 12's tangent chain, like a tap in Fillet),
+`{"loop_of_face": 4}` (the face's outer boundary; `"loop": 1` for its first hole), or any filter
+with `"tangent_chain": true`.
 
 **Live, in the app.** Turn on *Design ▸ Allow Agent Connections* (or the ✦ toolbar button, whose
 popover shows the setup for your copy). Then connect an agent:
@@ -124,3 +127,6 @@ snapshot every step:
 FILLET_AUTOMATION=1 build/dd/Build/Products/Debug/Fillet.app/Contents/MacOS/Fillet
 # results: ~/Library/Containers/app.fillet.Fillet/Data/tmp/fillet-automation/
 ```
+
+`FILLET_SCENARIO=selection` runs only the selection checks (tangent chains, loops, click and tap
+rules, window and crossing boxes); `FILLET_SCENARIO=featurePattern` only the feature pattern.
