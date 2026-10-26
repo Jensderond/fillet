@@ -99,6 +99,52 @@ struct Args {
 struct Resolver {
     let document: Document
     let model: EvaluatedModel
+    /// Bodies around the steps that `created_by` filters name (see ``load(_:_:)``).
+    var steps: [UUID: StepBodies] = [:]
+
+    init(document: Document, model: EvaluatedModel) {
+        self.document = document
+        self.model = model
+    }
+
+    /// The bodies just before and just after one step.
+    struct StepBodies {
+        var before: [EvaluatedBody]
+        var after: [EvaluatedBody]
+    }
+
+    /// A resolver for the workspace's current design that can also answer the `created_by`
+    /// filters found anywhere in `args` (they need the bodies around that step, evaluated here;
+    /// the steps are cached, so that costs no kernel work).
+    @MainActor
+    static func load(_ ws: any DesignWorkspace, _ args: JSONValue? = nil) async throws -> Resolver {
+        let model = await ws.evaluated()
+        let doc = ws.document
+        var r = Resolver(document: doc, model: model)
+        for name in args.map(createdByNames) ?? [] {
+            let f = try r.feature(name)
+            guard r.steps[f.id] == nil else { continue }
+            let active = doc.activeFeatures
+            guard let i = active.firstIndex(where: { $0.id == f.id }) else {
+                throw ToolError("`created_by`: “\(f.name)” is suppressed or after the rollback marker, so it made nothing")
+            }
+            if case .failed(let reason) = model.status[f.id] {
+                throw ToolError("`created_by`: “\(f.name)” failed (\(reason)), so it made nothing")
+            }
+            let before = await ws.preview(doc, before: f.id).bodiesBefore ?? []
+            let after = i + 1 < active.count ? await ws.preview(doc, before: active[i + 1].id).bodiesBefore ?? [] : model.bodies
+            r.steps[f.id] = StepBodies(before: before, after: after)
+        }
+        return r
+    }
+
+    /// Every `"created_by"` string in a tool's arguments.
+    static func createdByNames(_ v: JSONValue) -> [String] {
+        if let o = v.object {
+            return o.flatMap { key, value in key == "created_by" ? (value.string.map { [$0] } ?? []) : createdByNames(value) }
+        }
+        return v.array?.flatMap(createdByNames) ?? []
+    }
 
     /// A body by the name of the feature that made it ("Frog body"), its display name
     /// ("Body 2"), or its id (or an id prefix).
@@ -178,7 +224,7 @@ struct Resolver {
             }
         }
         if value.object != nil {
-            let found = try GeometryFilter(value).faces(infos)
+            let found = try filter(value, .faces, on: body).faces(infos)
             guard !found.isEmpty else { throw ToolError("No face of “\(bodyLabel(body))” matches \(value.serialized())") }
             return found
         }
@@ -207,11 +253,92 @@ struct Resolver {
             }
         }
         if value.object != nil {
-            let found = try GeometryFilter(value).edges(infos).filter(usable)
+            let found = try filter(value, .edges, on: body).edges(infos).filter(usable)
             guard !found.isEmpty else { throw ToolError("No \(forRounding ? "roundable " : "")edge of “\(bodyLabel(body))” matches \(value.serialized())") }
             return found
         }
         throw ToolError("`\(key)` must be edge indices, \"all\", or a filter object")
+    }
+
+    enum Topology { case faces, edges }
+
+    /// A filter object, with its `created_by` resolved on `body`.
+    func filter(_ value: JSONValue, _ kind: Topology, on body: EvaluatedBody) throws -> GeometryFilter {
+        var filter = try GeometryFilter(value)
+        if let step = value["created_by"] {
+            guard let name = step.string else { throw ToolError("`created_by` must be a step name") }
+            filter.only = try created(kind, on: body, by: name)
+        }
+        return filter
+    }
+
+    /// Faces or edges of `body` (current indices) that step `name` made: those of the body
+    /// just after the step that no body had just before it (seams of a join, the walls of a
+    /// cut, faces of a fillet; edges it trimmed count too). When later steps changed the body,
+    /// only those still there unchanged are returned.
+    func created(_ kind: Topology, on body: EvaluatedBody, by name: String) throws -> Set<Int> {
+        let f = try feature(name)
+        guard let step = steps[f.id] else { throw ToolError("`created_by` “\(name)” wasn't prepared (internal error)") }
+        guard let after = step.after.first(where: { $0.ref == body.ref }) else {
+            throw ToolError("“\(bodyLabel(body))” didn't exist yet after “\(f.name)”")
+        }
+        let made: Int
+        var found = Set<Int>()
+        switch kind {
+        case .edges:
+            let old = step.before.flatMap { $0.shape.edgeInfos }
+            let new = after.shape.edgeInfos
+            let tol = Self.matchTolerance(old.map(\.mid) + new.map(\.mid))
+            let fresh = new.indices.filter { i in !old.contains { Self.same($0, new[i], tol) } }
+            made = fresh.count
+            if after.shape === body.shape {
+                found = Set(fresh)
+            } else {
+                let current = body.shape.edgeInfos
+                for i in fresh { if let j = current.firstIndex(where: { Self.same($0, new[i], tol) }) { found.insert(j) } }
+            }
+        case .faces:
+            let old = step.before.flatMap { $0.shape.faceInfos }
+            let new = after.shape.faceInfos
+            let tol = Self.matchTolerance(old.map(\.centroid) + new.map(\.centroid))
+            let fresh = new.indices.filter { i in !old.contains { Self.same($0, new[i], tol) } }
+            made = fresh.count
+            if after.shape === body.shape {
+                found = Set(fresh)
+            } else {
+                let current = body.shape.faceInfos
+                for i in fresh { if let j = current.firstIndex(where: { Self.same($0, new[i], tol) }) { found.insert(j) } }
+            }
+        }
+        let noun = kind == .faces ? "faces" : "edges"
+        guard !found.isEmpty else {
+            if made > 0, let later = document.feature(body.lastFeature) {
+                throw ToolError("The \(made) \(noun) “\(f.name)” made on “\(bodyLabel(body))” were all changed by later steps (last: “\(later.name)”)")
+            }
+            let changed = step.after.filter { $0.lastFeature == f.id }.map { "“\(bodyLabel($0))”" }
+            throw ToolError("“\(f.name)” made no \(noun) on “\(bodyLabel(body))”"
+                + (changed.isEmpty ? "" : " (it made or changed \(changed.joined(separator: ", ")))"))
+        }
+        return found
+    }
+
+    /// Distance under which two points count as the same: a millionth of the model size, at least 1 µm.
+    private static func matchTolerance(_ points: [Vec3]) -> Double {
+        guard var lo = points.first else { return 1e-3 }
+        var hi = lo
+        for p in points { lo = Vec3(min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z)); hi = Vec3(max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z)) }
+        return max(1e-3, lo.distance(to: hi) * 1e-6)
+    }
+
+    private static func same(_ a: EdgeInfo, _ b: EdgeInfo, _ tol: Double) -> Bool {
+        guard a.curve == b.curve, a.mid.distance(to: b.mid) <= tol, abs(a.length - b.length) <= tol else { return false }
+        return (a.start.distance(to: b.start) <= tol && a.end.distance(to: b.end) <= tol)
+            || (a.start.distance(to: b.end) <= tol && a.end.distance(to: b.start) <= tol)
+    }
+
+    private static func same(_ a: FaceInfo, _ b: FaceInfo, _ tol: Double) -> Bool {
+        a.surface == b.surface && a.centroid.distance(to: b.centroid) <= tol && abs(a.area - b.area) <= max(tol, a.area * 1e-6)
+            && a.boundsMin.distance(to: b.boundsMin) <= tol && a.boundsMax.distance(to: b.boundsMax) <= tol
     }
 
     /// A single face given as `{"body": …, "face": index or filter}`.
@@ -306,6 +433,8 @@ struct GeometryFilter {
     /// "+z", "-x"…: keep only the items furthest along that direction.
     var extreme: (axis: Vec3, sign: Double)?
     var toleranceDegrees = 5.0
+    /// Candidates to choose from (`created_by`); nil = all.
+    var only: Set<Int>?
 
     init(_ v: JSONValue) throws {
         type = v["type"]?.string?.lowercased()
@@ -349,6 +478,7 @@ struct GeometryFilter {
         let cosTol = cos(toleranceDegrees * .pi / 180)
         var found: [(Int, Vec3)] = []
         for (i, f) in infos.enumerated() {
+            if let only, !only.contains(i) { continue }
             if let type, Describe.surfaceName(f.surface) != type { continue }
             if let d = direction, f.normal.normalized.dot(d.normalized) < cosTol { continue }
             if !inside(f.centroid) { continue }
@@ -363,6 +493,7 @@ struct GeometryFilter {
         let cosTol = cos(toleranceDegrees * .pi / 180)
         var found: [(index: Int, point: Vec3)] = []
         for (i, e) in infos.enumerated() {
+            if let only, !only.contains(i) { continue }
             if let type, Describe.curveName(e.curve) != type { continue }
             if let d = direction, abs(e.tangentAtMid.normalized.dot(d.normalized)) < cosTol { continue }
             if !inside(e.mid) { continue }

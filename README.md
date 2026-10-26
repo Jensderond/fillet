@@ -44,6 +44,9 @@ parameters, colours, print check, export) and `render_view` returns an image so 
 at its work (`presentation: true` for a product-shot look). A step that fails or breaks later steps
 is refused with the kernel's reason instead of being added.
 
+Faces and edges are picked by index or by a filter that survives renumbering, such as
+`{"created_by": "Join arm"}`: what that step made (here the seam the join left, ready to fillet).
+
 **Live, in the app.** Turn on *Design ▸ Allow Agent Connections* (or the ✦ toolbar button, which
 also shows the setup command). Then, for Claude Code:
 

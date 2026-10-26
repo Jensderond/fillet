@@ -22,7 +22,8 @@ public protocol DesignWorkspace: AnyObject {
     /// The model for the current document, waiting for a running recompute.
     func evaluated() async -> EvaluatedModel
     /// Evaluates a candidate document without changing anything (to check a change first).
-    func preview(_ candidate: Document) async -> EvaluatedModel
+    /// With `before`, the model's `bodiesBefore` holds the bodies just before that step.
+    func preview(_ candidate: Document, before: UUID?) async -> EvaluatedModel
     /// Replaces the document as one undoable step named `action` and returns the recomputed model.
     /// Must write the document before its first suspension (``Change`` relies on that).
     func commit(_ newDocument: Document, action: String) async -> EvaluatedModel
@@ -47,6 +48,10 @@ public protocol WorkspaceHost: AnyObject {
     func openNewDesign() async throws -> (any DesignWorkspace)?
     /// Called around every tool call so the host can show what the agent is doing (nil when done).
     func agentActivity(_ text: String?)
+}
+
+extension DesignWorkspace {
+    func preview(_ candidate: Document) async -> EvaluatedModel { await preview(candidate, before: nil) }
 }
 
 extension WorkspaceHost {
@@ -100,8 +105,8 @@ public final class HeadlessWorkspace: DesignWorkspace {
         return result
     }
 
-    public func preview(_ candidate: Document) async -> EvaluatedModel {
-        await evaluator.preview(candidate)
+    public func preview(_ candidate: Document, before: UUID?) async -> EvaluatedModel {
+        await evaluator.preview(candidate, before: before)
     }
 
     public func commit(_ newDocument: Document, action: String) async -> EvaluatedModel {

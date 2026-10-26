@@ -36,9 +36,9 @@ final class LiveWorkspace: DesignWorkspace {
 
     /// Checks a change on the session's own evaluator, so the recompute after `commit` is all
     /// cache hits (each step is evaluated once, not twice).
-    func preview(_ candidate: Document) async -> EvaluatedModel {
-        guard let session else { return await ModelEvaluator().preview(candidate) }
-        return await session.preview(candidate)
+    func preview(_ candidate: Document, before: UUID?) async -> EvaluatedModel {
+        guard let session else { return await ModelEvaluator().preview(candidate, before: before) }
+        return await session.preview(candidate, before: before)
     }
 
     func commit(_ newDocument: Document, action: String) async -> EvaluatedModel {

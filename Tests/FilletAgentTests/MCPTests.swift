@@ -200,6 +200,31 @@ struct ModelingToolTests {
         #expect(faces["matching"]?.number == 1)
     }
 
+    @Test func selectsWhatAStepMade() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [40, 40, 10], "name": "Base"])
+        try await c.ok("primitive", ["kind": "cylinder", "dimensions": ["diameter": 10, "height": 20], "at": [0, 0, 5], "name": "Peg"])
+        try await c.ok("combine", ["target": "Base", "tools": "Peg", "name": "Join peg"])
+        // Later steps renumber the edges; the filter still finds the seam.
+        try await c.ok("primitive", ["kind": "box", "dimensions": [6, 6, 6], "at": [14, 14, 10], "operation": "join", "targets": "Base", "name": "Nub"])
+        let seam = try await c.ok("list_edges", ["body": "Base", "filter": ["created_by": "Join peg", "type": "circle"]])
+        let edges = try #require(seam["edges"]?.array)
+        #expect(!edges.isEmpty)
+        #expect(edges.allSatisfy { $0["radius"]?.number == 5 && $0["mid"]?.array?[2].number == 10 })
+        let faces = try await c.ok("list_faces", ["body": "Base", "filter": ["created_by": "Join peg"]])
+        // The peg's side, now ending at the box (its top face is the peg's own; the box top changed again with the nub).
+        #expect(faces["faces"]?.array?.compactMap { $0["type"]?.string } == ["cylinder"])
+        try await c.ok("fillet", ["body": "Base", "edges": ["created_by": "Join peg"], "radius": 2, "name": "Peg root"])
+        let f = try #require(c.workspace.document.features.last)
+        guard case .fillet(let e) = f.kind else { Issue.record("not a fillet"); return }
+        #expect(e.edges.count == edges.count)  // the seam circle, not the peg's (unroundable) seam line
+        #expect(e.edges.allSatisfy { abs($0.signature.mid.z - 10) < 1e-6 })
+        let otherBody = try await c.call("list_edges", ["body": "Base", "filter": ["created_by": "Peg"]])
+        #expect(otherBody.isError && otherBody.text.contains("made no edges on “Base”"))
+        let gone = try await c.call("list_edges", ["body": "Base", "filter": ["created_by": "Join peg", "type": "circle"]])
+        #expect(gone.isError && gone.text.contains("changed by later steps"))
+    }
+
     @Test func shapeInputAcceptsArraysAndBulges() throws {
         let shapes = try ShapeInput.shapes([
             ["type": "polyline", "vertices": [[0, 0], [10, 0, 2], [10, 10]], "closed": true, "construction": true],

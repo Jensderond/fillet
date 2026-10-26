@@ -91,7 +91,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let plane = try r.plane(a["plane"], offset: try a.optionalExpr("offset"))
             let shapes = try ShapeInput.shapes(a["shapes"])
             let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: "Sketch", in: ws.document),
@@ -110,7 +110,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             var (feature, sketch, _) = try r.sketch(try a.string("sketch"))
             sketch.shapes += try ShapeInput.shapes(a["shapes"])
             feature.kind = .sketch(sketch)
@@ -153,7 +153,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let (sk, _, eval) = try r.sketch(try a.string("sketch"))
             let regions = try r.regions(a["regions"], sketch: eval, name: sk.name)
             let targets = try a["targets"].map { try r.bodies($0, key: "targets").map(\.ref) } ?? []
@@ -177,7 +177,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let (sk, sketch, eval) = try r.sketch(try a.string("sketch"))
             let regions = try r.regions(a["regions"], sketch: eval, name: sk.name)
             let axis: RevolveAxis
@@ -221,7 +221,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             guard let kind = PrimitiveKind(rawValue: try a.string("kind")) else {
                 throw ToolError("`kind` must be one of box, cylinder, sphere, cone, torus")
             }
@@ -291,7 +291,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             guard let list = a["sections"]?.array, list.count >= 2 else { throw ToolError("`sections` needs at least two sections") }
             let sections = try list.enumerated().map { i, v -> Loft.Section in
                 let s = Args(v)
@@ -353,7 +353,7 @@ extension FilletTools {
     private func edgeFeature(_ args: JSONValue, fillet: Bool) async throws -> ToolResult {
         let a = Args(args)
         let ws = try host.requireCurrent()
-        let r = Resolver(document: ws.document, model: await ws.evaluated())
+        let r = try await Resolver.load(ws, args)
         let b = try r.body(try a.string("body"))
         let refs = try r.edges(of: b, a["edges"], key: "edges", forRounding: true).compactMap { r.model.edgeRef(body: b.ref, edge: $0) }
         let e = EdgeFeature(body: b.ref, edges: refs, size: try a.expr(fillet ? "radius" : "distance"))
@@ -370,7 +370,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let b = try r.body(try a.string("body"))
             let faces = try a["remove_faces"].map { try r.faces(of: b, $0, key: "remove_faces") } ?? []
             let refs = faces.compactMap { r.model.faceRef(body: b.ref, face: $0) }
@@ -390,7 +390,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let target = try r.body(try a.string("target"))
             let tools = try r.bodies(a["tools"], key: "tools").map(\.ref).filter { $0 != target.ref }
             guard !tools.isEmpty else { throw ToolError("`tools` must name bodies other than the target") }
@@ -415,7 +415,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let bodies = try r.bodies(a["bodies"], key: "bodies").map(\.ref)
             let rotations = a["rotate"].map { $0.array ?? [$0] } ?? []
             var moves: [Move] = try rotations.map { rot in
@@ -459,7 +459,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let bodies = try r.bodies(a["bodies"], key: "bodies")
             let factors: Vec3Expr
             if let f = a["factors"], f.array == nil {
@@ -499,7 +499,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let m = Mirror(bodies: try r.bodies(a["bodies"], key: "bodies").map(\.ref),
                            plane: try r.plane(a["plane"], offset: try a.optionalExpr("offset")),
                            merge: a.bool("merge", default: true))
@@ -520,7 +520,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let axis = try r.axis(a["axis"], key: "axis")
             let layout: PatternLayout = switch try a.string("layout") {
             case "linear": .linear(direction: axis, count: try a.expr("count"), spacing: try a.expr("spacing"))
@@ -542,7 +542,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let (b, _, ref) = try r.faceRef(["body": .string(try a.string("body")), "face": a["face"] ?? .null], key: "face")
             return try await add(ws, .layFlat(LayFlat(body: b.ref, face: ref)), base: "Lay Flat", a)
         }
@@ -564,7 +564,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let old = try r.feature(try a.string("feature"))
             guard let changes = a["changes"], changes.object != nil else { throw ToolError("`changes` must be an object") }
             var patched = try JSONValue(encoding: old).merging(patch: changes)
@@ -595,7 +595,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let f = try r.feature(try a.string("feature"))
             var removed: [UUID] = []
             let model = try await Change.apply(ws, action: "Delete \(f.name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
@@ -617,7 +617,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let bodies = try r.bodies(a["bodies"], key: "bodies")
             let input = try a.string("color")
             let hex = try NamedColor.hex(input)

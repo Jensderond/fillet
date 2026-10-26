@@ -59,13 +59,16 @@ public enum FilletMCP {
         - scale_bodies: non-uniform scale about a centre — squash a sphere into a mochi-like head or a flat foot.
         - Then fillet/chamfer edges, shell, combine, move_bodies (rotate about a centre, translate), mirror, pattern.
         - Soft, organic characters: overlap rounded parts and join them (combine), then fillet the seams where they \
-          meet (edges filter {"type": "bspline"} or by position) with small radii.
+          meet (edges {"created_by": "<the join step>"}) with small radii.
         - set_body_color gives bodies display colours (hex like "#4CAF50" or a name like "green").
         - render_view with presentation: true shows a clean product shot (no edges or grid).
 
         PICKING FACES AND EDGES: list_faces / list_edges show indices and geometry. Tools accept indices, "all", or a \
         filter object: {"type": "circle"|"line"|"plane"|"cylinder"…, "normal"/"parallel_to": [x,y,z], \
-        "near": [x,y,z], "within": {"min": […], "max": […]}, "extreme": "+z", "radius": r, "limit": n}.
+        "near": [x,y,z], "within": {"min": […], "max": […]}, "extreme": "+z", "radius": r, "limit": n, \
+        "created_by": "Join arm"}. Indices change after every step; filters don't, so prefer them. "created_by" picks \
+        what that step made (edges/faces of the body after it that no body had before it): \
+        {"created_by": "Join arm"} is the seam the join left, ready to fillet, however the numbering shifts.
 
         CHECK YOUR WORK: call render_view often (it returns an image) and get_design for bounds. A step that fails is \
         not added (you get the kernel's reason); fix the input and retry. Fillet radii must be smaller than the \
@@ -121,7 +124,7 @@ struct FilletTools {
     static let allowFailures = boolean("Apply even if other steps start failing (default false: such a change is refused)")
     static let filter: JSONValue = [
         "type": "object",
-        "description": "Geometric filter: type, normal/parallel_to [x,y,z], near [x,y,z], within {min,max}, extreme \"+z\"…, radius, min_length/min_area, max_length/max_area, limit",
+        "description": "Geometric filter: type, normal/parallel_to [x,y,z], near [x,y,z], within {min,max}, extreme \"+z\"…, radius, min_length/min_area, max_length/max_area, limit, created_by \"step name\" (only what that step made, e.g. the seam of a join)",
     ]
     static let selection: JSONValue = [
         "description": "Indices (from list_faces/list_edges), \"all\", or a filter object",
@@ -179,10 +182,10 @@ struct FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let b = try r.body(try a.string("body"))
             let infos = b.shape.faceInfos
-            let indices = try a["filter"].map { try GeometryFilter($0).faces(infos) } ?? Array(infos.indices)
+            let indices = try a["filter"].map { try r.filter($0, .faces, on: b).faces(infos) } ?? Array(infos.indices)
             let limit = try a.int("limit", default: 60)
             return .json(["body": .string(r.bodyLabel(b)), "total_faces": .number(Double(infos.count)),
                           "matching": .number(Double(indices.count)),
@@ -200,11 +203,11 @@ struct FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let b = try r.body(try a.string("body"))
             let infos = b.shape.edgeInfos
             let seams = b.shape.seamEdges
-            let indices = try a["filter"].map { try GeometryFilter($0).edges(infos) } ?? Array(infos.indices)
+            let indices = try a["filter"].map { try r.filter($0, .edges, on: b).edges(infos) } ?? Array(infos.indices)
             let limit = try a.int("limit", default: 80)
             return .json(["body": .string(r.bodyLabel(b)), "total_edges": .number(Double(infos.count)),
                           "matching": .number(Double(indices.count)),
@@ -291,8 +294,8 @@ struct FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let model = await ws.evaluated()
-            let r = Resolver(document: ws.document, model: model)
+            let r = try await Resolver.load(ws, args)
+            let model = r.model
             var options = DesignRendering.Options()
             options.hidden = ws.hiddenBodies
             if let hide = a["hide"] { options.hidden.formUnion(try r.bodies(hide, key: "hide").map(\.ref)) }
