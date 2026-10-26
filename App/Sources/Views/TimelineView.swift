@@ -55,6 +55,8 @@ struct TimelineView: View {
                     }
                     .padding(.horizontal, 4)
                 }
+                // A long design opens on its latest steps, where the work continues.
+                .defaultScrollAnchor(.trailing, for: .initialOffset)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { visibleWidth = $0 }
                 .onChange(of: doc.features.count) { _, _ in
                     withAnimation(Theme.Motion.enter) { proxy.scrollTo("marker", anchor: .trailing) }
