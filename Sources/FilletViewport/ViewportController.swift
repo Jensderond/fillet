@@ -193,9 +193,78 @@ public final class ViewportController {
 
     // MARK: Picking / hover
 
-    func tap(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
+    /// A tap or click. `clickCount` comes from the system where it counts clicks (the Mac);
+    /// otherwise a second tap on the same element within `doubleTapInterval` counts as a double tap.
+    func tap(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers, clickCount: Int? = nil,
+             time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         let hit = pick(at: p, pointer: pointer, filter: filter)
-        delegate?.viewportDidTap(target: hit?.target, hit: hit, ray: ray(at: p), location: p, modifiers: modifiers)
+        var count = clickCount ?? tapCount(at: p, target: hit?.target, pointer: pointer, time: time)
+        // A double click that lands on another element than the first click is two clicks.
+        if clickCount != nil, count > 1, lastTap?.target != hit?.target || hit == nil { count = 1 }
+        lastTap = (p, hit?.target, pointer, time, count)
+        if count == 2 {
+            // The face beside the edge, for its loop: whichever one is under the pointer.
+            let face = pick(at: p, pointer: pointer, filter: .faces)?.target
+            delegate?.viewportDidDoubleTap(target: hit?.target, face: face, location: p, modifiers: modifiers, pointer: pointer)
+        } else if count == 1 {
+            delegate?.viewportDidTap(target: hit?.target, hit: hit, ray: ray(at: p), location: p, modifiers: modifiers, pointer: pointer)
+        }
+    }
+
+    /// Longest gap between the taps of a double tap.
+    static let doubleTapInterval: TimeInterval = 0.35
+
+    @ObservationIgnored private var lastTap: (location: CGPoint, target: PickTarget?, pointer: PointerKind, time: TimeInterval, count: Int)?
+
+    /// 1 for a first tap, 2 for a second one on the same element close by and soon after, 3 for
+    /// a third (ignored, like a triple click).
+    func tapCount(at p: CGPoint, target: PickTarget?, pointer: PointerKind, time: TimeInterval) -> Int {
+        guard let last = lastTap, last.pointer == pointer, last.target == target, target != nil,
+            time - last.time <= Self.doubleTapInterval,
+            hypot(p.x - last.location.x, p.y - last.location.y) <= max(pointer.tolerance * 2, 12)
+        else { return 1 }
+        return last.count + 1
+    }
+
+    // MARK: Selection box
+
+    /// The selection box being dragged, drawn over the view (nil when there is none).
+    public private(set) var selectionBox: SelectionBox?
+    @ObservationIgnored private var boxPointer: PointerKind = .mouse
+
+    /// Whether a drag from here draws a selection box: box mode is on, the Pencil draws it, or
+    /// Shift or ⌘ is held. Never while there is nothing a box could select.
+    func wantsBox(pointer: PointerKind, modifiers: ViewportModifiers) -> Bool {
+        guard !options.boxFilter.isEmpty else { return false }
+        return options.boxSelects || pointer == .pencil || !modifiers.isDisjoint(with: [.shift, .command])
+    }
+
+    func beginBox(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
+        renderer?.cancelAnimation()
+        boxPointer = pointer
+        selectionBox = SelectionBox(start: p, end: p, update: SelectionRules.box(modifiers: modifiers, pointer: pointer))
+        setHover(nil)
+    }
+
+    func dragBox(to p: CGPoint) {
+        selectionBox?.end = p
+    }
+
+    /// Lets go of the box: what it selects goes to the delegate. A box too small to mean
+    /// anything (a slip of the finger) selects nothing.
+    func endBox(at p: CGPoint) {
+        guard var box = selectionBox else { return }
+        box.end = p
+        selectionBox = nil
+        let rect = box.rect
+        guard rect.width >= 4 || rect.height >= 4 else { return }
+        let targets = picker.boxSelect(scene: scene, camera: liveCamera, rect: rect, viewSize: viewSize,
+                                       filter: options.boxFilter, mode: box.mode)
+        delegate?.viewportDidBoxSelect(targets, box: box)
+    }
+
+    func cancelBox() {
+        selectionBox = nil
     }
 
     func hover(at p: CGPoint?, pointer: PointerKind, modifiers: ViewportModifiers = []) {

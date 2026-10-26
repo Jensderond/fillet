@@ -82,6 +82,10 @@ public struct ViewportView: View {
                 ViewportLabels(controller: controller, scene: scene, appearance: appearance)
                     .allowsHitTesting(false)
             }
+            if let box = controller.selectionBox {
+                SelectionBoxOverlay(box: box, appearance: appearance, viewSize: controller.viewSize)
+                    .allowsHitTesting(false)
+            }
             if options.showsViewCube {
                 ViewCubeOverlay(controller: controller, appearance: appearance, visualStyle: visualStyle)
                     .padding(12)
@@ -291,6 +295,58 @@ private struct ReferencePlaneLabel: View {
         .overlay(Capsule().strokeBorder(hovered ? .clear : appearance.chipEdge))
         .fixedSize()
         .animation(.easeOut(duration: 0.12), value: hovered)
+    }
+}
+
+// MARK: - Selection box
+
+/// The rectangle being dragged to select, in the selection blue. A window (dragged left to right)
+/// has a solid rim and takes what is wholly inside; a crossing box (right to left) a dashed rim,
+/// a lighter wash, and takes whatever it touches, like Fusion. A tag on the rim says which, so the
+/// convention teaches itself.
+struct SelectionBoxOverlay: View {
+    let box: SelectionBox
+    let appearance: ViewportAppearance
+    let viewSize: CGSize
+
+    private var window: Bool { box.mode == .window }
+    private var blue: Color { appearance.palette.accent.color }
+
+    var body: some View {
+        let rect = box.rect
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(blue.opacity(window ? 0.10 : 0.06))
+                .overlay(Rectangle().strokeBorder(blue, style: StrokeStyle(lineWidth: 1.5, dash: window ? [] : [6, 4])))
+                .frame(width: rect.width, height: rect.height)
+                .offset(x: rect.minX, y: rect.minY)
+            tag.position(tagCenter(rect))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    private var tag: some View {
+        HStack(spacing: 4) {
+            Image(systemName: window ? "rectangle.inset.filled" : "rectangle.dashed")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(blue)
+            Text(window ? "Inside" : "Touching")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(appearance.chipInk)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(appearance.chipFill, in: Capsule())
+        .overlay(Capsule().strokeBorder(appearance.chipEdge))
+        .fixedSize()
+    }
+
+    /// Above the box's top edge, at the corner the drag started from (away from the finger or
+    /// pointer at the other end), kept inside the view.
+    private func tagCenter(_ rect: CGRect) -> CGPoint {
+        let x = window ? rect.minX + 36 : rect.maxX - 40
+        let y = rect.minY > 18 ? rect.minY - 12 : rect.minY + 12
+        return CGPoint(x: min(max(x, 40), max(viewSize.width - 40, 40)), y: y)
     }
 }
 
