@@ -131,7 +131,9 @@ TopoDS_Shape validated(const TopoDS_Shape &s, const std::string &failureMessage)
 /// post-processing step for every modelling operation.
 TopoDS_Shape finish(const TopoDS_Shape &s, const std::string &failureMessage, bool doUnify = true);
 
-/// Volume via BRepGProp.
+/// Volume and surface area via BRepGProp (default precision), faces integrated in parallel.
+/// Bit-identical to BRepGProp::VolumeProperties / SurfaceProperties(s, props).Mass().
 double volumeOf(const TopoDS_Shape &s);
+double surfaceAreaOf(const TopoDS_Shape &s);
 
 } // namespace fk

@@ -129,6 +129,28 @@ struct TopologyTests {
         #expect((0..<part.edgeCount).map(part.edgeInfo) == edges)
     }
 
+    @Test func volumeAndAreaMatchSerialIntegration() throws {
+        // `volume` and `surfaceArea` integrate the faces in parallel and add them up in face
+        // order. That must give the same double as BRepGProp's own serial loop, which
+        // `massProperties(precision: 1)` runs (precision 1 is OCCT's default-precision path).
+        let squash = Transform(matrix: [1.5, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0.7, 0])
+        let squashed = try Shape.sphere(center: .zero, radius: 8).transformed(squash)  // B-spline faces
+        let part = try cube(10).filleted(edges: [0], radius: 2).cut(by: Shape.cylinder(base: .xy, radius: 3, height: 10))
+        let blob = try part.fused(with: squashed)
+        let shapes = [
+            squashed, part, blob,
+            try Shape.compound([blob, squashed.translated(by: Vec3(40, 0, 0))]),
+            try Shape.compound([part, part]),  // a shared solid: OCCT integrates per solid
+            try part.face(0),  // one face
+        ]
+        for shape in shapes {
+            let serial = try #require(shape.massProperties(precision: 1))
+            #expect(shape.volume.bitPattern == serial.volume.bitPattern)
+            #expect(shape.surfaceArea.bitPattern == serial.area.bitPattern)
+        }
+        #expect(blob.faceCount > 2 && part.faceCount > 2)  // the parallel path
+    }
+
     @Test func subshapes() throws {
         let box = try cube(10)
         let face = try box.face(0)

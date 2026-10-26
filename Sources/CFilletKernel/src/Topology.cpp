@@ -324,11 +324,7 @@ extern "C" double fk_volume(const FKShape *shape) {
 }
 
 extern "C" double fk_surface_area(const FKShape *shape) {
-  return guarded("Surface area", 0.0, [&] {
-    GProp_GProps props;
-    BRepGProp::SurfaceProperties(shapeOf(shape), props);
-    return props.Mass();
-  });
+  return guarded("Surface area", 0.0, [&] { return surfaceAreaOf(shapeOf(shape)); });
 }
 
 extern "C" bool fk_mass_properties(const FKShape *shape, double eps, double *volume, double *area) {

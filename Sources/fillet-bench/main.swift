@@ -5,7 +5,7 @@ import Foundation
 // `fillet-bench`: recompute benchmark for one design (default: Benchmarks/frog-wizard.fillet).
 //
 //     swift run -c release fillet-bench [design.fillet] [--runs N] [--query-runs M] [--top K]
-//                                       [--no-cascade] [--booleans]
+//                                       [--no-cascade] [--booleans] [--all-bodies]
 //
 // Measures cold evaluation (per step), a warm no-op re-evaluate, an early-edit cascade,
 // display tessellation, and the face/edge queries agent tools make; then prints a geometry
@@ -34,6 +34,7 @@ if args.contains("-h") || args.contains("--help") {
           --top K         slowest steps to list (default 15)
           --no-cascade    skip the early-edit cascade
           --booleans      also time the booleans of the 5 slowest combine steps on their own
+          --all-bodies    digest the report values of the bodies before every step, not only the final ones
         """)
     exit(0)
 }
@@ -42,6 +43,7 @@ let queryRuns = max(1, option("--query-runs", default: 10))
 let top = option("--top", default: 15)
 let skipCascade = flag("--no-cascade")
 let booleanDetail = flag("--booleans")
+let allBodies = flag("--all-bodies")
 setvbuf(stdout, nil, _IOLBF, 0)
 func progress(_ message: String) { FileHandle.standardError.write("… \(message)\n".data(using: .utf8)!) }
 let defaultFixture = URL(fileURLWithPath: #filePath)
@@ -450,3 +452,25 @@ for body in finalModel.bodies {
     }
 }
 print("display meshes: \(meshTriangles) triangles, digest \(meshHash.hex); face/edge infos digest \(infoHash.hex)")
+
+// Bit-exact digest of the values agent tools report (default-precision `volume` and
+// `surfaceArea`, `isValid`), each on a fresh handle. With --all-bodies, also of every distinct
+// body before each step, not only the final ones.
+@MainActor func reportDigest(_ shapes: [Shape]) -> (String, Int) {
+    var hash = FNV1a()
+    var seen = Set<ObjectIdentifier>()
+    for shape in shapes where seen.insert(ObjectIdentifier(shape)).inserted {
+        guard let fresh = try? shape.copy() else { continue }
+        hash.add([fresh.volume, fresh.surfaceArea]); hash.add([fresh.isValid ? 1 : 0])
+    }
+    return (hash.hex, seen.count)
+}
+var reportShapes = finalModel.bodies.map(\.shape)
+if allBodies {
+    progress("report digest over the bodies before every step")
+    for f in active {
+        reportShapes += (await warm.evaluate(document, before: f.id).bodiesBefore ?? []).map(\.shape)
+    }
+}
+let (reportHash, reportCount) = reportDigest(reportShapes)
+print("report values (volume, surfaceArea, isValid) of \(reportCount) bodies: digest \(reportHash)")

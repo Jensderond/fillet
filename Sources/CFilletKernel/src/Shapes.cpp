@@ -4,13 +4,19 @@
 #include <BOPTools_AlgoTools.hxx>
 #include <BRepCheck_Analyzer.hxx>
 #include <BRepGProp.hxx>
+#include <BRepGProp_Domain.hxx>
+#include <BRepGProp_Face.hxx>
+#include <BRepGProp_Sinert.hxx>
+#include <BRepGProp_Vinert.hxx>
 #include <BRepPrimAPI_MakeBox.hxx>
 #include <BRepPrimAPI_MakeCone.hxx>
 #include <BRepPrimAPI_MakeCylinder.hxx>
 #include <BRepPrimAPI_MakeSphere.hxx>
 #include <BRepPrimAPI_MakeTorus.hxx>
 #include <BRep_Builder.hxx>
+#include <BRep_Tool.hxx>
 #include <GProp_GProps.hxx>
+#include <OSD_Parallel.hxx>
 #include <Precision.hxx>
 #include <ShapeFix_Shape.hxx>
 #include <ShapeUpgrade_UnifySameDomain.hxx>
@@ -177,11 +183,95 @@ TopoDS_Shape finish(const TopoDS_Shape &input, const std::string &failureMessage
   return orientSolids(s);
 }
 
+/// BRepGProp's reference point for a shape's integrals (`roughBaryCenter` in BRepGProp.cxx): the
+/// mean of every vertex the explorer visits. False without vertices (OCCT then uses a mesh node).
+static bool roughBaryCenter(const TopoDS_Shape &s, gp_Pnt &out) {
+  int n = 0;
+  gp_XYZ xyz(0, 0, 0);
+  for (TopExp_Explorer ex(s, TopAbs_VERTEX); ex.More(); ex.Next(), n++)
+    xyz += BRep_Tool::Pnt(TopoDS::Vertex(ex.Current())).XYZ();
+  if (n == 0) return false;
+  xyz /= n;
+  out = gp_Pnt(xyz);
+  return true;
+}
+
+/// Whether a solid's TShape occurs more than once (BRepGProp then integrates per solid).
+static bool hasSharedSolids(const TopoDS_Shape &s) {
+  NCollection_Map<occ::handle<TopoDS_TShape>> seen;
+  for (TopExp_Explorer ex(s, TopAbs_SOLID); ex.More(); ex.Next())
+    if (!seen.Add(ex.Current().TShape())) return true;
+  return false;
+}
+
+/// `BRepGProp::VolumeProperties(s, props)` or `SurfaceProperties(s, props)` (default precision)
+/// → `props.Mass()`, with the faces integrated on OCCT's thread pool. BRepGProp integrates each
+/// face on its own (against one reference point for the whole shape) and adds the masses up in
+/// explorer order; doing the same per face and summing in the same order gives the same double.
+/// Shapes BRepGProp treats differently (shared solids, faces without a surface, no vertices) and
+/// any face that throws go the serial way.
+static double massOf(const TopoDS_Shape &s, bool volume) {
+  auto serial = [&] {
+    GProp_GProps props;
+    if (volume)
+      BRepGProp::VolumeProperties(s, props);
+    else
+      BRepGProp::SurfaceProperties(s, props);
+    return props.Mass();
+  };
+  std::vector<TopoDS_Face> faces;
+  for (TopExp_Explorer ex(s, TopAbs_FACE); ex.More(); ex.Next()) faces.push_back(TopoDS::Face(ex.Current()));
+  gp_Pnt ref;
+  if (faces.size() < 2 || !roughBaryCenter(s, ref) || (volume && hasSharedSolids(s))) return serial();
+  TopLoc_Location loc;
+  for (const TopoDS_Face &f : faces)
+    if (BRep_Tool::Surface(f, loc).IsNull()) return serial();
+
+  const int n = (int)faces.size();
+  std::vector<double> mass(n, 0.0);
+  std::vector<char> counted(n, 0), failed(n, 0);
+  OSD_Parallel::For(0, n, [&](int i) {
+    const TopoDS_Face &f = faces[i];
+    // VolumeProperties skips INTERNAL and EXTERNAL faces; SurfaceProperties counts every face.
+    if (volume && f.Orientation() != TopAbs_FORWARD && f.Orientation() != TopAbs_REVERSED) return;
+    try {
+      BRepGProp_Face face;
+      BRepGProp_Domain domain;
+      face.Load(f);
+      const bool natural = f.NbChildren() == 0;
+      if (!natural) domain.Init(f);
+      if (volume) {
+        BRepGProp_Vinert g;
+        g.SetLocation(ref);
+        natural ? g.Perform(face) : g.Perform(face, domain);
+        mass[i] = g.Mass();
+      } else {
+        BRepGProp_Sinert g;
+        g.SetLocation(ref);
+        natural ? g.Perform(face) : g.Perform(face, domain);
+        mass[i] = g.Mass();
+      }
+      counted[i] = 1;
+    } catch (...) {
+      failed[i] = 1;
+    }
+  });
+  for (char f : failed)
+    if (f) return serial();
+  double total = 0;
+  for (int i = 0; i < n; i++)
+    if (counted[i]) total = total + mass[i];
+  return total;
+}
+
 double volumeOf(const TopoDS_Shape &s) {
   if (s.IsNull()) return 0;
-  GProp_GProps props;
-  BRepGProp::VolumeProperties(s, props);
-  return props.Mass();
+  return massOf(s, true);
+}
+
+double surfaceAreaOf(const TopoDS_Shape &s) {
+  if (s.IsNull()) return 0;
+  return massOf(s, false);
 }
 
 } // namespace fk
