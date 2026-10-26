@@ -631,6 +631,9 @@ enum Describe {
         case .pattern(let p): return "pattern \(p.bodies.map(body).joined(separator: ", "))"
         case .importedSTEP(let s): return "imported \(s.name)"
         case .layFlat(let l): return "lay \(body(l.body)) flat"
+        case .hole(let h):
+            let extent = h.extent == .throughAll ? "through all" : "depth \(h.depth)"
+            return "\(h.centers.count) \(h.holeType.rawValue) holes ⌀\(h.diameter), \(extent)\(h.face.map { " in a face of \(body($0.body))" } ?? "")"
         case .unknown(let t, _): return "unsupported \(t)"
         }
     }

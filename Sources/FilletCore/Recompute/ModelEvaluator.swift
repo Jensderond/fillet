@@ -226,6 +226,7 @@ public actor ModelEvaluator {
             case .pattern(let p): try pattern(p, feature, &state, ev)
             case .importedSTEP(let s): try importedSTEP(s, feature, &state)
             case .layFlat(let l): try layFlat(l, feature, &state)
+            case .hole(let h): try hole(h, feature, &state, ev)
             case .unknown(let type, _):
                 throw FeatureError("“\(type)” features need a newer version of Fillet")
             }
@@ -378,6 +379,15 @@ public actor ModelEvaluator {
         let thickness = try ev.length(s.thickness)
         guard thickness != 0 else { throw FeatureError("Thickness must not be zero") }
         state.bodies[index].shape = try body.shape.shelled(removing: faces, thickness: thickness)
+        state.bodies[index].lastFeature = feature.id
+    }
+
+    private func hole(_ h: Hole, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
+        guard let face = h.face else { throw FeatureError("Pick a flat face to drill into") }
+        let (index, body) = try bodyIndex(face.body, state)
+        let (_, found, plane) = try h.resolveFace(on: body.shape)
+        state.references[feature.id] = [found]
+        state.bodies[index].shape = try h.drilled(body.shape, plane: plane, using: ev)
         state.bodies[index].lastFeature = feature.id
     }
 

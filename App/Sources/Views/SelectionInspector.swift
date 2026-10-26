@@ -132,6 +132,7 @@ struct SelectionInspector: View {
                 }
                 if let (b, f) = session.selectedFaces.first, session.model.body(b)?.shape.facePlane(f) != nil {
                     ActionRow(symbol: "pencil.and.outline", title: "Sketch on this face") { session.startSketch() }
+                    ActionRow(symbol: "smallcircle.filled.circle", title: "Drill holes in this face") { session.startHole() }
                     ActionRow(symbol: "arrow.down.to.line", title: "Lay flat on the bed") { session.startLayFlat() }
                 }
                 if !session.selectedFaces.isEmpty {

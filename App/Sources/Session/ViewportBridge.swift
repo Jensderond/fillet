@@ -20,6 +20,8 @@ enum PickMode: Equatable {
     case singleFace
     /// Choosing bodies (combine, move, mirror, pattern).
     case bodies
+    /// Placing hole centres on a flat face (hole).
+    case holePoints
 }
 
 extension DesignSession {
@@ -33,6 +35,7 @@ extension DesignSession {
         case .fillet, .chamfer: return .edges
         case .shell: return .faces
         case .layFlat: return .singleFace
+        case .hole: return .holePoints
         case .combine, .move, .scale, .mirror, .pattern: return .bodies
         default: return .idle
         }
@@ -45,7 +48,7 @@ extension DesignSession {
         case .sketch: sketchEditor?.tool == .select ? [.sketchCurves, .sketchPoints] : []
         case .regions: [.regions, .handles]
         case .edges: [.edges]
-        case .faces, .singleFace, .bodies: [.faces]
+        case .faces, .singleFace, .bodies, .holePoints: [.faces]
         }
     }
 
@@ -80,6 +83,7 @@ extension DesignSession {
             scene.referencePlanes = originPlanePatches
             scene.pickableFaces = planarFaces()
         }
+        if choosingHoleFace { scene.pickableFaces = planarFaces() }
         scene.handles = editingHandles()
         scene.measures = sketchMeasures() + handleMeasures(scene.handles)
         scene.edgeHighlights = edgeHighlights()
@@ -341,6 +345,8 @@ extension DesignSession: ViewportDelegate {
         case .bodies:
             guard let bodyID = target?.bodyID else { return }
             toggleEditingBody(BodyRef(bodyID))
+        case .holePoints:
+            holeTapped(target: target, hit: hit)
         }
     }
 

@@ -20,6 +20,8 @@ extension DesignSession {
             for edge in model.resolvedEdges[id] ?? [] {
                 result.append(EdgeHighlight(points: edge.polyline, dashed: true))
             }
+        case .hole:
+            result += holeMarkers()
         default:
             break
         }

@@ -59,7 +59,7 @@ public enum FilletMCP {
         - scale_bodies: non-uniform scale about a centre — squash a sphere into a mochi-like head or a flat foot. \
           With `axes` ({"z": [0, -0.5, 0.87]}) the factors apply along tilted directions: a disc on a sloped cheek \
           in one step, no squash-then-rotate.
-        - Then fillet/chamfer edges, shell, combine, move_bodies (rotate about a centre, translate), mirror, pattern.
+        - Then fillet/chamfer edges, shell, hole (drilled, counterbored or countersunk holes in a flat face), combine, move_bodies (rotate about a centre, translate), mirror, pattern.
         - Soft, organic characters: overlap rounded parts and join them (combine), then fillet the seams where they \
           meet (edges {"created_by": "<the join step>"}) with small radii.
         - set_body_color gives bodies display colours (hex like "#4CAF50" or a name like "green").
@@ -74,7 +74,7 @@ public enum FilletMCP {
 
         CHECK YOUR WORK: call render_view often (it returns an image) and get_design for bounds. A step that fails, \
         or leaves a body that isn't a valid closed solid, is not added (you get the reason); fix the input and retry. \
-        A change that makes later steps fail is refused too. When a change makes a later fillet, chamfer, shell or \
+        A change that makes later steps fail is refused too. When a change makes a later fillet, chamfer, shell, hole or \
         lay-flat find its edges/faces somewhere else, it is made, but the result has "warnings" naming that step: \
         check it, and redo it if it went wrong. Big booleans and fillets on detailed bodies can take tens of seconds; \
         if a call times out it may still have been made, so call get_design before you retry.
