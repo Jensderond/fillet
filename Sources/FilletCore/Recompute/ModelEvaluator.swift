@@ -354,18 +354,22 @@ public actor ModelEvaluator {
         let (index, body) = try bodyIndex(f.body, state)
         guard !f.edges.isEmpty else { throw FeatureError("Select at least one edge") }
         let infos = body.shape.edgeInfos
-        var indices: [Int] = []
+        var picked: [Int?] = []
         var missing = 0
         var found: [ResolvedReference?] = []
         for ref in f.edges {
             if let m = ReferenceResolver.match(ref.signature, in: infos) {
-                if !indices.contains(m.index) { indices.append(m.index) }
+                picked.append(m.index)
                 found.append(ResolvedReference(m, offset: ref.signature.mid.distance(to: infos[m.index].mid)))
             } else {
                 missing += 1
+                picked.append(nil)
                 found.append(nil)
             }
         }
+        // Chains grow from the picks on this recompute's body, so a chain that gained edges
+        // after a change upstream is still rounded whole.
+        let indices = f.expandedEdges(picked, on: body.shape)
         // What the kernel is asked to round, recorded before it runs so a failed step shows it too.
         state.resolvedEdges[feature.id] = indices.map { infos[$0] }
         state.references[feature.id] = found

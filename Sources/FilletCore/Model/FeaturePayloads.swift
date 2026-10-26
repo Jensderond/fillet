@@ -95,15 +95,55 @@ public struct Revolve: Hashable, Sendable, Codable, FeatureReferencing {
 /// Fillet or chamfer of body edges.
 public struct EdgeFeature: Hashable, Sendable, Codable, FeatureReferencing {
     public var body: BodyRef
+    /// The picked edges. With `tangentChain` each is the seed of a chain: the step rounds every
+    /// edge tangent-continuous with it, found again on each recompute.
     public var edges: [EdgeRef]
     /// Fillet radius or chamfer distance.
     public var size: Expr
+    /// Like Fusion's "Tangent chain": each picked edge brings the edges that carry on smoothly
+    /// from it (the whole outline of a rounded rectangle from one of its sides). The chain is
+    /// propagated again on every recompute, so one that grows after a change is still rounded
+    /// whole. Files from before this setting read as `false`: they round exactly their edges.
+    public var tangentChain: Bool
 
-    public init(body: BodyRef, edges: [EdgeRef], size: Expr) {
-        self.body = body; self.edges = edges; self.size = size
+    public init(body: BodyRef, edges: [EdgeRef], size: Expr, tangentChain: Bool = false) {
+        self.body = body; self.edges = edges; self.size = size; self.tangentChain = tangentChain
     }
 
     public var referencedFeatures: Set<UUID> { Set(edges.map(\.body.feature)).union([body.feature]) }
+
+    private enum CodingKeys: String, CodingKey { case body, edges, size, tangentChain }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        body = try c.decode(BodyRef.self, forKey: .body)
+        edges = try c.decode([EdgeRef].self, forKey: .edges)
+        size = try c.decode(Expr.self, forKey: .size)
+        tangentChain = try c.decodeIfPresent(Bool.self, forKey: .tangentChain) ?? false
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(body, forKey: .body)
+        try c.encode(edges, forKey: .edges)
+        try c.encode(size, forKey: .size)
+        // Steps without chains write what they always did, so older files save unchanged.
+        if tangentChain { try c.encode(tangentChain, forKey: .tangentChain) }
+    }
+
+    /// The edges of `shape` (the body before this step) the step works on: each resolved pick,
+    /// grown to its tangent chain when `tangentChain` is on, without repeats, in pick order.
+    /// `resolved` holds the picks' indices on `shape` (nil = not found).
+    public func expandedEdges(_ resolved: [Int?], on shape: Shape) -> [Int] {
+        var result: [Int] = []
+        var seen = Set<Int>()
+        for case let index? in resolved {
+            for i in tangentChain ? shape.tangentChain(from: index) : [index] where seen.insert(i).inserted {
+                result.append(i)
+            }
+        }
+        return result
+    }
 }
 
 /// Hollows a body, opening the given faces.
