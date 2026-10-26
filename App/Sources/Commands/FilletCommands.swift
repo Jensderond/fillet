@@ -37,6 +37,7 @@ struct FilletCommands: Commands {
                 .keyboardShortcut("e", modifiers: [.command, .shift])
             Button("Revolve") { session?.startRevolve() }
             Divider()
+            Button("Press Pull") { session?.startPressPull() }
             Button("Fillet") { session?.startEdgeFeature(fillet: true) }
                 .keyboardShortcut("f", modifiers: [.command, .shift])
             Button("Chamfer") { session?.startEdgeFeature(fillet: false) }

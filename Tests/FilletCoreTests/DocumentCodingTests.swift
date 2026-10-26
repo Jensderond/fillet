@@ -76,6 +76,7 @@ func everyFeatureKind() -> [FeatureKind] {
         .pattern(Pattern(bodies: [b], layout: .circular(axis: .z, count: 6, angle: 360))),
         .importedSTEP(ImportedSTEP(name: "bracket.step", brep: "DBRep_DrawableShape ...")),
         .layFlat(LayFlat(body: b, face: face)),
+        .pressPull(PressPull(body: b, faces: [face], distance: "-lift")),
     ]
 }
 

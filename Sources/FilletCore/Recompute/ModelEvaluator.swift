@@ -226,6 +226,7 @@ public actor ModelEvaluator {
             case .pattern(let p): try pattern(p, feature, &state, ev)
             case .importedSTEP(let s): try importedSTEP(s, feature, &state)
             case .layFlat(let l): try layFlat(l, feature, &state)
+            case .pressPull(let p): try pressPull(p, feature, &state, ev)
             case .unknown(let type, _):
                 throw FeatureError("“\(type)” features need a newer version of Fillet")
             }
@@ -378,6 +379,32 @@ public actor ModelEvaluator {
         let thickness = try ev.length(s.thickness)
         guard thickness != 0 else { throw FeatureError("Thickness must not be zero") }
         state.bodies[index].shape = try body.shape.shelled(removing: faces, thickness: thickness)
+        state.bodies[index].lastFeature = feature.id
+    }
+
+    private func pressPull(_ p: PressPull, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
+        let (index, body) = try bodyIndex(p.body, state)
+        guard !p.faces.isEmpty else { throw FeatureError("Select at least one face") }
+        let infos = body.shape.faceInfos
+        var faces: [Int] = []
+        var found: [ResolvedReference?] = []
+        var missing = 0
+        for ref in p.faces {
+            if let m = ReferenceResolver.match(ref.signature, in: infos) {
+                if !faces.contains(m.index) { faces.append(m.index) }
+                found.append(ResolvedReference(m, offset: ref.signature.centroid.distance(to: infos[m.index].centroid)))
+            } else {
+                missing += 1
+                found.append(nil)
+            }
+        }
+        state.references[feature.id] = found
+        if missing > 0 {
+            throw FeatureError(missing == 1 ? "1 face can no longer be found — reselect it" : "\(missing) faces can no longer be found — reselect them")
+        }
+        let distance = try ev.length(p.distance)
+        guard distance != 0 else { throw FeatureError("Distance must not be zero") }
+        state.bodies[index].shape = try body.shape.offsettingFaces(faces, by: distance)
         state.bodies[index].lastFeature = feature.id
     }
 

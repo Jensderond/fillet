@@ -6,7 +6,7 @@ import simd
 extension FilletTools {
     var modelingTools: [MCPTool] {
         [setParameter, deleteParameter, createSketch, addSketchShapes, extrude, revolve, primitive,
-         loft, fillet, chamfer, shell, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
+         loft, fillet, chamfer, shell, pressPull, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
          editFeature, deleteFeature, setBodyColor, export]
     }
 
@@ -717,7 +717,7 @@ extension FilletTools {
     // MARK: Helpers
 
     /// Adds a feature built by a tool (named from `name` or `base`) and reports it.
-    private func add(_ ws: any DesignWorkspace, _ kind: FeatureKind, base: String, _ a: Args) async throws -> ToolResult {
+    func add(_ ws: any DesignWorkspace, _ kind: FeatureKind, base: String, _ a: Args) async throws -> ToolResult {
         let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: base, in: ws.document), kind)
         let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
         return Report.added(ws, model, warnings: warnings, feature: feature.id)

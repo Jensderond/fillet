@@ -631,6 +631,7 @@ enum Describe {
         case .pattern(let p): return "pattern \(p.bodies.map(body).joined(separator: ", "))"
         case .importedSTEP(let s): return "imported \(s.name)"
         case .layFlat(let l): return "lay \(body(l.body)) flat"
+        case .pressPull(let p): return "distance \(p.distance) on \(p.faces.count) faces of \(body(p.body))"
         case .unknown(let t, _): return "unsupported \(t)"
         }
     }

@@ -4,7 +4,7 @@ import Foundation
 
 /// Modelling tools on the tool strip whose availability depends on the design.
 enum ModelTool {
-    case extrude, revolve, fillet, chamfer, shell, combine, move, mirror, pattern, layFlat, overhangs
+    case extrude, revolve, fillet, chamfer, shell, combine, move, mirror, pattern, layFlat, overhangs, pressPull
 }
 
 /// Creating and editing features from the current selection.
@@ -193,6 +193,8 @@ extension DesignSession {
                 return "\(Theme.Copy.pick) the flat face that should touch the bed first."
             }
             return nil
+        case .pressPull:
+            return pressPullUnavailableReason
         }
     }
 
@@ -358,6 +360,11 @@ extension DesignSession {
                 guard s.body == body else { return }
                 if let i = s.removeFaces.firstIndex(of: ref) { s.removeFaces.remove(at: i) } else { s.removeFaces.append(ref) }
                 feature.kind = .shell(s)
+            case .pressPull(var p):
+                if p.faces.isEmpty { p.body = body }
+                guard p.body == body else { return }
+                if let i = p.faces.firstIndex(of: ref) { p.faces.remove(at: i) } else { p.faces.append(ref) }
+                feature.kind = .pressPull(p)
             case .layFlat:
                 guard single, let before = model.bodyBefore(body)?.shape,
                     let i = ReferenceResolver.resolve(ref.signature, in: before.faceInfos), before.facePlane(i) != nil

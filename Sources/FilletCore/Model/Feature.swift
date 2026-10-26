@@ -62,6 +62,7 @@ public enum FeatureKind: Hashable, Sendable, Codable {
     case pattern(Pattern)
     case importedSTEP(ImportedSTEP)
     case layFlat(LayFlat)
+    case pressPull(PressPull)
     /// A feature type from a newer app version, preserved verbatim (never recomputed).
     case unknown(type: String, fields: [String: JSONValue])
 
@@ -83,6 +84,7 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case .pattern: "pattern"
         case .importedSTEP: "importedSTEP"
         case .layFlat: "layFlat"
+        case .pressPull: "pressPull"
         case .unknown(let type, _): type
         }
     }
@@ -104,6 +106,7 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case .pattern(let p): p
         case .importedSTEP(let p): p
         case .layFlat(let p): p
+        case .pressPull(let p): p
         case .unknown: nil
         }
     }
@@ -129,6 +132,7 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case "pattern": self = .pattern(try Pattern(from: decoder))
         case "importedSTEP": self = .importedSTEP(try ImportedSTEP(from: decoder))
         case "layFlat": self = .layFlat(try LayFlat(from: decoder))
+        case "pressPull": self = .pressPull(try PressPull(from: decoder))
         default:
             var fields = try decoder.singleValueContainer().decode([String: JSONValue].self)
             fields["type"] = nil

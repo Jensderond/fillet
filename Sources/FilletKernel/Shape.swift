@@ -183,6 +183,15 @@ public final class Shape: @unchecked Sendable {
             idx.withUnsafeBufferPointer { fk_shell(handle, $0.baseAddress, Int32($0.count), thickness) }, "Shell")
     }
 
+    /// Moves the given faces along their outward normals (Press Pull): positive distance adds
+    /// material, negative removes it.
+    public func offsettingFaces(_ faces: [Int], by distance: Double) throws -> Shape {
+        let idx = faces.map { Int32(clamping: $0) }
+        return try Shape.make(
+            idx.withUnsafeBufferPointer { fk_offset_faces(handle, $0.baseAddress, Int32($0.count), distance) },
+            "Press Pull")
+    }
+
     public func transformed(_ transform: Transform) throws -> Shape {
         try Shape.make(transform.m.withUnsafeBufferPointer { fk_transform(handle, $0.baseAddress) }, "Move")
     }
