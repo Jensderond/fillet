@@ -336,7 +336,7 @@ extension FilletTools {
     private var fillet: MCPTool {
         MCPTool(
             name: "fillet", title: "Fillet",
-            description: "Rounds edges of a body. The radius must fit the faces next to the edges (use a smaller one if it fails).",
+            description: "Rounds edges of a body. The radius must fit the faces next to the edges. When it fails, the error names the edges that can't be rounded and the largest radius the others take (finding out takes a few seconds on big bodies). To round the seam a join left, use edges {\"created_by\": \"<join step>\"}.",
             inputSchema: Self.object(["body": Self.body, "edges": Self.selection, "radius": Self.expr("Fillet radius"), "name": Self.name],
                                      required: ["body", "edges", "radius"])
         ) { args in try await edgeFeature(args, fillet: true) }
@@ -344,7 +344,8 @@ extension FilletTools {
 
     private var chamfer: MCPTool {
         MCPTool(
-            name: "chamfer", title: "Chamfer", description: "Bevels edges of a body.",
+            name: "chamfer", title: "Chamfer",
+            description: "Bevels edges of a body. When it fails, the error names the edges that can't be bevelled and the largest distance the others take.",
             inputSchema: Self.object(["body": Self.body, "edges": Self.selection, "distance": Self.expr("Chamfer distance"), "name": Self.name],
                                      required: ["body", "edges", "distance"])
         ) { args in try await edgeFeature(args, fillet: false) }
@@ -355,9 +356,18 @@ extension FilletTools {
         let ws = try host.requireCurrent()
         let r = try await Resolver.load(ws, args)
         let b = try r.body(try a.string("body"))
-        let refs = try r.edges(of: b, a["edges"], key: "edges", forRounding: true).compactMap { r.model.edgeRef(body: b.ref, edge: $0) }
-        let e = EdgeFeature(body: b.ref, edges: refs, size: try a.expr(fillet ? "radius" : "distance"))
-        return try await add(ws, fillet ? .fillet(e) : .chamfer(e), base: fillet ? "Fillet" : "Chamfer", a)
+        let indices = try r.edges(of: b, a["edges"], key: "edges", forRounding: true)
+        let refs = indices.compactMap { r.model.edgeRef(body: b.ref, edge: $0) }
+        let size = try a.expr(fillet ? "radius" : "distance")
+        let e = EdgeFeature(body: b.ref, edges: refs, size: size)
+        do {
+            return try await add(ws, fillet ? .fillet(e) : .chamfer(e), base: fillet ? "Fillet" : "Chamfer", a)
+        } catch let error as ToolError {
+            // Find out which edges are the trouble and what size would work.
+            guard error.message.contains(" failed: "), let value = try? r.model.parameters.evaluator.length(size), value > 0 else { throw error }
+            let d = await BlendDiagnosis.run(shape: b.shape, edges: indices, size: value, fillet: fillet)
+            throw ToolError(error.message + " " + d.message(size: value, fillet: fillet))
+        }
     }
 
     private var shell: MCPTool {

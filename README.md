@@ -44,7 +44,8 @@ parameters, colours, print check, export) and `render_view` returns an image so 
 at its work (`presentation: true` for a product-shot look). A step that fails or breaks later steps
 is refused with the kernel's reason instead of being added. A change that still works but makes a
 later fillet, chamfer, shell or lay-flat find its edges or faces somewhere else comes back with a
-warning naming that step.
+warning naming that step. A fillet or chamfer that fails says which edges can't take the size and
+the largest size the others take.
 
 Faces and edges are picked by index or by a filter that survives renumbering, such as
 `{"created_by": "Join arm"}`: what that step made (here the seam the join left, ready to fillet).

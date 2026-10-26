@@ -237,6 +237,46 @@ struct ModelingToolTests {
         #expect(warning.contains("“Corner”") && warning.contains("12.0 mm"))
     }
 
+    @Test func explainsFailedFillets() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [40, 40, 4], "name": "Plate"])
+        let top = try await c.ok("list_edges", ["body": "Plate", "filter": ["extreme": "+z"]])
+        let topEdges = try #require(top["edges"]?.array?.compactMap { $0["index"]?.int })
+        // The corners take 6 mm; the top edges of a 4 mm plate don't.
+        let vertical = try await c.ok("list_edges", ["body": "Plate", "filter": ["parallel_to": [0, 0, 1]]])
+        let verticalEdges = try #require(vertical["edges"]?.array?.compactMap { $0["index"]?.int })
+        let both = try await c.call("fillet", ["body": "Plate", "edges": .array((topEdges + verticalEdges).map { .number(Double($0)) }), "radius": 6])
+        #expect(both.isError)
+        let bad = topEdges.sorted().map(String.init).joined(separator: ", ")
+        #expect(both.text.contains("Edges \(bad) can't be rounded at 6 mm, even on their own (together they take up to "), "\(both.text)")
+        #expect(both.text.contains("; the other 4 take the requested 6 mm together. Leave those out"), "\(both.text)")
+        let all = try await c.call("fillet", ["body": "Plate", "edges": .array(topEdges.map { .number(Double($0)) }), "radius": 6])
+        #expect(all.isError && all.text.contains("None of the edges can be rounded at 6 mm"), "\(all.text)")
+        #expect(all.text.contains("together they take up to "), "\(all.text)")
+    }
+
+    @Test func blendDiagnosisSearch() {
+        // Edges 3 and 6 fail at any size; the rest work together up to 1.8.
+        var probes = 0
+        let d = BlendDiagnosis.diagnose(edges: Array(0..<8), size: 3, outOfTime: { _ in false }) { edges, size in
+            probes += 1
+            if edges.contains(3) || edges.contains(6) { return false }
+            return edges.count < 6 || size <= 1.8
+        }
+        #expect(d.badEdges == [3, 6])
+        #expect(d.goodEdges == [0, 1, 2, 4, 5, 7])
+        guard case .works(let largest) = d.size else { Issue.record("no size found"); return }
+        #expect(largest > 1.6 && largest <= 1.8)
+        #expect(d.badSize == .failsDownTo(3.0 / 64))
+        #expect(probes < 30)
+        #expect(d.message(size: 3, fillet: true) == "Edges 3, 6 can't be rounded at 3 mm, even on their own (together they fail even at 0.04 mm); the other 6 take up to \(BlendDiagnosis.format(BlendDiagnosis.floor(largest))) mm together. Leave those out (or give them a step of their own with a smaller radius) and round the rest.")
+        // Out of time: says what it didn't check.
+        var calls = 0
+        let partial = BlendDiagnosis.diagnose(edges: Array(0..<8), size: 3, outOfTime: { _ in calls >= 2 }) { _, _ in calls += 1; return false }
+        #expect(!partial.unchecked.isEmpty)
+        #expect(partial.message(size: 3, fillet: false).contains("no time left to check"))
+    }
+
     @Test func shapeInputAcceptsArraysAndBulges() throws {
         let shapes = try ShapeInput.shapes([
             ["type": "polyline", "vertices": [[0, 0], [10, 0, 2], [10, 10]], "closed": true, "construction": true],

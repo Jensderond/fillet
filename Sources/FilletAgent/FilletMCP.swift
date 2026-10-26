@@ -75,6 +75,9 @@ public enum FilletMCP {
         refused too. When a change makes a later fillet, chamfer, shell or lay-flat find its edges/faces somewhere \
         else, it is made but the result has "warnings" naming that step: check it, and redo it if it went wrong. \
         Fillet radii must be smaller than the faces they round; boolean tools must overlap their targets. \
+        A failed fillet or chamfer says which edges are the trouble and the largest size the others take. Fillet \
+        seams one join at a time (join a part, fillet {"created_by": that join}, then the next part): where many \
+        parts meet in one spot, or a seam runs into a thin sliver, fillets fail. \
         Use undo to take back the last step.
         """
     }
