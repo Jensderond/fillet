@@ -26,8 +26,10 @@
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
 #include <TopoDS_Vertex.hxx>
+#include <TopoDS_Wire.hxx>
 
 #include <cmath>
+#include <vector>
 
 using namespace fk;
 
@@ -190,6 +192,20 @@ Direction directionOf(const TopoDS_Shape &s, const char *which) {
     return {c.Line().Direction(), false};
   }
   fail("Angles are measured between flat faces and straight edges");
+}
+
+/// The directions an edge leaves point `p` in: one for an end at `p`, two for a closed edge
+/// whose ends both meet there. Tangents come from the curve, so a line's direction is exact.
+std::vector<gp_Dir> leavingDirections(const TopoDS_Edge &edge, const gp_Pnt &p, double tol) {
+  std::vector<gp_Dir> dirs;
+  BRepAdaptor_Curve c(edge);
+  gp_Pnt q;
+  gp_Vec t;
+  c.D1(c.FirstParameter(), q, t);
+  if (q.Distance(p) <= tol && t.Magnitude() > 1e-12) dirs.emplace_back(t);
+  c.D1(c.LastParameter(), q, t);
+  if (q.Distance(p) <= tol && t.Magnitude() > 1e-12) dirs.emplace_back(t.Reversed());
+  return dirs;
 }
 
 } // namespace
@@ -473,5 +489,105 @@ extern "C" bool fk_angle(const FKShape *a, const FKShape *b, double *radians) {
       *radians = std::min(angle, M_PI - angle);
     }
     return true;
+  });
+}
+
+extern "C" bool fk_tangent_chain(const FKShape *shape, int32_t edgeIndex, double angleTolerance, bool *out, int32_t count) {
+  return guarded("Tangent chain", false, [&] {
+    const TopoDS_Shape &s = shapeOf(shape);
+    if (!out) fail("Missing output pointer");
+    const ShapeMap &edges = shape->edges();
+    if (count != edges.Extent())
+      fail("Expected " + std::to_string(edges.Extent()) + " edges, got room for " + std::to_string(count));
+    if (!(angleTolerance >= 0) || angleTolerance > M_PI) fail("The angle tolerance must be between 0 and π");
+    const TopoDS_Edge seed = edgeAt(shape, edgeIndex);
+    for (int32_t i = 0; i < count; ++i) out[i] = false;
+    out[edgeIndex] = true;
+
+    AncestorMap edgeFaces, vertexEdges;
+    TopExp::MapShapesAndUniqueAncestors(s, TopAbs_EDGE, TopAbs_FACE, edgeFaces);
+    TopExp::MapShapesAndUniqueAncestors(s, TopAbs_VERTEX, TopAbs_EDGE, vertexEdges);
+    // Chains run along ordinary edges only: a seam or a degenerate edge stops them.
+    auto chainable = [&](const TopoDS_Edge &e) {
+      if (BRep_Tool::Degenerated(e)) return false;
+      const ShapeList *faces = edgeFaces.Seek(e);
+      return faces && faces->Extent() >= 2;
+    };
+    if (!chainable(seed)) return true;
+    const double cosTol = std::cos(angleTolerance);
+
+    std::vector<int32_t> queue{edgeIndex};
+    while (!queue.empty()) {
+      const TopoDS_Edge edge = TopoDS::Edge(edges(queue.back() + 1));
+      queue.pop_back();
+      TopoDS_Vertex ends[2];
+      TopExp::Vertices(edge, ends[0], ends[1]);
+      for (const TopoDS_Vertex &v : ends) {
+        if (v.IsNull()) continue;
+        const ShapeList *around = vertexEdges.Seek(v);
+        if (!around) continue;
+        const gp_Pnt p = BRep_Tool::Pnt(v);
+        const double tol = std::max(BRep_Tool::Tolerance(v) * 10, 1e-4);
+        const std::vector<gp_Dir> mine = leavingDirections(edge, p, tol);
+        for (const TopoDS_Shape &other : *around) {
+          const int32_t j = edges.FindIndex(other) - 1;
+          if (j < 0 || out[j]) continue;
+          const TopoDS_Edge &next = TopoDS::Edge(other);
+          if (!chainable(next)) continue;
+          // Tangent: the two edges leave the vertex in opposite directions, so one carries on
+          // where the other stops.
+          bool smooth = false;
+          for (const gp_Dir &a : leavingDirections(next, p, tol))
+            for (const gp_Dir &b : mine)
+              if (a.Dot(b) <= -cosTol) smooth = true;
+          if (!smooth) continue;
+          out[j] = true;
+          queue.push_back(j);
+        }
+      }
+    }
+    return true;
+  });
+}
+
+extern "C" bool fk_face_loops(const FKShape *shape, int32_t faceIndex, int32_t *loopOf, int32_t count) {
+  return guarded("Face loops", false, [&] {
+    shapeOf(shape);
+    if (!loopOf) fail("Missing output pointer");
+    const ShapeMap &edges = shape->edges();
+    if (count != edges.Extent())
+      fail("Expected " + std::to_string(edges.Extent()) + " edges, got room for " + std::to_string(count));
+    const TopoDS_Face &face = faceAt(shape, faceIndex);
+    for (int32_t i = 0; i < count; ++i) loopOf[i] = -1;
+    const TopoDS_Wire outer = BRepTools::OuterWire(face);
+    int32_t next = 1;
+    for (TopExp_Explorer w(face, TopAbs_WIRE); w.More(); w.Next()) {
+      const int32_t loop = !outer.IsNull() && w.Current().IsSame(outer) ? 0 : next++;
+      for (TopExp_Explorer e(w.Current(), TopAbs_EDGE); e.More(); e.Next()) {
+        const int32_t i = edges.FindIndex(e.Current()) - 1;
+        if (i >= 0 && i < count) loopOf[i] = loop;
+      }
+    }
+    return true;
+  });
+}
+
+extern "C" int32_t fk_edge_faces(const FKShape *shape, int32_t edgeIndex, int32_t *faces, int32_t capacity) {
+  return guarded("Edge faces", (int32_t)-1, [&] {
+    shapeOf(shape);
+    if (capacity > 0 && !faces) fail("Missing output pointer");
+    const TopoDS_Edge &edge = edgeAt(shape, edgeIndex);
+    const ShapeMap &all = shape->faces();
+    std::vector<int32_t> found;
+    for (int32_t i = 1; i <= all.Extent(); ++i) {
+      for (TopExp_Explorer e(all(i), TopAbs_EDGE); e.More(); e.Next()) {
+        if (e.Current().IsSame(edge)) {
+          found.push_back(i - 1);
+          break;
+        }
+      }
+    }
+    for (size_t k = 0; k < found.size() && (int32_t)k < capacity; ++k) faces[k] = found[k];
+    return (int32_t)found.size();
   });
 }
