@@ -29,4 +29,5 @@ arrange_by = None
 icon_size = 112
 text_size = 13
 icon_locations = {app_name: (192, 192), "Applications": (448, 192)}
-hide_extensions = [app_name]
+# No hide_extensions: it sets com.apple.FinderInfo on Fillet.app, which breaks the code signature
+# (codesign --strict rejects it, and it travels along to /Applications). Finder hides .app anyway.
