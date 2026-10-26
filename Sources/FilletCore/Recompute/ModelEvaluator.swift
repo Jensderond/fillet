@@ -39,6 +39,9 @@ public actor ModelEvaluator {
     private var meshCache: MeshCache = [:]
     /// The last preview's display meshes.
     private var previewMeshCache: MeshCache = [:]
+    /// `meshCache` as it was before the last `evaluate`, so undoing a step (or setting a value
+    /// back) finds the meshes of the bodies it brings back instead of meshing them again.
+    private var previousMeshCache: MeshCache = [:]
 
     /// Wall-clock cost of one recomputed feature (see ``init(recordsTimings:)``).
     public struct StepTiming: Sendable {
@@ -54,6 +57,8 @@ public actor ModelEvaluator {
     public private(set) var lastStepTimings: [StepTiming] = []
     /// Time the last `evaluate` spent tessellating display meshes. Only recorded when timing is on.
     public private(set) var lastMeshSeconds: Double = 0
+    /// Shapes the last `evaluate` or `preview` had to tessellate (the rest had cached meshes).
+    private(set) var lastTessellatedCount = 0
 
     /// `recordsTimings` makes `evaluate` measure every recomputed feature and the display
     /// tessellation (for benchmarks; off in the app).
@@ -138,6 +143,7 @@ public actor ModelEvaluator {
         previewCache = []
         meshCache = [:]
         previewMeshCache = [:]
+        previousMeshCache = [:]
     }
 
     /// Tessellation fine enough to look smooth, scaled to the part size.
@@ -148,24 +154,33 @@ public actor ModelEvaluator {
     }
 
     private func displayMeshes(for bodies: [EvaluatedBody], preview: Bool) -> [BodyRef: Mesh] {
+        func cached(_ id: ObjectIdentifier) -> Mesh? {
+            meshCache[id]?.mesh ?? previewMeshCache[id]?.mesh ?? previousMeshCache[id]?.mesh
+        }
         // Shapes without a cached mesh, each once.
         var pending: [Shape] = []
         var seen = Set<ObjectIdentifier>()
         for body in bodies {
             let id = ObjectIdentifier(body.shape)
-            if meshCache[id] == nil, previewMeshCache[id] == nil, seen.insert(id).inserted { pending.append(body.shape) }
+            if cached(id) == nil, seen.insert(id).inserted { pending.append(body.shape) }
         }
         let fresh = Self.tessellate(pending)
+        lastTessellatedCount = pending.count
 
         var result: [BodyRef: Mesh] = [:]
         var kept: MeshCache = [:]
         for body in bodies {
             let id = ObjectIdentifier(body.shape)
-            let mesh = meshCache[id]?.mesh ?? previewMeshCache[id]?.mesh ?? fresh[id] ?? .empty
+            let mesh = cached(id) ?? fresh[id] ?? .empty
             kept[id] = (body.shape, mesh)
             result[body.ref] = mesh
         }
-        if preview { previewMeshCache = kept } else { meshCache = kept }
+        if preview {
+            previewMeshCache = kept
+        } else {
+            previousMeshCache = meshCache
+            meshCache = kept
+        }
         return result
     }
 

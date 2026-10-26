@@ -277,6 +277,29 @@ struct RecomputeTests {
         _ = await ev.evaluate(doc, before: cut)
         #expect(await recomputed() == [])
     }
+
+    /// Undoing a step brings back bodies the evaluate before last meshed: no re-meshing.
+    @Test func undoReusesTheMeshesOfTheStepBefore() async throws {
+        let a = UUID(), b = UUID(), cut = UUID()
+        var doc = Document()
+        doc.features = [
+            Feature(id: a, name: "A", .primitive(Primitive(kind: .box, dimensions: [20, 20, 10]))),
+            Feature(id: b, name: "B", .primitive(Primitive(kind: .cylinder, dimensions: [6, 10]))),
+        ]
+        let ev = ModelEvaluator()
+        let before = await ev.evaluate(doc)
+        #expect(await ev.lastTessellatedCount == 2)
+        var added = doc
+        added.features.append(Feature(id: cut, name: "Cut", .combine(Combine(target: BodyRef(a), tools: [BodyRef(b)], operation: .cut))))
+        _ = await ev.evaluate(added)
+        #expect(await ev.lastTessellatedCount == 1)  // the cut body
+        let undone = await ev.evaluate(doc)
+        #expect(await ev.lastTessellatedCount == 0)
+        for body in before.bodies {
+            #expect(undone.meshes[body.ref]?.positions == before.meshes[body.ref]?.positions)
+            #expect(undone.meshes[body.ref]?.indices == before.meshes[body.ref]?.indices)
+        }
+    }
 }
 
 @Suite("Parameter rename")
