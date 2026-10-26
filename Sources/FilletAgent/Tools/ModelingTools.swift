@@ -1,6 +1,7 @@
 import FilletCore
 import FilletKernel
 import Foundation
+import simd
 
 extension FilletTools {
     var modelingTools: [MCPTool] {
@@ -459,12 +460,24 @@ extension FilletTools {
     private var scaleBodies: MCPTool {
         MCPTool(
             name: "scale_bodies", title: "Scale",
-            description: "Scales bodies about a centre point, separately along X, Y and Z if you like (a sphere becomes an ellipsoid). The centre defaults to the middle of the bodies' bounds.",
+            description: """
+                Scales bodies about a centre point, separately along X, Y and Z if you like (a sphere becomes an \
+                ellipsoid). The centre defaults to the middle of the bodies' bounds. The factors can also apply along \
+                turned directions, to squash a tilted part across its tilt in one step: `axes` gives where the X, Y \
+                and/or Z factor points ({"z": [0, -0.5, 0.87]} squashes along that direction), or `orientation` \
+                turns the axes ({"axis": "x", "angle": 30}).
+                """,
             inputSchema: Self.object([
                 "bodies": Self.bodies,
                 "factors": ["description": "One factor for all axes, or [x, y, z] factors (1 = unchanged)",
                             "anyOf": [["type": "number"], ["type": "array", "items": ["type": "number"], "minItems": 3, "maxItems": 3]]],
-                "center": Self.vec3("Point that stays put"), "name": Self.name,
+                "center": Self.vec3("Point that stays put"),
+                "axes": ["type": "object", "description": "Directions the factors apply along: {\"x\": [..], \"y\": [..], \"z\": [..]}, one or two of them (the rest follow, square to them)",
+                         "properties": ["x": Self.vec3("Direction of the X factor"), "y": Self.vec3("Direction of the Y factor"),
+                                        "z": Self.vec3("Direction of the Z factor")]],
+                "orientation": ["type": "object", "description": "Turns the X, Y and Z axes the factors apply along: {\"axis\": \"x\"|\"y\"|\"z\"|[x,y,z], \"angle\": degrees}",
+                                "properties": ["axis": [:], "angle": Self.expr("Degrees")]],
+                "name": Self.name,
             ], required: ["bodies", "factors"])
         ) { args in
             let a = Args(args)
@@ -492,7 +505,8 @@ extension FilletTools {
                     center = Vec3Expr(Expr((c.x * 1000).rounded() / 1000), Expr((c.y * 1000).rounded() / 1000), Expr((c.z * 1000).rounded() / 1000))
                 }
             }
-            let sc = Scale(bodies: bodies.map(\.ref), factors: factors, center: center ?? .zero)
+            let sc = Scale(bodies: bodies.map(\.ref), factors: factors, center: center ?? .zero,
+                           orientation: try ScaleAxes.orientation(axes: a["axes"], orientation: a["orientation"]))
             return try await add(ws, .scale(sc), base: "Scale", a)
         }
     }
@@ -694,6 +708,70 @@ extension FilletTools {
             "\(c.codingPath.map(\.stringValue).joined(separator: ".")): \(c.debugDescription)"
         default: String(describing: error)
         }
+    }
+}
+
+/// Where a scale's factors apply: `axes` (directions) or `orientation` (a turn) to the stored turn.
+enum ScaleAxes {
+    static func orientation(axes: JSONValue?, orientation: JSONValue?) throws -> Scale.Orientation? {
+        switch (axes, orientation) {
+        case (nil, nil): return nil
+        case (.some, .some): throw ToolError("Give `axes` or `orientation`, not both")
+        case (nil, .some(let o)):
+            let a = Args(o)
+            let axis: Vec3Expr
+            switch a["axis"] {
+            case .string(let s):
+                switch s.lowercased() {
+                case "x": axis = Vec3Expr(1, 0, 0)
+                case "y": axis = Vec3Expr(0, 1, 0)
+                case "z": axis = Vec3Expr(0, 0, 1)
+                default: throw ToolError("`orientation.axis` must be \"x\", \"y\", \"z\" or [x, y, z]")
+                }
+            default:
+                guard let v = try a.vec3("axis") else { throw ToolError("`orientation` needs an `axis` (\"x\", \"y\", \"z\" or [x, y, z])") }
+                axis = v
+            }
+            return Scale.Orientation(axis: axis, angle: try a.expr("angle"))
+        case (.some(let v), nil):
+            return try turn(toAxes: v)
+        }
+    }
+
+    /// The turn that takes the X, Y and Z axes to the given directions.
+    static func turn(toAxes v: JSONValue) throws -> Scale.Orientation? {
+        func dir(_ key: String) throws -> SIMD3<Double>? {
+            guard let p = try Args.point3(v[key], "axes.\(key)") else { return nil }
+            guard p.length > 1e-9 else { throw ToolError("`axes.\(key)` must not be zero") }
+            return p.normalized.simd
+        }
+        let x = try dir("x"), y = try dir("y"), z = try dir("z")
+        func square(_ a: SIMD3<Double>, to b: SIMD3<Double>, _ names: String) throws -> SIMD3<Double> {
+            let v = a - simd_dot(a, b) * b
+            guard simd_length(v) > 1e-6 else { throw ToolError("`axes`: \(names) must not be parallel") }
+            return simd_normalize(v)
+        }
+        let rotation: simd_quatd
+        switch (x, y, z) {
+        case (nil, nil, nil): throw ToolError("`axes` needs at least one of x, y, z, e.g. {\"z\": [0, -0.5, 0.87]}")
+        case (let x?, nil, nil): rotation = simd_quatd(from: SIMD3(1, 0, 0), to: x)
+        case (nil, let y?, nil): rotation = simd_quatd(from: SIMD3(0, 1, 0), to: y)
+        case (nil, nil, let z?): rotation = simd_quatd(from: SIMD3(0, 0, 1), to: z)
+        case (let x?, _, let z?):
+            let xs = try square(x, to: z, "x and z")
+            rotation = simd_quatd(simd_double3x3(columns: (xs, simd_cross(z, xs), z)))
+        case (nil, let y?, let z?):
+            let ys = try square(y, to: z, "y and z")
+            rotation = simd_quatd(simd_double3x3(columns: (simd_cross(ys, z), ys, z)))
+        case (let x?, let y?, nil):
+            let ys = try square(y, to: x, "x and y")
+            rotation = simd_quatd(simd_double3x3(columns: (x, ys, simd_cross(x, ys))))
+        }
+        let degrees = rotation.angle * 180 / .pi
+        guard abs(degrees) > 1e-6, simd_length(rotation.imag) > 1e-12 else { return nil }
+        let axis = rotation.axis
+        func r(_ v: Double, _ places: Double) -> Expr { Expr((v * places).rounded() / places) }
+        return Scale.Orientation(axis: Vec3Expr(r(axis.x, 1e6), r(axis.y, 1e6), r(axis.z, 1e6)), angle: r(degrees, 1e4))
     }
 }
 

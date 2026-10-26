@@ -1,5 +1,6 @@
 import FilletKernel
 import Foundation
+import simd
 import Synchronization
 
 /// Error raised while evaluating one feature; its message is shown in the timeline.
@@ -444,8 +445,18 @@ public actor ModelEvaluator {
         let f = SIMD3(try ev.scalar(sc.factors.x), try ev.scalar(sc.factors.y), try ev.scalar(sc.factors.z))
         guard f.x > 1e-6, f.y > 1e-6, f.z > 1e-6 else { throw FeatureError("Scale factors must be greater than zero") }
         let c = try sc.center.evaluate(using: ev)
-        let t = c * (SIMD3(1, 1, 1) - f)
-        let transform = Transform(matrix: [f.x, 0, 0, t.x, 0, f.y, 0, t.y, 0, 0, f.z, t.z])
+        // M = R·S·Rᵀ: the factors apply along the turned axes (R's columns); the centre stays put.
+        var m = simd_double3x3(diagonal: f)
+        if let o = sc.orientation {
+            let axis = SIMD3(try ev.scalar(o.axis.x), try ev.scalar(o.axis.y), try ev.scalar(o.axis.z))
+            guard simd_length(axis) > 1e-9 else { throw FeatureError("The orientation axis must not be zero") }
+            let r = simd_double3x3(simd_quatd(angle: try ev.angleRadians(o.angle), axis: simd_normalize(axis)))
+            m = r * m * r.transpose
+        }
+        let t = c - m * c
+        // Transform takes rows; simd matrices index columns first.
+        let transform = Transform(matrix: [m[0][0], m[1][0], m[2][0], t.x, m[0][1], m[1][1], m[2][1], t.y,
+                                           m[0][2], m[1][2], m[2][2], t.z])
         for ref in sc.bodies {
             let (i, body) = try bodyIndex(ref, state)
             state.bodies[i].shape = try body.shape.transformed(transform)

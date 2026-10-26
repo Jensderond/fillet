@@ -356,6 +356,33 @@ struct ModelingToolTests {
         #expect(partial.message(size: 3, fillet: false).contains("no time left to check"))
     }
 
+    @Test func scalesAlongTiltedAxes() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "sphere", "dimensions": ["diameter": 10], "at": [0, 0, 20], "name": "Blush"])
+        // A disc facing up and 45° forward: squash along that direction.
+        try await c.ok("scale_bodies", ["bodies": "Blush", "factors": [1, 1, 0.3], "axes": ["z": [0, -1, 1]], "name": "Flatten"])
+        let step = try await c.ok("get_feature", ["feature": "Flatten"])
+        let o = try #require(step["feature"]?["kind"]?["orientation"])
+        #expect(o["angle"] == "45")
+        #expect(o["axis"]?["x"] == "1")
+        #expect(step["summary"]?.string?.contains("turned 45°") == true)
+        let body = try #require(await c.workspace.evaluated().bodies.first)
+        #expect(abs(body.shape.volume - 0.3 * 4 / 3 * .pi * 125) < 1)
+        let b = try #require(body.shape.bounds)
+        #expect(abs(b.max.x - 5) < 0.05)
+        #expect(abs(b.max.y - ((25 + 2.25) / 2).squareRoot()) < 0.05)
+        // The same with an explicit turn.
+        try await c.ok("undo")
+        try await c.ok("scale_bodies", ["bodies": "Blush", "factors": [1, 1, 0.3], "orientation": ["axis": "x", "angle": 45], "name": "Flatten"])
+        let b2 = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
+        #expect(abs(b2.max.y - b.max.y) < 1e-6 && abs(b2.max.z - b.max.z) < 1e-6)
+        // Two directions are squared up; parallel ones are refused.
+        let frame = try ScaleAxes.turn(toAxes: ["x": [0, 1, 0], "z": [0, 0, 1]])
+        #expect(frame?.angle == 90 && frame?.axis == Vec3Expr(0, 0, 1))
+        #expect(try ScaleAxes.turn(toAxes: ["z": [0, 0, 2]]) == nil)
+        #expect(throws: ToolError.self) { try ScaleAxes.turn(toAxes: ["x": [1, 0, 0], "z": [2, 0, 0]]) }
+    }
+
     @Test func shapeInputAcceptsArraysAndBulges() throws {
         let shapes = try ShapeInput.shapes([
             ["type": "polyline", "vertices": [[0, 0], [10, 0, 2], [10, 10]], "closed": true, "construction": true],

@@ -198,16 +198,31 @@ public struct Move: Hashable, Sendable, Codable, FeatureReferencing {
     }
 }
 
-/// Non-uniform scale of bodies about a centre point (squashes a sphere into an ellipsoid).
+/// Non-uniform scale of bodies about a centre point (squashes a sphere into an ellipsoid),
+/// optionally along turned directions (squashes a tilted disc across its tilt).
 public struct Scale: Hashable, Sendable, Codable, FeatureReferencing {
     public var bodies: [BodyRef]
-    /// Factors along X, Y and Z (plain numbers; 1 = unchanged).
+    /// Factors along X, Y and Z (plain numbers; 1 = unchanged), or along the turned axes when
+    /// `orientation` is set.
     public var factors: Vec3Expr
     /// Point that stays put.
     public var center: Vec3Expr
+    /// Turns the directions the factors apply along; nil = the world axes. Left out of files when nil.
+    public var orientation: Orientation?
 
-    public init(bodies: [BodyRef], factors: Vec3Expr = Vec3Expr(1, 1, 1), center: Vec3Expr = .zero) {
-        self.bodies = bodies; self.factors = factors; self.center = center
+    /// The X, Y and Z axes turned by `angle` degrees about `axis` (a direction; the turn is
+    /// about the centre).
+    public struct Orientation: Hashable, Sendable, Codable {
+        public var axis: Vec3Expr
+        public var angle: Expr
+
+        public init(axis: Vec3Expr, angle: Expr) {
+            self.axis = axis; self.angle = angle
+        }
+    }
+
+    public init(bodies: [BodyRef], factors: Vec3Expr = Vec3Expr(1, 1, 1), center: Vec3Expr = .zero, orientation: Orientation? = nil) {
+        self.bodies = bodies; self.factors = factors; self.center = center; self.orientation = orientation
     }
 
     public var referencedFeatures: Set<UUID> { Set(bodies.map(\.feature)) }

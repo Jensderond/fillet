@@ -397,6 +397,14 @@ struct FeatureInspector: View {
         ExprField(label: "X", value: sc.center.x, evaluator: ev) { var x = sc; x.center.x = $0; set(.scale(x)) }
         ExprField(label: "Y", value: sc.center.y, evaluator: ev) { var x = sc; x.center.y = $0; set(.scale(x)) }
         ExprField(label: "Z", value: sc.center.z, evaluator: ev) { var x = sc; x.center.z = $0; set(.scale(x)) }
+        // Only scales made by an agent are turned; the factors then apply along the turned axes.
+        if let o = sc.orientation {
+            Text("Axes turned about").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, Theme.Space.xs)
+            ExprField(label: "X", value: o.axis.x, kind: .scalar, evaluator: ev) { var x = sc; x.orientation?.axis.x = $0; set(.scale(x)) }
+            ExprField(label: "Y", value: o.axis.y, kind: .scalar, evaluator: ev) { var x = sc; x.orientation?.axis.y = $0; set(.scale(x)) }
+            ExprField(label: "Z", value: o.axis.z, kind: .scalar, evaluator: ev) { var x = sc; x.orientation?.axis.z = $0; set(.scale(x)) }
+            ExprField(label: "Angle", value: o.angle, kind: .angle, evaluator: ev) { var x = sc; x.orientation?.angle = $0; set(.scale(x)) }
+        }
     }
 
     /// Lofts come from agents (sections in space are hard to place by hand); here their sizes and

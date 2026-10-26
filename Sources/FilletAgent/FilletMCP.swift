@@ -56,7 +56,9 @@ public enum FilletMCP {
         - Prismatic parts: sketch on a plane, then extrude (new_body, join, cut or intersect).
         - loft: a smooth solid through circle/ellipse sections placed anywhere (center + normal + size); a 0 size at \
           an end makes a point. Sections along an arc with shrinking sizes make horns, curled hat tips, tails, limbs.
-        - scale_bodies: non-uniform scale about a centre — squash a sphere into a mochi-like head or a flat foot.
+        - scale_bodies: non-uniform scale about a centre — squash a sphere into a mochi-like head or a flat foot. \
+          With `axes` ({"z": [0, -0.5, 0.87]}) the factors apply along tilted directions: a disc on a sloped cheek \
+          in one step, no squash-then-rotate.
         - Then fillet/chamfer edges, shell, combine, move_bodies (rotate about a centre, translate), mirror, pattern.
         - Soft, organic characters: overlap rounded parts and join them (combine), then fillet the seams where they \
           meet (edges {"created_by": "<the join step>"}) with small radii.

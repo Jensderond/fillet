@@ -624,7 +624,8 @@ enum Describe {
         case .move(let m):
             return "move \(m.bodies.map(body).joined(separator: ", ")) by (\(m.translation.x), \(m.translation.y), \(m.translation.z)), rotate \(m.rotationAngle)°"
         case .scale(let sc):
-            return "scale \(sc.bodies.map(body).joined(separator: ", ")) by (\(sc.factors.x), \(sc.factors.y), \(sc.factors.z))"
+            let turned = sc.orientation.map { " along axes turned \($0.angle)° about (\($0.axis.x), \($0.axis.y), \($0.axis.z))" } ?? ""
+            return "scale \(sc.bodies.map(body).joined(separator: ", ")) by (\(sc.factors.x), \(sc.factors.y), \(sc.factors.z))\(turned)"
         case .loft(let l): return "\(l.operation.rawValue) loft through \(l.sections.count) sections"
         case .mirror(let m): return "mirror \(m.bodies.map(body).joined(separator: ", "))\(m.merge ? " merged" : "")"
         case .pattern(let p): return "pattern \(p.bodies.map(body).joined(separator: ", "))"

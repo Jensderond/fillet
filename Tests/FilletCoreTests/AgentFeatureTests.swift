@@ -29,6 +29,30 @@ struct AgentFeatureTests {
         #expect(abs(volume - 4.0 / 3 * .pi * 1000) < 5)  // 2 × 1 × 0.5 keeps the volume
     }
 
+    @Test func scaleAlongTurnedAxes() async throws {
+        // Z turned 90° about X points along −Y: halving "Z" halves the ball's depth instead.
+        let scale = Feature(name: "Squash", .scale(Scale(bodies: [BodyRef(sphere)], factors: Vec3Expr(1, 1, "0.5"),
+                                                          center: Vec3Expr(0, 0, 20),
+                                                          orientation: .init(axis: Vec3Expr(1, 0, 0), angle: 90))))
+        let model = await ModelEvaluator().evaluate(sphereDocument([scale]))
+        #expect(model.status[scale.id] == .ok)
+        let b = try #require(model.bodies.first?.shape.bounds)
+        #expect(abs(b.max.x - 10) < 0.05 && abs(b.max.y - 5) < 0.05 && abs(b.max.z - 30) < 0.05)
+        // 45° about X: the squash runs diagonally, so the ball is no longer symmetric in Y and Z alone.
+        let tilted = Feature(id: scale.id, name: "Squash", .scale(Scale(bodies: [BodyRef(sphere)], factors: Vec3Expr(1, 1, "0.5"),
+                                                                         center: Vec3Expr(0, 0, 20),
+                                                                         orientation: .init(axis: Vec3Expr(1, 0, 0), angle: 45))))
+        let model2 = await ModelEvaluator().evaluate(sphereDocument([tilted]))
+        let body = try #require(model2.bodies.first)
+        #expect(body.shape.isValid)
+        #expect(abs(body.shape.volume - 4.0 / 3 * .pi * 500) < 5)
+        let t = try #require(body.shape.bounds)
+        // An ellipsoid with semi-axes 10 and 5 turned 45°: its extent along Y and Z is √((100 + 25) / 2).
+        #expect(abs(t.max.y - (62.5).squareRoot()) < 0.1)
+        let zero = Feature(name: "Bad", .scale(Scale(bodies: [BodyRef(sphere)], orientation: .init(axis: .zero, angle: 10))))
+        #expect(await ModelEvaluator().evaluate(sphereDocument([zero])).error(for: zero.id)?.contains("axis") == true)
+    }
+
     @Test func scaleRefusesZero() async {
         let scale = Feature(name: "Flat", .scale(Scale(bodies: [BodyRef(sphere)], factors: Vec3Expr(1, 1, 0))))
         let model = await ModelEvaluator().evaluate(sphereDocument([scale]))
@@ -88,5 +112,12 @@ struct AgentFeatureTests {
         #expect(!plain.contains("bodyColors"))
         let moveJSON = String(decoding: try JSONEncoder().encode(Move(bodies: [])), as: UTF8.self)
         #expect(!moveJSON.contains("rotationCenter"))
+        let scaleJSON = String(decoding: try JSONEncoder().encode(Scale(bodies: [])), as: UTF8.self)
+        #expect(!scaleJSON.contains("orientation"))
+        let turned = Scale(bodies: [], orientation: .init(axis: Vec3Expr(0, 0, 1), angle: "tilt"))
+        #expect(try JSONDecoder().decode(Scale.self, from: try JSONEncoder().encode(turned)) == turned)
+        // Older files (no orientation) still open.
+        let old = #"{"bodies":[],"factors":{"x":"1","y":"1","z":"0.5"},"center":{"x":"0","y":"0","z":"0"}}"#
+        #expect(try JSONDecoder().decode(Scale.self, from: Data(old.utf8)).orientation == nil)
     }
 }
