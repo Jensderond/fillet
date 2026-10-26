@@ -14,7 +14,7 @@ extension DebugAutomation {
     /// Checks: one tap in Fillet picks the whole chain; Tangent chain off picks single edges; a
     /// double tap picks a face's loop; click replaces, Shift toggles, touch adds, empty clears;
     /// window and crossing boxes for edges and faces, outside and inside a step; none of it is an
-    /// undo step. Snapshots: `s01`…`s09`.
+    /// undo step. Snapshots: `s01`…`s10`.
     static func selectionScenario(_ session: DesignSession) async {
         // Sketch 1 → Extrude 1 → Fillet 1 (the four vertical edges, r 8).
         session.startSketch(on: .xy)
@@ -176,6 +176,26 @@ extension DebugAutomation {
         check(boxed >= 8, "a crossing box in Fillet picks the chains it touches (\(boxed) edges)")
         await snap(session, "s08-box-in-fillet")
         session.cancelEdit()
+        await settle(session)
+
+        // The bottom outline picked, seen from above: its far half is behind the plate, so it draws
+        // faint and finely dashed, tested against the plate before the fillet rounds it away.
+        session.selection = []
+        session.boxSelecting = false
+        let iso = controller.liveCamera
+        controller.show(yaw: iso.yaw, pitch: 0.95, animated: false)
+        controller.fitAll(animated: false)
+        session.startEdgeFeature(fillet: true)
+        await settle(session)
+        tapAt(session, Vec3(40, 0, 0), pointer: .touch)
+        await settle(session)
+        let bottom = session.model.resolvedEdges[session.editing?.feature ?? UUID()] ?? []
+        check(bottom.count == 8 && bottom.allSatisfy { abs($0.mid.z) < 1e-6 }, "one tap picks the bottom outline (\(bottom.count) edges)")
+        check(session.makeScene().bodiesBefore.count == 1, "the picked edges test depth against the plate before the fillet")
+        await snap(session, "s10-bottom-chain-from-above")
+        session.cancelEdit()
+        controller.show(yaw: iso.yaw, pitch: iso.pitch, animated: false)
+        controller.fitAll(animated: false)
         await settle(session)
 
         // Escape leaves box select; Box select off, a one-finger drag orbits again.
