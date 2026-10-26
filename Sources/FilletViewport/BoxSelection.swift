@@ -79,9 +79,11 @@ public struct SelectionBox: Hashable, Sendable {
     public var end: CGPoint
     /// What a box made with this input does (see ``SelectionRules/box(modifiers:pointer:)``).
     public var update: SelectionUpdate
+    /// What drew it: a finger box ends Box select on iPad (one finger orbits again).
+    public var pointer: PointerKind
 
-    public init(start: CGPoint, end: CGPoint, update: SelectionUpdate = .replace) {
-        self.start = start; self.end = end; self.update = update
+    public init(start: CGPoint, end: CGPoint, update: SelectionUpdate = .replace, pointer: PointerKind = .mouse) {
+        self.start = start; self.end = end; self.update = update; self.pointer = pointer
     }
 
     public var mode: BoxSelectMode { end.x >= start.x ? .window : .crossing }

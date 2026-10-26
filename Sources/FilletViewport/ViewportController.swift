@@ -266,7 +266,7 @@ public final class ViewportController {
 
     public func beginBox(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
         renderer?.cancelAnimation()
-        selectionBox = SelectionBox(start: p, end: p, update: SelectionRules.box(modifiers: modifiers, pointer: pointer))
+        selectionBox = SelectionBox(start: p, end: p, update: SelectionRules.box(modifiers: modifiers, pointer: pointer), pointer: pointer)
         boxPreviewCount = 0
         setHover(nil)
     }

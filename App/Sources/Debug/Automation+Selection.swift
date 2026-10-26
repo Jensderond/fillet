@@ -124,7 +124,14 @@ extension DebugAutomation {
         let topCount = windowed.filter { plateShape(session)?.edgeInfoIfValid($0.1).map { abs($0.mid.z - 12) < 1e-6 } == true }.count
         check(topCount == 8 && windowed.count < (plateShape(session)?.edgeCount ?? 0),
               "a window around the plate takes the visible edges, the whole top outline among them: \(windowed.count) of \(plateShape(session)?.edgeCount ?? 0)")
+        check(!session.boxSelecting, "a finger box ends Box select, so one finger orbits again")
         await snap(session, "s06-box-window-result")
+        // A mouse box leaves it on (the Mac orbits with the right button).
+        session.boxSelecting = true
+        controller.beginBox(at: topLeft, pointer: .mouse, modifiers: [])
+        controller.endBox(at: bottomRight)
+        check(session.boxSelecting && session.selectedEdges.count == windowed.count, "a mouse box keeps Box select on")
+        await settle(session)
 
         // A crossing box (right to left) over just the right half of the front: whatever it touches.
         session.selection = []
@@ -172,6 +179,7 @@ extension DebugAutomation {
         await settle(session)
 
         // Escape leaves box select; Box select off, a one-finger drag orbits again.
+        session.boxSelecting = true
         session.escape()
         check(!session.boxSelecting, "Esc turns Box select off")
         check(session.document == document && session.canUndo == undoBefore, "selecting, chains, loops and boxes made no undo step")

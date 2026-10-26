@@ -257,6 +257,10 @@ extension DesignSession {
     /// A selection box was let go (see `SelectionRules.box`). In a step, boxes add to its picks
     /// (⌘ toggles), whatever the input.
     func boxSelected(_ targets: [PickTarget], box: SelectionBox) {
+        // Box select holds one finger box: with it on, one finger can't orbit (two fingers pan and
+        // zoom), so it lets go after the box, like a tool that has done its job. Apple Pencil and
+        // Shift- or ⌘-drags draw boxes without it; on the Mac right-drag orbits, so it stays on.
+        if box.pointer == .touch { boxSelecting = false }
         switch pickMode {
         case .idle:
             let picked = targets.compactMap(Selection.init)

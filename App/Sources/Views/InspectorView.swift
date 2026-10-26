@@ -332,7 +332,7 @@ struct FeatureInspector: View {
             var x = f; x.size = $0
             set(fillet ? .fillet(x) : .chamfer(x))
         }
-        Hint("\(Theme.Copy.doublePick) an edge for the loop around a face. \(Theme.Copy.boxShortcut)", symbol: "hand.tap")
+        Hint(Theme.Copy.boxEdgesHint, symbol: "rectangle.dashed")
         Hint(fillet ? "Tip: a 0.5–1 mm fillet on bottom edges helps parts release; chamfers print without supports."
                     : "Chamfers on bottom edges print without supports.")
     }
@@ -390,6 +390,7 @@ struct FeatureInspector: View {
             }
         }
         Toggle("Keep tool bodies", isOn: Binding(get: { c.keepTools }, set: { var x = c; x.keepTools = $0; set(.combine(x)) }))
+            .tint(Theme.switchOn)
     }
 
     @ViewBuilder private func move(_ m: Move) -> some View {
@@ -439,6 +440,7 @@ struct FeatureInspector: View {
     @ViewBuilder private func loft(_ l: Loft) -> some View {
         OperationPicker(operation: l.operation) { var x = l; x.operation = $0; set(.loft(x)) }
         Toggle("Smooth", isOn: Binding(get: { !l.ruled }, set: { var x = l; x.ruled = !$0; set(.loft(x)) }))
+            .tint(Theme.switchOn)
         ForEach(Array(l.sections.enumerated()), id: \.offset) { i, section in
             Text("Section \(i + 1)").font(Theme.sectionTitle).foregroundStyle(Theme.ink).padding(.top, Theme.Space.xs)
             ExprField(label: section.height == nil ? "Diameter" : "Width", value: section.width, evaluator: ev) { v in
@@ -459,6 +461,7 @@ struct FeatureInspector: View {
         }
         StandardPlanePicker(plane: m.plane) { var x = m; x.plane = $0; set(.mirror(x)) }
         Toggle("Merge with original", isOn: Binding(get: { m.merge }, set: { var x = m; x.merge = $0; set(.mirror(x)) }))
+            .tint(Theme.switchOn)
     }
 
     @ViewBuilder private func pattern(_ p: Pattern) -> some View {
@@ -658,7 +661,7 @@ struct TangentChainToggle: View {
                 // Sized by the label's font, so it grows with Dynamic Type.
                 Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
                     .font(Theme.body.weight(.semibold))
-                    .foregroundStyle(isOn ? Theme.selectInk : Theme.inkTertiary)
+                    .foregroundStyle(isOn ? Theme.ink : Theme.inkTertiary)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Tangent chain").font(Theme.body.weight(.medium)).foregroundStyle(Theme.ink)
@@ -668,6 +671,7 @@ struct TangentChainToggle: View {
                 }
             }
         }
+        .tint(Theme.switchOn)
         .frame(minHeight: Theme.Metrics.target(touch: touch))
         .animation(Theme.Motion.hover, value: isOn)
         .automationFrame("tangent-chain")

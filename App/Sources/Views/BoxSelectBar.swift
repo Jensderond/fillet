@@ -7,6 +7,7 @@ import SwiftUI
 struct BoxSelectBar: View {
     @Bindable var session: DesignSession
     @Environment(\.touchTargets) private var touch
+    @Environment(\.colorScheme) private var colorScheme
 
     /// "edges" while a fillet picks edges, the chosen kind outside a step.
     private var noun: String {
@@ -58,6 +59,10 @@ struct BoxSelectBar: View {
                         KindChip(kind: kind, selected: session.boxPicks == kind, showsTitle: kindTitles) { session.boxPicks = kind }
                     }
                 }
+                // On a recessed track with the chosen one raised, as in the app's segmented control.
+                .padding(2)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.control + 2, style: .continuous)
+                    .fill(colorScheme == .dark ? AnyShapeStyle(Theme.raised) : AnyShapeStyle(Theme.hairline)))
                 .accessibilityElement(children: .contain)
                 .accessibilityLabel("Box picks")
             }
@@ -100,11 +105,11 @@ private struct LegendItem: View {
 
     var body: some View {
         HStack(spacing: 3) {
-            Image(systemName: arrow).font(.system(size: 8, weight: .bold))
+            Image(systemName: arrow).font(.system(size: 9, weight: .bold))
             RoundedRectangle(cornerRadius: 1.5)
-                .strokeBorder(Theme.select, style: StrokeStyle(lineWidth: 1, dash: dashed ? [2, 1.5] : []))
-                .background(RoundedRectangle(cornerRadius: 1.5).fill(Theme.select.opacity(dashed ? 0.06 : 0.12)))
-                .frame(width: 11, height: 8)
+                .strokeBorder(Theme.select, style: StrokeStyle(lineWidth: 1.25, dash: dashed ? [2.5, 1.5] : []))
+                .background(RoundedRectangle(cornerRadius: 1.5).fill(Theme.select.opacity(dashed ? 0.06 : 0.14)))
+                .frame(width: 13, height: 9)
             Text(text)
         }
         .font(Theme.caption)
@@ -123,6 +128,8 @@ private struct KindChip: View {
     @Environment(\.touchTargets) private var touch
     @Environment(\.colorScheme) private var colorScheme
 
+    private var isDark: Bool { colorScheme == .dark }
+
     private var symbol: String {
         switch kind {
         case .edges: "line.diagonal"
@@ -135,24 +142,30 @@ private struct KindChip: View {
         Button(action: action) {
             HStack(spacing: 5) {
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(selected ? Theme.selectInk : Theme.inkSecondary)
+                    .foregroundStyle(selected ? (isDark ? Theme.raised : Theme.selectInk) : Theme.inkSecondary)
                 if showsTitle {
                     Text(kind.title)
                         .font(Theme.body.weight(selected ? .semibold : .medium))
-                        .foregroundStyle(selected ? Theme.ink : Theme.inkSecondary)
+                        .foregroundStyle(selected ? (isDark ? Theme.raised : Theme.ink) : Theme.inkSecondary)
                 }
             }
             .padding(.horizontal, Theme.Space.s)
-            .frame(minWidth: touch ? 44 : 28)
-            .frame(minHeight: touch ? 44 : 28)
+            // 40 + the track's 2 pt rim = 44 on touch; the hit area reaches over the rim (as ThemeSegmented).
+            .frame(minWidth: touch ? 40 : 26, minHeight: touch ? 40 : 26)
             .background {
-                let plate = RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)
+                // The segmented control's "chosen": a raised thumb with a rim (light), a slate plate (dark).
+                let plate = RoundedRectangle(cornerRadius: Theme.Radius.control - 2, style: .continuous)
                 if selected {
-                    plate.fill(colorScheme == .dark ? Theme.hairlineStrong : Theme.raised)
-                        .overlay(plate.strokeBorder(Theme.inkTertiary.opacity(colorScheme == .dark ? 0.6 : 1), lineWidth: 1))
+                    if isDark {
+                        plate.fill(Theme.inkSecondary)
+                    } else {
+                        plate.fill(Theme.raised)
+                            .overlay(plate.strokeBorder(Theme.inkTertiary, lineWidth: 1))
+                            .shadow(color: Theme.ink.opacity(0.08), radius: 1.5, y: 1)
+                    }
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous))
+            .contentShape(VerticalBleed(2))
         }
         .buttonStyle(PressableStyle())
         .hoverHighlight()
