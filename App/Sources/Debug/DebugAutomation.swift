@@ -300,6 +300,8 @@ enum DebugAutomation {
         await pressPull(session)
 
         await measureScenario(session)
+
+        await sketchOffset(session)
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         #if os(macOS)
@@ -531,7 +533,7 @@ enum DebugAutomation {
     }
 
     /// A tap at a sketch-plane point, delivered as tool events with a real camera ray.
-    private static func tap(_ session: DesignSession, _ p: SIMD2<Double>) {
+    static func tap(_ session: DesignSession, _ p: SIMD2<Double>) {
         guard let sketch = session.sketchEditor.flatMap({ session.model.sketches[$0.sketch] }) else { return }
         let world = sketch.plane.point(p)
         let size = session.viewSize
@@ -550,7 +552,7 @@ enum DebugAutomation {
     }
 
     /// Pointer hover over a sketch-plane point (drives the rubber-band preview).
-    private static func hover(_ session: DesignSession, _ p: SIMD2<Double>) {
+    static func hover(_ session: DesignSession, _ p: SIMD2<Double>) {
         guard let sketch = session.sketchEditor.flatMap({ session.model.sketches[$0.sketch] }) else { return }
         let size = session.viewSize
         guard let screen = session.camera.project(sketch.plane.point(p), viewSize: size) else { return }

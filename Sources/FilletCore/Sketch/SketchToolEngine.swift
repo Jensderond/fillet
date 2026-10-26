@@ -3,7 +3,7 @@ import Foundation
 
 /// A drawing tool in sketch mode.
 public enum SketchTool: String, CaseIterable, Hashable, Sendable {
-    case select, line, rectangle, centerRectangle, circle, arc, polygon, slot, spline, point
+    case select, line, rectangle, centerRectangle, circle, arc, polygon, slot, spline, point, offset
 
     public var title: String {
         switch self {
@@ -17,6 +17,7 @@ public enum SketchTool: String, CaseIterable, Hashable, Sendable {
         case .slot: "Slot"
         case .spline: "Spline"
         case .point: "Point"
+        case .offset: "Offset"
         }
     }
 
@@ -44,6 +45,8 @@ public enum SketchTool: String, CaseIterable, Hashable, Sendable {
         case (.spline, 0): "\(verb) the first point"
         case (.spline, _): "\(verb) more points, then Done"
         case (.point, _): "\(verb) to place a point"
+        case (.offset, 0): "\(verb) a curve or shape to offset"
+        case (.offset, _): "\(verb) where the offset goes"
         }
     }
 }
@@ -52,6 +55,8 @@ public enum SketchTool: String, CaseIterable, Hashable, Sendable {
 public struct DimensionField: Hashable, Sendable {
     public enum Kind: Hashable, Sendable {
         case width, height, diameter, radius, length
+        /// An offset's distance; negative takes the other side.
+        case distance
         /// Degrees counterclockwise from the sketch's +X axis.
         case angle
     }
@@ -67,6 +72,7 @@ public struct DimensionField: Hashable, Sendable {
         case .diameter: "Diameter"
         case .radius: "Radius"
         case .length: "Length"
+        case .distance: "Distance"
         case .angle: "Angle"
         }
     }
@@ -87,6 +93,9 @@ public struct SnapContext: Sendable {
     /// Snap radius in millimetres (derived from the on-screen size).
     public var tolerance: Double
     public var gridSize: Double
+    /// The sketch being edited, for tools that pick its curves (Offset).
+    public var sketch: Sketch?
+    public var evaluator: Evaluator = .empty
     public init(points: [SnapPoint], tolerance: Double, gridSize: Double) {
         self.points = points; self.tolerance = tolerance; self.gridSize = gridSize
     }
@@ -142,6 +151,8 @@ public struct SketchToolEngine: Sendable {
     private var pressPoint: SIMD2<Double>?
     /// Grid step of the last input event (0 = off), used to snap sizes as well as points.
     private var grid: Double = 0
+    /// Offset's picks and distance (see `SketchOffsetTool`).
+    public private(set) var offset = SketchOffsetTool()
 
     public init(tool: SketchTool = .line) { self.tool = tool }
 
@@ -156,11 +167,76 @@ public struct SketchToolEngine: Sendable {
         locks = [:]
         chainStart = nil
         pressPoint = nil
+        offset = SketchOffsetTool()
     }
 
-    public var hint: String { tool.hint(placed: points.count) }
-    public func hint(verb: String) -> String { tool.hint(placed: points.count, verb: verb) }
-    public var isIdle: Bool { points.isEmpty }
+    public var hint: String { hint(verb: "Tap") }
+    public func hint(verb: String) -> String { blocker ?? tool.hint(placed: stage, verb: verb) }
+    public var isIdle: Bool { points.isEmpty && !offset.isActive }
+
+    /// How far the tool has got: placed points, or for Offset whether something is picked.
+    private var stage: Int { tool == .offset ? (offset.isActive ? 1 : 0) : points.count }
+
+    /// Why the shape in progress can't be placed as it stands (an offset that would collapse).
+    public var blocker: String? { tool == .offset ? offset.failure : nil }
+
+    // MARK: Offset
+
+    /// Offset starts with these shapes picked (the selection when the tool is chosen).
+    public mutating func preselectOffset(_ shapes: some Sequence<UUID>) {
+        guard tool == .offset, !offset.isActive else { return }
+        offset.pending = Array(shapes)
+    }
+
+    /// Chains the preselected shapes, for when a typed distance comes before any pointer event.
+    public mutating func resolveOffset(in sketch: Sketch, using evaluator: Evaluator) {
+        guard tool == .offset else { return }
+        offset.resolve(in: sketch, using: evaluator)
+        offset.refresh(locked: locks[0])
+    }
+
+    /// Offset: snaps to points of other shapes (the offset passes through them), otherwise the
+    /// distance itself snaps to the grid step. Picks the chain under the pointer while picking.
+    private mutating func trackOffset(_ raw: SIMD2<Double>, _ context: SnapContext) -> SIMD2<Double> {
+        grid = context.gridSize
+        if let sketch = context.sketch { offset.resolve(in: sketch, using: context.evaluator) }
+        var others = context
+        others.points.removeAll { offset.shapes.contains($0.shape) }
+        let snapped = others.snap(raw)
+        let onPoint: Bool
+        if case .point = snapped.snap { onPoint = true } else { onPoint = false }
+        let p = onPoint ? snapped.point : raw
+        snap = onPoint ? snapped.snap : .none
+        freeCursor = p
+        cursor = p
+        if offset.chains.isEmpty {
+            offset.candidate = context.sketch?.offsetChain(near: raw, tolerance: context.tolerance, using: context.evaluator)
+            offset.pointer = nil
+        } else {
+            offset.candidate = nil
+            let (d, nearest) = offset.chains[0].signedDistance(to: p)
+            let size = onPoint ? abs(d) : snapSize(abs(d))
+            offset.pointer = (d < 0 ? -size : size, nearest, p)
+        }
+        offset.refresh(locked: locks[0])
+        return p
+    }
+
+    /// Picks the chain under the pointer, or places the offsets.
+    private mutating func placeOffset() -> [SketchShape] {
+        guard !offset.chains.isEmpty else {
+            if let chain = offset.candidate {
+                offset.chains = [chain]
+                offset.candidate = nil
+                offset.refresh(locked: locks[0])
+            }
+            return []
+        }
+        guard case .success(let shapes)? = offset.outcome, !shapes.isEmpty else { return [] }
+        offset = SketchOffsetTool()
+        locks = [:]
+        return shapes
+    }
 
     // MARK: Input
 
@@ -170,6 +246,7 @@ public struct SketchToolEngine: Sendable {
 
     public mutating func press(_ raw: SIMD2<Double>, context: SnapContext) {
         pressPoint = track(raw, context)
+        if tool == .offset { offset.pressed = offset.candidate }
     }
 
     public mutating func drag(_ raw: SIMD2<Double>, context: SnapContext) {
@@ -181,12 +258,21 @@ public struct SketchToolEngine: Sendable {
             points = [start]
             if tool == .line { chainStart = start }
         }
+        // Offset: a drag away from a curve picks it, and the drag sets the distance.
+        if tool == .offset, offset.chains.isEmpty, let start = pressPoint, let chain = offset.pressed, let c = cursor,
+            distance(start, c) > context.tolerance
+        {
+            offset.chains = [chain]
+            offset.pressed = nil
+            track(raw, context)
+        }
     }
 
     /// Ends a gesture; returns any shapes it completed.
     public mutating func release(_ raw: SIMD2<Double>, context: SnapContext) -> [SketchShape] {
         let p = track(raw, context)
         pressPoint = nil
+        offset.pressed = nil
         return place(p, tolerance: context.tolerance)
     }
 
@@ -194,6 +280,7 @@ public struct SketchToolEngine: Sendable {
 
     /// The sizes that can be typed for the shape in progress, in Tab order.
     public var dimensionKinds: [DimensionField.Kind] {
+        if tool == .offset { return offset.chains.isEmpty ? [] : [.distance] }
         guard !points.isEmpty else { return [] }
         switch tool {
         case .rectangle, .centerRectangle: return [.width, .height]
@@ -201,12 +288,16 @@ public struct SketchToolEngine: Sendable {
         case .polygon: return [.radius]
         case .line: return [.length, .angle]
         case .arc, .slot: return points.count == 1 ? [.length] : []
-        case .select, .point, .spline: return []
+        case .select, .point, .spline, .offset: return []
         }
     }
 
     /// Each typeable size with its live (or locked) value.
     public func dimensionFields() -> [DimensionField] {
+        if tool == .offset {
+            guard !offset.chains.isEmpty else { return [] }
+            return [DimensionField(kind: .distance, value: locks[0] ?? abs(offset.pointer?.distance ?? 0), locked: locks[0] != nil)]
+        }
         guard let anchor = points.last else { return [] }
         let values = measure(cursor ?? anchor)
         return zip(dimensionKinds, values).enumerated().map { i, field in
@@ -214,24 +305,33 @@ public struct SketchToolEngine: Sendable {
         }
     }
 
-    /// Holds a size at `value` (mm, or degrees for an angle). Lengths must be positive.
+    /// Holds a size at `value` (mm, or degrees for an angle). Lengths must be positive; an
+    /// offset distance may be negative (the other side), not zero.
     @discardableResult
     public mutating func lock(_ field: Int, to value: Double) -> Bool {
         let kinds = dimensionKinds
-        guard kinds.indices.contains(field), value.isFinite, kinds[field] == .angle || value > 1e-6 else { return false }
+        guard kinds.indices.contains(field), value.isFinite else { return false }
+        switch kinds[field] {
+        case .angle: break
+        case .distance: guard abs(value) > 1e-6 else { return false }
+        default: guard value > 1e-6 else { return false }
+        }
         locks[field] = value
         if let free = freeCursor { cursor = constrained(free) }
+        if tool == .offset { offset.refresh(locked: locks[0]) }
         return true
     }
 
     public mutating func unlock(_ field: Int) {
         locks[field] = nil
         if let free = freeCursor { cursor = constrained(free) }
+        if tool == .offset { offset.refresh(locked: locks[0]) }
     }
 
     /// Places the next point where the typed sizes put it (Return), taking any free size and
     /// the direction from the cursor. Does nothing while the free sizes are still zero.
     public mutating func placeTyped() -> [SketchShape] {
+        if tool == .offset { return placeOffset() }
         guard let anchor = points.last else { return [] }
         let p = constrained(freeCursor ?? anchor)
         switch tool {
@@ -272,7 +372,7 @@ public struct SketchToolEngine: Sendable {
             let length = locks[0] ?? distance(last, c)
             let angle = locks[1].map { $0 * .pi / 180 } ?? atan2(c.y - last.y, c.x - last.x)
             return last + SIMD2(cos(angle), sin(angle)) * length
-        case .select, .point, .spline:
+        case .select, .point, .spline, .offset:
             return c
         }
     }
@@ -291,7 +391,7 @@ public struct SketchToolEngine: Sendable {
             let angle = atan2(c.y - last.y, c.x - last.x) * 180 / .pi
             return [locks[0] ?? distance(last, c), locks[1] ?? angle]
         case .arc, .slot: return points.count == 1 ? [locks[0] ?? distance(first, c)] : []
-        case .select, .point, .spline: return []
+        case .select, .point, .spline, .offset: return []
         }
     }
 
@@ -306,10 +406,11 @@ public struct SketchToolEngine: Sendable {
 
     private mutating func place(_ p: SIMD2<Double>, tolerance: Double) -> [SketchShape] {
         if let last = points.last, distance(last, p) < 1e-9 { return [] }  // repeated tap
+        if tool == .offset { return placeOffset() }
         // Typed sizes belong to the step they were typed for.
         defer { locks = [:] }
         switch tool {
-        case .select:
+        case .select, .offset:
             return []
         case .point:
             return [make(.point(Self.expr(p)))]
@@ -350,6 +451,12 @@ public struct SketchToolEngine: Sendable {
 
     /// Polylines previewing the shape in progress up to the cursor.
     public func preview() -> [[SIMD2<Double>]] {
+        if tool == .offset {
+            // The chain a tap would pick, then the offsets.
+            if offset.chains.isEmpty { return offset.candidate?.polylines ?? [] }
+            guard case .success(let shapes)? = offset.outcome else { return [] }
+            return shapes.flatMap { $0.displayPolyline(using: .empty) }
+        }
         guard let c = cursor, !points.isEmpty else { return [] }
         let kind: SketchShapeKind?
         switch tool {
@@ -359,7 +466,7 @@ public struct SketchToolEngine: Sendable {
         case .arc, .slot:
             kind = points.count == 1 ? .line(a: Self.expr(points[0]), b: Self.expr(c))
                 : threePointShape(points[0], points[1], c)
-        case .select, .point: kind = nil
+        case .select, .point, .offset: kind = nil
         }
         guard let kind else { return [] }
         return SketchShape(kind).displayPolyline(using: .empty)
@@ -376,11 +483,21 @@ public struct SketchToolEngine: Sendable {
 
     /// Dimensions of the shape in progress ("40 × 25" style feedback while drawing).
     public func previewDimensions() -> [PreviewDimension] {
-        guard let c = cursor, let first = points.first else { return [] }
         func mm(_ v: Double) -> String {
             let r = (v * 100).rounded() / 100
             return r == r.rounded() ? "\(Int(r)) mm" : String(format: "%.2f mm", r)
         }
+        if tool == .offset {
+            // From the curve straight out to where the offset passes.
+            guard let pointer = offset.pointer, case .success? = offset.outcome,
+                let size = offset.distance(locked: locks[0]).map(abs)
+            else { return [] }
+            let out = pointer.at - pointer.nearest
+            let length = (out.x * out.x + out.y * out.y).squareRoot()
+            guard length > 1e-9 else { return [] }
+            return [PreviewDimension(from: pointer.nearest, to: pointer.nearest + out / length * size, label: mm(size), field: 0)]
+        }
+        guard let c = cursor, let first = points.first else { return [] }
         switch tool {
         case .rectangle, .centerRectangle:
             guard case .rectangle(let anchor, let position, let width, let height, _)? = shape(from: first, to: c),
@@ -414,7 +531,7 @@ public struct SketchToolEngine: Sendable {
         case .slot, .arc:
             guard points.count == 1 else { return [] }
             return [PreviewDimension(from: first, to: c, label: mm(distance(first, c)), field: 0)]
-        case .select, .point:
+        case .select, .point, .offset:
             return []
         }
     }
@@ -483,6 +600,7 @@ public struct SketchToolEngine: Sendable {
     /// Snaps an input position, then applies the typed sizes; returns the new cursor.
     @discardableResult
     private mutating func track(_ raw: SIMD2<Double>, _ context: SnapContext) -> SIMD2<Double> {
+        if tool == .offset { return trackOffset(raw, context) }
         let free = snapped(raw, context)
         freeCursor = free
         let p = constrained(free)

@@ -12,6 +12,8 @@ extension DesignSession {
 
     func handleDimensionKey(_ key: ViewportKey) -> Bool {
         guard var editor = sketchEditor else { return false }
+        // Offset with shapes selected takes a typed distance before the pointer has moved.
+        if case .sketch(let sketch)? = document.feature(editor.sketch)?.kind { editor.engine.resolveOffset(in: sketch, using: model.parameters.evaluator) }
         let fields = editor.engine.dimensionFields()
         guard !fields.isEmpty else {
             editor.typing = nil
@@ -38,7 +40,7 @@ extension DesignSession {
             let shapes = editor.engine.placeTyped()
             // Placing a point clears the locks; still locked means a free size is still 0.
             guard editor.engine.locks.isEmpty else {
-                message = "Move the pointer to set the other size, or Tab to type it."
+                message = editor.engine.blocker.map { .error($0) } ?? "Move the pointer to set the other size, or Tab to type it."
                 return true
             }
             sketchEditor = editor
@@ -58,8 +60,8 @@ extension DesignSession {
             if var typing = editor.typing {
                 typing.text += text
                 editor.typing = typing
-            } else if text.first.map({ $0.isNumber || $0 == "." || $0 == "," }) == true {
-                // A number typed straight away goes to the first open size.
+            } else if text.first.map({ $0.isNumber || $0 == "." || $0 == "," || $0 == "-" }) == true {
+                // A number typed straight away goes to the first open size (minus: an offset's other side).
                 editor.typing = .init(field: firstOpen, text: text)
             } else {
                 return false

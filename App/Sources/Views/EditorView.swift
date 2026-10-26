@@ -760,7 +760,7 @@ private struct ToolReason: View {
 // MARK: - Sketch toolbar
 
 extension SketchTool {
-    /// Glyph on the sketch bar and in the "More shapes" menu.
+    /// Glyph on the sketch bar and in the "More tools" menu.
     var symbol: String {
         switch self {
         case .select: "cursorarrow"
@@ -773,14 +773,15 @@ extension SketchTool {
         case .circle: "circle"
         case .polygon: "hexagon"
         case .slot: "capsule"
+        case .offset: "circle.circle"
         }
     }
 }
 
 /// Drawing tools floating at the top-leading corner of the viewport in sketch mode, grouped
-/// select | lines and curves | shapes. When the full bar doesn't fit (iPad portrait, landscape
-/// with both panels, Split View, large text) the secondary tools fold into a "More shapes"
-/// menu, so a glyph is never cut off and the bar never widens the viewport.
+/// select | lines and curves | shapes | modify (Offset). When the full bar doesn't fit (iPad
+/// portrait, landscape with both panels, Split View, large text) the secondary tools fold into a
+/// "More tools" menu, so a glyph is never cut off and the bar never widens the viewport.
 struct SketchToolbar: View {
     @Bindable var session: DesignSession
     @Binding var fingerDraws: Bool
@@ -790,9 +791,11 @@ struct SketchToolbar: View {
     @Environment(\.dynamicTypeSize) private var typeSize
 
     /// Every tool, in its group.
-    static let fullGroups: [[SketchTool]] = [[.select], [.line, .arc, .spline, .point], [.rectangle, .centerRectangle, .circle, .polygon, .slot]]
-    /// Fewer tools at each step; the rest fold into the menu. Lines and curves go last, then the
-    /// everyday shapes.
+    static let fullGroups: [[SketchTool]] = [
+        [.select], [.line, .arc, .spline, .point], [.rectangle, .centerRectangle, .circle, .polygon, .slot], [.offset],
+    ]
+    /// Fewer tools at each step; the rest fold into the menu. Offset goes first, then lines and
+    /// curves, then the everyday shapes.
     static let roomyGroups: [[SketchTool]] = [[.select], [.line, .arc, .spline, .point], [.rectangle, .circle]]
     static let compactGroups: [[SketchTool]] = [[.select], [.line, .arc], [.rectangle, .circle]]
     static let minimalGroups: [[SketchTool]] = [[.select], [.line], [.rectangle]]
@@ -941,8 +944,8 @@ struct SketchToolbar: View {
         .menuStyle(.button).buttonStyle(.plain).menuIndicator(.hidden)
         .fixedSize()
         .hoverHighlight()
-        .help("More shapes")
-        .accessibilityLabel("More shapes")
+        .help("More tools")
+        .accessibilityLabel("More tools")
         .accessibilityValue(current?.title ?? "")
         .automationFrame(measuring ? nil : "sketch-more")
         .background {
