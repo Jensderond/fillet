@@ -54,23 +54,41 @@ inspector then shows the turn under *Axes turned about*).
 Faces and edges are picked by index or by a filter that survives renumbering, such as
 `{"created_by": "Join arm"}`: what that step made (here the seam the join left, ready to fillet).
 
-**Live, in the app.** Turn on *Design ▸ Allow Agent Connections* (or the ✦ toolbar button, which
-also shows the setup command). Then, for Claude Code:
+**Live, in the app.** Turn on *Design ▸ Allow Agent Connections* (or the ✦ toolbar button, whose
+popover shows the setup for your copy). Then connect an agent:
 
-```sh
-claude mcp add --transport http fillet http://127.0.0.1:7878/mcp
-```
+- **Claude Code** talks to the app over HTTP:
+
+  ```sh
+  claude mcp add --transport http fillet http://127.0.0.1:7878/mcp
+  ```
+
+- **Claude Desktop** (stdio only) uses the helper inside the app, which bridges to the running
+  Fillet. *Copy Claude Desktop config* in the ✦ popover copies the entry for
+  `claude_desktop_config.json` (Settings ▸ Developer ▸ Edit Config):
+
+  ```json
+  {"mcpServers":{"fillet":{"command":"/Applications/Fillet.app/Contents/Helpers/fillet-mcp","args":["--connect"]}}}
+  ```
+
+The server prefers port 7878. When that is taken (another app, or a second copy of Fillet) it
+uses the first free port of 7879–7888 and remembers it for the next launch; the popover always
+shows the actual address. `fillet-mcp --connect` finds the app by itself: it looks on
+127.0.0.1:7878–7888, then at the endpoint the Mac app writes to its Application Support folder,
+then for an iPad over Bonjour. `--connect http://…/mcp` connects to an exact address.
+`FILLET_MCP=1` turns the server on at launch and `FILLET_MCP_PORT` forces one port (no fallback).
 
 On iPad the server listens on the network and needs the token shown in the ✦ popover
-(`--header "Authorization: Bearer …"`). `FILLET_MCP=1` turns the server on at launch and
-`FILLET_MCP_PORT` picks another port. For stdio-only clients, `fillet-mcp --connect` bridges to the app.
+(`--header "Authorization: Bearer …"`, or `--token` / `FILLET_MCP_TOKEN` for `fillet-mcp --connect`).
 
-**Headless**, no window, saving to a file after every step:
+**Headless**, no window, saving to a file after every step, with the helper from the app:
 
 ```sh
-swift build -c release --product fillet-mcp
-claude mcp add fillet-headless -- "$PWD/.build/release/fillet-mcp" ~/Designs/bracket.fillet
+claude mcp add fillet-headless -- /Applications/Fillet.app/Contents/Helpers/fillet-mcp ~/Designs/bracket.fillet
 ```
+
+The helper isn't sandboxed, so it can open and save `.fillet` files anywhere. From a checkout,
+`swift build -c release --product fillet-mcp` builds the same command as `.build/release/fillet-mcp`.
 
 The tools live in `Sources/FilletAgent` (protocol, transports, tools, headless workspace);
 the app hosts them in `App/Sources/Agent`.
