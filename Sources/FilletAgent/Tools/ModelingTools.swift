@@ -448,7 +448,7 @@ extension FilletTools {
                 scratch.features.append(f)
                 features.append(f)
             }
-            let (model, warnings) = try await Change.apply(ws, action: features[0].name, newFeature: features.last?.id) { d in
+            let (model, warnings) = try await Change.apply(ws, action: "New \(features[0].name)", newFeature: features.last?.id) { d in
                 for f in features { _ = d.addFeature(f) }
             }
             return Report.added(ws, model, warnings: warnings, feature: features.last!.id,

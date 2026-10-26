@@ -45,7 +45,9 @@ at its work (`presentation: true` for a product-shot look). A step that fails or
 is refused with the kernel's reason instead of being added. A change that still works but makes a
 later fillet, chamfer, shell or lay-flat find its edges or faces somewhere else comes back with a
 warning naming that step. A fillet or chamfer that fails says which edges can't take the size and
-the largest size the others take.
+the largest size the others take. `undo` and `redo` say exactly what they took back (a new step, an
+edit, a parameter…), take an optional `expect: "Edit Hat"` guard, and never undo one of your own
+changes in the app unless the agent names it.
 
 Faces and edges are picked by index or by a filter that survives renumbering, such as
 `{"created_by": "Join arm"}`: what that step made (here the seam the join left, ready to fillet).

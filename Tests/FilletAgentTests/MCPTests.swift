@@ -1,5 +1,6 @@
 import FilletCore
 import FilletKernel
+import FilletViewport
 import Foundation
 import Testing
 
@@ -14,6 +15,11 @@ final class Client {
 
     init() {
         server = FilletMCP.makeServer(host: HeadlessHost(workspace: workspace))
+    }
+
+    /// A client whose workspace is shared with a "user": `userEdit` makes changes the agent didn't.
+    init(sharedWith user: SharedWorkspace) {
+        server = FilletMCP.makeServer(host: SharedHost(workspace: user))
     }
 
     func request(_ method: String, _ params: JSONValue = [:]) async throws -> JSONValue {
@@ -38,6 +44,53 @@ final class Client {
         #expect(!r.isError, "\(tool) failed: \(r.text)", sourceLocation: sourceLocation)
         return r.json
     }
+}
+
+/// A design the user edits too, like a window in the app: their changes aren't the agent's.
+@MainActor
+final class SharedWorkspace: DesignWorkspace {
+    let inner = HeadlessWorkspace()
+    private var userActions: [String] = []
+
+    func userEdit(_ action: String, _ change: (inout Document) -> Void) async {
+        var doc = inner.document
+        change(&doc)
+        _ = await inner.commit(doc, action: action)
+        userActions.append(action)
+    }
+
+    var id: UUID { inner.id }
+    var title: String { inner.title }
+    var document: Document { inner.document }
+    var hiddenBodies: Set<BodyRef> { [] }
+    var camera: Camera { inner.camera }
+    var viewAspect: Double { inner.viewAspect }
+    func evaluated() async -> EvaluatedModel { await inner.evaluated() }
+    func preview(_ candidate: Document, before: UUID?) async -> EvaluatedModel { await inner.preview(candidate, before: before) }
+    func commit(_ newDocument: Document, action: String) async -> EvaluatedModel { await inner.commit(newDocument, action: action) }
+    func nextUndo() -> HistoryStep? {
+        inner.nextUndo().map { HistoryStep(action: $0.action, byAgent: userActions.last != $0.action) }
+    }
+    func nextRedo() -> String? { inner.nextRedo() }
+    func undo() async -> String? {
+        let action = await inner.undo()
+        if action == userActions.last { userActions.removeLast() }
+        return action
+    }
+    func redo() async -> String? { await inner.redo() }
+    func show(_ camera: Camera) {}
+}
+
+@MainActor
+final class SharedHost: WorkspaceHost {
+    let workspace: SharedWorkspace
+    init(workspace: SharedWorkspace) { self.workspace = workspace }
+    var hostDescription: String { "Test window" }
+    var workspaces: [any DesignWorkspace] { [workspace] }
+    var current: (any DesignWorkspace)? { workspace }
+    func select(_ id: UUID) -> Bool { id == workspace.id }
+    func openNewDesign() async throws -> (any DesignWorkspace)? { nil }
+    func agentActivity(_ text: String?) {}
 }
 
 @Suite("MCP protocol")
@@ -150,13 +203,39 @@ struct ModelingToolTests {
         try await c.ok("edit_feature", ["feature": "Peg", "changes": ["kind": ["dimensions": ["10", "30"]]]])
         var bounds = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
         #expect(abs(bounds.max.z - 30) < 1e-6)
-        let undone = try await c.ok("undo")
+        // Undo takes back the edit, not the step, and says so.
+        let wrong = try await c.call("undo", ["expect": "New Peg"])
+        #expect(wrong.isError && wrong.text.contains("The last change is “Edit Peg”") && wrong.text.contains("Nothing was undone"))
+        let undone = try await c.ok("undo", ["expect": "Peg"])
         #expect(undone["undone"] == "Edit Peg")
+        #expect(undone["effect"] == ["Reverted the edit of “Peg”: its earlier definition is back"])
         bounds = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
         #expect(abs(bounds.max.z - 10) < 1e-6)
-        try await c.ok("redo")
+        let redone = try await c.ok("redo", ["expect": "Edit Peg"])
+        #expect(redone["effect"] == ["Redid the edit of “Peg”"])
         bounds = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
         #expect(abs(bounds.max.z - 30) < 1e-6)
+        try await c.ok("undo")
+        let removed = try await c.ok("undo", ["expect": "New Peg"])
+        #expect(removed["effect"] == ["Removed step “Peg”"])
+        let nothing = try await c.call("undo")
+        #expect(nothing.isError)
+    }
+
+    @Test func undoLeavesTheUsersChangesAlone() async throws {
+        let shared = SharedWorkspace()
+        let c = Client(sharedWith: shared)
+        try await c.ok("set_parameter", ["name": "width", "expression": 40])
+        await shared.userEdit("Set width") { $0.parameters[0].expression = "55" }
+        let refused = try await c.call("undo")
+        #expect(refused.isError && refused.text.contains("is the user's own"))
+        #expect(shared.document.parameters[0].expression.source == "55")
+        let undone = try await c.ok("undo", ["expect": "Set width"])
+        #expect(undone["by"] == "the user")
+        #expect(undone["effect"] == ["Parameter width: 55 → 40"])
+        // The agent's own change undoes without naming it.
+        let own = try await c.ok("undo")
+        #expect(own["by"] == "you" && own["effect"] == ["Removed parameter width"])
     }
 
     @Test func characterParts() async throws {

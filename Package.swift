@@ -32,7 +32,7 @@ let package = Package(
         .testTarget(name: "FilletKernelTests", dependencies: ["FilletKernel", "CFilletKernel"]),
         .testTarget(name: "FilletCoreTests", dependencies: ["FilletCore"]),
         .testTarget(name: "FilletViewportTests", dependencies: ["FilletViewport"]),
-        .testTarget(name: "FilletAgentTests", dependencies: ["FilletAgent", "FilletCore", "FilletKernel"]),
+        .testTarget(name: "FilletAgentTests", dependencies: ["FilletAgent", "FilletCore", "FilletKernel", "FilletViewport"]),
     ],
     cxxLanguageStandard: .cxx17
 )

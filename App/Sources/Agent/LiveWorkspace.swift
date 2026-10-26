@@ -41,14 +41,39 @@ final class LiveWorkspace: DesignWorkspace {
         return await session.preview(candidate, before: before)
     }
 
+    /// The documents agents' changes produced, with their action names: when undo would go back
+    /// from one of them, the change it takes back is an agent's (the undo stack is the user's too).
+    private var agentResults: Set<AgentResult> = []
+
+    private struct AgentResult: Hashable {
+        var document: Int
+        var action: String
+    }
+
     func commit(_ newDocument: Document, action: String) async -> EvaluatedModel {
         guard let session else { return await evaluated() }
         // An agent's step replaces whatever the user had open in the inspector (like starting a tool does).
         session.commitEdit()
         session.perform(action) { $0 = newDocument }
+        agentResults.insert(AgentResult(document: session.document.hashValue, action: action))
         let model = await session.settledModel()
         session.keepModelInView()
         return model
+    }
+
+    func nextUndo() -> HistoryStep? {
+        guard let session, let manager = session.undoManager else { return nil }
+        session.commitEdit()
+        guard manager.canUndo else { return nil }
+        let name = manager.undoActionName.isEmpty ? "last step" : manager.undoActionName
+        return HistoryStep(action: name, byAgent: agentResults.contains(AgentResult(document: session.document.hashValue, action: manager.undoActionName)))
+    }
+
+    func nextRedo() -> String? {
+        guard let session, let manager = session.undoManager else { return nil }
+        session.commitEdit()
+        guard manager.canRedo else { return nil }
+        return manager.redoActionName.isEmpty ? "last step" : manager.redoActionName
     }
 
     func undo() async -> String? {

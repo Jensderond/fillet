@@ -78,7 +78,9 @@ public enum FilletMCP {
         A failed fillet or chamfer says which edges are the trouble and the largest size the others take. Fillet \
         seams one join at a time (join a part, fillet {"created_by": that join}, then the next part): where many \
         parts meet in one spot, or a seam runs into a thin sliver, fillets fail. \
-        Use undo to take back the last step.
+        undo takes back the last change, whatever it was (a new step, an edit, a parameter, a colour); its result says \
+        what. Pass expect ("New Hat", "Edit Hat", or the step name) to be sure. In the app the user shares the \
+        undo history: undo refuses to take back their changes unless you name them in expect.
         """
     }
 }
@@ -90,8 +92,8 @@ struct FilletTools {
 
     var all: [MCPTool] {
         [getDesign, getFeature, listFaces, listEdges, measure, checkPrint, renderView, setView,
-         newDesign, listDesigns, selectDesign, undo, redo]
-            + modelingTools
+         newDesign, listDesigns, selectDesign]
+            + historyTools + modelingTools
     }
 
     // MARK: Schema helpers
@@ -446,25 +448,6 @@ struct FilletTools {
             guard let ws = host.workspaces.first(where: { $0.id.uuidString.lowercased() == key.lowercased() || $0.title == key }),
                   host.select(ws.id) else { throw ToolError("No open design “\(key)”") }
             return .text("Now working on “\(ws.title)”")
-        }
-    }
-
-    private var undo: MCPTool {
-        MCPTool(name: "undo", title: "Undo", description: "Undoes the last step of the design (yours or the user's).",
-                inputSchema: Self.object([:])) { _ in
-            let ws = try host.requireCurrent()
-            guard let action = await ws.undo() else { return .error("Nothing to undo") }
-            let model = await ws.evaluated()
-            return .json(["undone": .string(action), "design": Report.brief(ws, model)])
-        }
-    }
-
-    private var redo: MCPTool {
-        MCPTool(name: "redo", title: "Redo", description: "Redoes the last undone step.", inputSchema: Self.object([:])) { _ in
-            let ws = try host.requireCurrent()
-            guard let action = await ws.redo() else { return .error("Nothing to redo") }
-            let model = await ws.evaluated()
-            return .json(["redone": .string(action), "design": Report.brief(ws, model)])
         }
     }
 }
