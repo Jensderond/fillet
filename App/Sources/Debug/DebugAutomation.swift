@@ -293,8 +293,6 @@ enum DebugAutomation {
             check(false, "export failed: \(error)")
         }
         try? session.document.encoded().write(to: outputDirectory.appendingPathComponent("design.fillet"))
-        await keyboardShortcuts(session)
-
         await holeScenario(session)
 
         await pressPull(session)
@@ -302,6 +300,9 @@ enum DebugAutomation {
         await measureScenario(session)
 
         await sketchOffset(session)
+
+        // Last: its sketch on XZ turns the camera, which would move the taps of anything after it.
+        await keyboardShortcuts(session)
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         #if os(macOS)

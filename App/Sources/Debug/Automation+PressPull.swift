@@ -32,7 +32,8 @@ extension DebugAutomation {
         session.startPressPull()
         await settle(session)
         check(session.editingKind == "pressPull" && session.pickMode == .faces, "Press Pull with nothing picked waits for faces")
-        let topPoint = Vec3(box.max.x - 10, box.min.y + 8, box.max.z)
+        // Midway across, between the holes the Hole scenario drills near each long side.
+        let topPoint = Vec3(box.max.x - 10, (box.min.y + box.max.y) / 2, box.max.z)
         let pickHit = pick(session, at: topPoint)
         session.viewportDidTap(target: pickHit?.target, hit: pickHit, ray: ray, location: .zero, modifiers: [])
         await settle(session)

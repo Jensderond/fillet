@@ -5,7 +5,8 @@ import FilletViewport
 import Foundation
 
 extension DebugAutomation {
-    /// Measure on the finished plate (80 × 30 × 12 with a Ø14 hole and a pocket): faces, edges,
+    /// Measure on the finished plate (80 × 30, a Ø14 hole and a pocket; earlier scenarios may change
+    /// its thickness, so that comes from the body): faces, edges,
     /// vertices picked through the viewport like taps, then bodies; Escape and other tools end it,
     /// and it never touches the document or the undo history.
     static func measureScenario(_ session: DesignSession) async {
@@ -16,6 +17,8 @@ extension DebugAutomation {
             session.viewportDidTap(target: target, hit: nil, ray: Ray(origin: .zero, direction: .unitZ), location: .zero, modifiers: [])
         }
         func near(_ a: Double?, _ b: Double, _ tol: Double = 1e-4) -> Bool { a.map { abs($0 - b) <= tol } ?? false }
+        guard let bounds = shape.bounds else { check(false, "the plate has bounds"); return }
+        let thickness = bounds.max.z - bounds.min.z
 
         session.selection = []
         session.camera = session.camera.viewing(.iso)
@@ -29,8 +32,8 @@ extension DebugAutomation {
         check(session.measure != nil && session.pickMode == .measure && session.pickFilter == [.faces, .edges, .vertices],
               "Measure picks faces, edges and vertices")
 
-        // Top face (a real pick) to bottom face: the plate's 12 mm, at 180°.
-        let topHit = pick(session, at: Vec3(25, 25, 12))
+        // Top face (a real pick) to bottom face: the plate's thickness, at 180°.
+        let topHit = pick(session, at: Vec3(25, 25, bounds.max.z))
         guard case .face(_, let top)? = topHit?.target else { check(false, "a tap on the top face picks it (\(String(describing: topHit?.target)))"); return }
         tap(topHit?.target)
         let topArea = shape.faceInfo(top).area
@@ -40,19 +43,19 @@ extension DebugAutomation {
         }
         tap(.face(body: id, index: bottom))
         let faces = session.measure?.pair
-        check(near(faces?.distance, 12) && near(abs(faces?.delta.z ?? 0), 12) && near(faces?.angle, .pi),
+        check(near(faces?.distance, thickness) && near(abs(faces?.delta.z ?? 0), thickness) && near(faces?.angle, .pi),
               "top to bottom face: \(faces?.distance ?? -1) mm, ΔZ \(faces?.delta.z ?? 0), angle \((faces?.angle ?? 0) * 180 / .pi)°")
         let line = session.makeScene().measures.first { $0.id == "measure-distance" }
-        check(line?.label == "12 mm" && line?.showsLine == true, "the distance is drawn between the closest points (\(line?.label ?? "none"))")
+        check(line?.label == String(format: "%g mm", thickness) && line?.showsLine == true, "the distance is drawn between the closest points (\(line?.label ?? "none"))")
         check(session.makeScene().selection == [.face(body: id, index: top), .face(body: id, index: bottom)], "both faces show as picked")
         await snap(session, "11-measure-faces")
 
-        // A third pick starts over: a vertical edge, 12 mm long.
+        // A third pick starts over: a vertical edge, as long as the plate is thick.
         guard let upright = shape.edgeInfos.firstIndex(where: { $0.curve == .line && abs($0.tangentAtMid.z) > 0.99 }) else {
             check(false, "a vertical edge"); return
         }
         tap(.edge(body: id, index: upright))
-        check(session.measure?.picks.count == 1 && near(session.measure?.items.first??.length, 12) && session.measure?.pair == nil,
+        check(session.measure?.picks.count == 1 && near(session.measure?.items.first??.length, thickness) && session.measure?.pair == nil,
               "a third pick starts over: edge length \(session.measure?.items.first??.length ?? 0) mm")
         check(session.makeScene().edgeHighlights.count == 1, "the picked edge is drawn highlighted")
         tap(.edge(body: id, index: upright))
@@ -93,7 +96,7 @@ extension DebugAutomation {
         session.setMeasurePicksBodies(true)
         await settle(session)  // the viewport picks with the filter it last drew with
         check(session.pickFilter == [.bodies] && session.measure?.picks.isEmpty == true, "the Bodies filter picks whole bodies")
-        let bodyHit = pick(session, at: Vec3(25, 25, 12))
+        let bodyHit = pick(session, at: Vec3(25, 25, bounds.max.z))
         tap(bodyHit?.target)
         let item = session.measure?.items.first ?? nil
         let size = shape.bounds.map { $0.max - $0.min }
