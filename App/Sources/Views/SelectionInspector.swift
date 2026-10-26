@@ -152,6 +152,9 @@ struct SelectionInspector: View {
             }
             .buttonStyle(SecondaryButtonStyle())
             .labelStyle(.titleAndIcon)
+            // One line each: "Tangent chain" mustn't break in two (stacked at accessibility sizes instead).
+            .lineLimit(1)
+            .minimumScaleFactor(0.85)
         }
     }
 

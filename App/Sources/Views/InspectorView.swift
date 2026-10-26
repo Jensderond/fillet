@@ -332,7 +332,7 @@ struct FeatureInspector: View {
             var x = f; x.size = $0
             set(fillet ? .fillet(x) : .chamfer(x))
         }
-        Hint("\(Theme.Copy.doublePick) an edge to pick the loop around a face.", symbol: "hand.tap")
+        Hint("\(Theme.Copy.doublePick) an edge for the loop around a face. \(Theme.Copy.boxShortcut)", symbol: "hand.tap")
         Hint(fillet ? "Tip: a 0.5–1 mm fillet on bottom edges helps parts release; chamfers print without supports."
                     : "Chamfers on bottom edges print without supports.")
     }

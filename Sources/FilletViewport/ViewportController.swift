@@ -252,7 +252,10 @@ public final class ViewportController {
 
     /// The selection box being dragged, drawn over the view (nil when there is none).
     public private(set) var selectionBox: SelectionBox?
-    @ObservationIgnored private var boxPointer: PointerKind = .mouse
+    /// How many elements the box being dragged would take right now (shown on its tag).
+    public private(set) var boxPreviewCount = 0
+    @ObservationIgnored private var lastBoxPreview: TimeInterval = 0
+    @ObservationIgnored private var boxPreviewTask: Task<Void, Never>?
 
     /// Whether a drag from here draws a selection box: box mode is on, the Pencil draws it, or
     /// Shift or ⌘ is held. Never while there is nothing a box could select.
@@ -263,13 +266,42 @@ public final class ViewportController {
 
     public func beginBox(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
         renderer?.cancelAnimation()
-        boxPointer = pointer
         selectionBox = SelectionBox(start: p, end: p, update: SelectionRules.box(modifiers: modifiers, pointer: pointer))
+        boxPreviewCount = 0
         setHover(nil)
     }
 
+    /// Moves the box's free corner. What it would take lights up as it goes (worked out at most
+    /// every 80 ms, and once more when the pointer rests, so a big scene can't stall the drag).
     public func dragBox(to p: CGPoint) {
         selectionBox?.end = p
+        let now = ProcessInfo.processInfo.systemUptime
+        boxPreviewTask?.cancel()
+        if now - lastBoxPreview >= 0.08 {
+            updateBoxPreview()
+        } else {
+            boxPreviewTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(90))
+                guard !Task.isCancelled else { return }
+                self?.updateBoxPreview()
+            }
+        }
+    }
+
+    private func boxTargets(_ box: SelectionBox) -> [PickTarget] {
+        let rect = box.rect
+        guard rect.width >= 4 || rect.height >= 4 else { return [] }
+        return picker.boxSelect(scene: scene, camera: liveCamera, rect: rect, viewSize: viewSize,
+                                filter: options.boxFilter, mode: box.mode)
+    }
+
+    private func updateBoxPreview() {
+        lastBoxPreview = ProcessInfo.processInfo.systemUptime
+        guard let box = selectionBox else { return }
+        let targets = boxTargets(box)
+        boxPreviewCount = targets.count
+        renderer?.boxPreview = targets
+        redraw()
     }
 
     /// Lets go of the box: what it selects goes to the delegate. A box too small to mean
@@ -277,16 +309,22 @@ public final class ViewportController {
     public func endBox(at p: CGPoint) {
         guard var box = selectionBox else { return }
         box.end = p
-        selectionBox = nil
+        clearBox()
         let rect = box.rect
         guard rect.width >= 4 || rect.height >= 4 else { return }
-        let targets = picker.boxSelect(scene: scene, camera: liveCamera, rect: rect, viewSize: viewSize,
-                                       filter: options.boxFilter, mode: box.mode)
-        delegate?.viewportDidBoxSelect(targets, box: box)
+        delegate?.viewportDidBoxSelect(boxTargets(box), box: box)
     }
 
     public func cancelBox() {
+        clearBox()
+    }
+
+    private func clearBox() {
+        boxPreviewTask?.cancel()
         selectionBox = nil
+        boxPreviewCount = 0
+        renderer?.boxPreview = []
+        redraw()
     }
 
     func hover(at p: CGPoint?, pointer: PointerKind, modifiers: ViewportModifiers = []) {

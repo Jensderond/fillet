@@ -268,6 +268,12 @@ public final class ViewportRenderer: NSObject {
     /// Identity of the cached GPU buffers for a body (tests).
     func gpuBodyIdentity(_ id: UUID) -> ObjectIdentifier? { bodies[id].map(ObjectIdentifier.init) }
 
+    /// What the selection box being dragged would take, drawn like hover so it reads as "about to
+    /// be picked" (see `ViewportController.dragBox`).
+    public var boxPreview: [PickTarget] = [] {
+        didSet { if boxPreview != oldValue { statesDirty = true; overlaysDirty = true } }
+    }
+
     /// The hover target actually displayed.
     public var effectiveHover: PickTarget? { scene.hover ?? pointerHover }
 
@@ -321,10 +327,12 @@ public final class ViewportRenderer: NSObject {
             default: break
             }
         }
-        switch effectiveHover {
-        case .face(let b, let i)? where faceMarks[b]?[i] == nil: faceMarks[b, default: [:]][i] = 1
-        case .edge(let b, let i)? where edgeMarks[b]?[i] == nil: edgeMarks[b, default: [:]][i] = 1
-        default: break
+        for t in [effectiveHover].compactMap({ $0 }) + boxPreview {
+            switch t {
+            case .face(let b, let i) where faceMarks[b]?[i] == nil: faceMarks[b, default: [:]][i] = 1
+            case .edge(let b, let i) where edgeMarks[b]?[i] == nil: edgeMarks[b, default: [:]][i] = 1
+            default: break
+            }
         }
         for (id, g) in bodies {
             g.faceStates = stateBuffer(faceMarks[id], count: g.faceCount)
@@ -685,7 +693,11 @@ public final class ViewportRenderer: NSObject {
         let base = paper ? palette.paper : (b.color ?? palette.body)
         d.color = SIMD4(SIMD3(base.linear.x, base.linear.y, base.linear.z), b.opacity * (b.color?.a ?? 1) * alphaScale)
         var hl = b.highlight
-        if scene.selection.contains(.body(b.id)) { hl = .selected } else if hl == .none, hover == .body(b.id) { hl = .hover }
+        if scene.selection.contains(.body(b.id)) {
+            hl = .selected
+        } else if hl == .none, hover == .body(b.id) || boxPreview.contains(.body(b.id)) {
+            hl = .hover
+        }
         switch hl {
         case .none: break
         case .hover: d.highlight = SIMD4(SIMD3(palette.hover.linear.x, palette.hover.linear.y, palette.hover.linear.z), 0.25)

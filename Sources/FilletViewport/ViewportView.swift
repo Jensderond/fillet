@@ -83,7 +83,7 @@ public struct ViewportView: View {
                     .allowsHitTesting(false)
             }
             if let box = controller.selectionBox {
-                SelectionBoxOverlay(box: box, appearance: appearance, viewSize: controller.viewSize)
+                SelectionBoxOverlay(box: box, count: controller.boxPreviewCount, appearance: appearance, viewSize: controller.viewSize)
                     .allowsHitTesting(false)
             }
             if options.showsViewCube {
@@ -306,6 +306,8 @@ private struct ReferencePlaneLabel: View {
 /// convention teaches itself.
 struct SelectionBoxOverlay: View {
     let box: SelectionBox
+    /// What the box would take now (lit in the view); on the tag, so a box that takes nothing says so.
+    let count: Int
     let appearance: ViewportAppearance
     let viewSize: CGSize
 
@@ -333,6 +335,10 @@ struct SelectionBoxOverlay: View {
             Text(window ? "Inside" : "Touching")
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(appearance.chipInk)
+            Text("\(count)")
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(appearance.labelInk(highContrast: false))
+                .contentTransition(.numericText())
         }
         .padding(.horizontal, 6)
         .padding(.vertical, 2)

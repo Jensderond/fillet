@@ -550,6 +550,13 @@ struct ToolStrip: View {
         let busy = session.isBusyEditing
         HStack(spacing: Theme.Space.s) {
             ToolButton("Browser", "sidebar.left", active: showBrowser, toggle: true) { showBrowser.toggle() }
+            // A mode, not a step: "on" in ink like Browser, beside it so it never scrolls out of
+            // reach, and usable while a step is open (when boxing edges or faces helps most).
+            ToolButton("Box select", "rectangle.dashed", active: session.boxSelecting && !session.boxFilter.isEmpty,
+                       toggle: true, unavailable: session.boxSelectUnavailableReason, shortcut: "W",
+                       detail: "drag a box to select. \(Theme.Copy.boxShortcut)") {
+                session.toggleBoxSelect()
+            }
             ScrollView(.horizontal) {
                 HStack(spacing: Theme.Space.s) {
                     ToolCluster {
@@ -610,14 +617,6 @@ struct ToolStrip: View {
                                    unavailable: session.showOverhangs ? nil : session.unavailableReason(.overhangs)) { session.showOverhangs.toggle() }
                         ToolButton("Measure", "ruler", active: session.measure != nil,
                                    unavailable: session.measure != nil ? nil : session.measureUnavailableReason, shortcut: "I") { session.startMeasure() }
-                    }
-                    ToolCluster {
-                        // A mode, not a step: "on" in ink like the other view toggles, and it stays
-                        // usable while a step is open (that's when boxing edges or faces helps most).
-                        ToolButton("Box select", "rectangle.dashed", active: session.boxSelecting && !session.boxFilter.isEmpty,
-                                   toggle: true, unavailable: session.boxSelectUnavailableReason, shortcut: "W") {
-                            session.toggleBoxSelect()
-                        }
                     }
                 }
                 .padding(.vertical, 1)
@@ -731,16 +730,19 @@ struct ToolButton: View {
     var unavailable: String?
     /// Its key, shown in the tooltip: "Extrude [E]".
     var shortcut: String?
+    /// More in the tooltip, after the name: "Box select [W]: drag a box to select."
+    var detail: String?
     let action: () -> Void
     @State private var explaining = false
 
     init(_ title: String, _ symbol: String, active: Bool = false, toggle: Bool = false, unavailable: String? = nil,
-         shortcut: String? = nil, action: @escaping () -> Void) {
+         shortcut: String? = nil, detail: String? = nil, action: @escaping () -> Void) {
         self.title = title; self.symbol = symbol; self.active = active; self.isToggle = toggle
-        self.unavailable = unavailable; self.shortcut = shortcut; self.action = action
+        self.unavailable = unavailable; self.shortcut = shortcut; self.detail = detail; self.action = action
     }
 
     private var named: String { shortcut.map { "\(title) [\($0)]" } ?? title }
+    private var described: String { detail.map { "\(named): \($0)" } ?? named }
 
     var body: some View {
         Button(title) {
@@ -748,7 +750,7 @@ struct ToolButton: View {
         }
         .buttonStyle(ToolButtonStyle(title: title, symbol: symbol, active: active, isToggle: isToggle, unavailable: unavailable != nil))
         .automationFrame("tool.\(title)")
-        .help(unavailable.map { "\(named). \($0)" } ?? named)
+        .help(unavailable.map { "\(named). \($0)" } ?? described)
         .accessibilityValue(unavailable == nil ? "" : "Unavailable")
         .accessibilityHint(unavailable ?? "")
         .hoverHighlight(ownsPointerHover: true)
