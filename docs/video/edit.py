@@ -134,10 +134,10 @@ CALLOUTS = {
 }
 
 
-def voice_starts(vo):
-    """Where each voice-over line starts, anchored to what the picture shows."""
+def voice_anchors():
+    """Where each voice-over line should start, anchored to what the picture shows (None: right after the previous)."""
     b = beat
-    starts = {
+    return {
         "problem": OPENER + 0.2,
         "intro": DEVICE_IN + 0.55,
         "sketch": out(b("pencil")) - 0.55,
@@ -151,12 +151,44 @@ def voice_starts(vo):
         "export": out(b("export")) + 0.35,
         "end": END_CARD + 0.75,
     }
+
+
+VOICE_GAP = 0.25        # at least this much air between lines
+VOICE_FOLLOW = 0.3      # gap before an unanchored line
+VOICE_MAX_TEMPO = 1.15  # speeding speech up further than this starts to sound hurried
+
+
+def voice_tempo(vo):
+    """How much to speed up each line so every anchored line still starts on its anchor.
+
+    Lines are grouped from one anchor to the next (an unanchored line joins the group
+    before it); a group that doesn't fit before the next anchor, or before the end
+    for the last group, is sped up as a whole, up to VOICE_MAX_TEMPO."""
+    anchors = voice_anchors()
+    groups = []
+    for line in vo:
+        if anchors[line["id"]] is None and groups:
+            groups[-1].append(line)
+        else:
+            groups.append([line])
+    tempo = {}
+    for i, g in enumerate(groups):
+        limit = anchors[groups[i + 1][0]["id"]] - VOICE_GAP if i + 1 < len(groups) else TOTAL - 0.2
+        need = sum(l["duration"] for l in g) / max(limit - anchors[g[0]["id"]] - VOICE_FOLLOW * (len(g) - 1), 0.1)
+        for l in g:
+            tempo[l["id"]] = round(min(max(need, 1.0), VOICE_MAX_TEMPO), 3)
+    return tempo
+
+
+def voice_starts(vo):
+    """Where each voice-over line starts: on its anchor, or later if the previous line runs long."""
+    starts = voice_anchors()
     placed, prev_end = {}, 0
     for line in vo:
         s = starts[line["id"]]
         if s is None:
-            s = prev_end + 0.3
-        s = max(s, prev_end + 0.25)
+            s = prev_end + VOICE_FOLLOW
+        s = max(s, prev_end + VOICE_GAP)
         placed[line["id"]] = round(s, 3)
         prev_end = s + line["duration"]
     return placed

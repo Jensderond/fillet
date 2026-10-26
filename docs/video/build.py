@@ -6,7 +6,7 @@
 
 1. plan.json: the edit (edit.py) — segments, titles, callouts, all timed to the beat log
 2. device.mp4: the recording cut to the edit (constant 30 fps, crossfades at cuts)
-3. voice-over (voiceover.py, macOS `say`), music and effects (audio.py, numpy)
+3. voice-over (voiceover.py: Fish Audio via OpenRouter, or `say`), music and effects (audio.py, numpy)
 4. the mix: music ducked under the voice (sidechaincompress), effects, two-pass
    loudnorm to -14 LUFS / -1.5 dBTP, verified with ebur128 after AAC encoding
 5. picture: the Swift compositor (compositor/main.swift + the app's splash code)
@@ -91,9 +91,20 @@ def loudness(path, extra=""):
 def audio(plan):
     vo_dir = os.path.join(B, "vo")
     lines = voiceover.render(vo_dir)
+    # Lines that would run into the next anchor are sped up a little (pitch kept).
+    for l, (key, tempo) in zip(lines, edit.voice_tempo(lines).items()):
+        l["tempo"] = tempo
+        if tempo > 1.0:
+            fast = l["file"].replace(".wav", ".fast.wav")
+            run(["ffmpeg", "-v", "error", "-y", "-i", l["file"], "-af", f"atempo={tempo}", "-c:a", "pcm_s16le", fast])
+            os.replace(fast, l["file"])
+            l["duration"] = round(probe_duration(l["file"]), 3)
     starts = edit.voice_starts(lines)
     for l in lines:
         l["start"] = starts[l["id"]]
+    over = lines[-1]["start"] + lines[-1]["duration"] - (plan["total"] - 0.2)
+    if over > 0.01:
+        raise SystemExit(f"voice-over runs {over:.2f}s past the end: tighten a line in voiceover.py")
     json.dump(lines, open(os.path.join(vo_dir, "placed.json"), "w"), indent=1)
     run([sys.executable, os.path.join(HERE, "audio.py"), os.path.join(B, "audio")])
     total = plan["total"]
