@@ -62,7 +62,9 @@ final class Updater {
     private(set) var diskImage: URL?
 
     @ObservationIgnored private var stagedApp: String?
-    @ObservationIgnored private var relaunchAfterInstall = false
+    /// When Relaunch Now was clicked. Quitting can be cancelled (at a save prompt) and AppKit
+    /// doesn't say so, so the request lapses rather than reopening Fillet after a later quit.
+    @ObservationIgnored private var relaunchRequested: Date?
     @ObservationIgnored private var work: Task<Void, Never>?
     @ObservationIgnored private var schedule: Task<Void, Never>?
 
@@ -97,6 +99,13 @@ final class Updater {
         }
     }
 
+    private var isInstalling: Bool {
+        switch phase {
+        case .downloading, .preparing, .ready: true
+        case .idle, .checking, .upToDate, .available, .failed: false
+        }
+    }
+
     private var isDue: Bool {
         lastChecked.map { Date.now.timeIntervalSince($0) >= Self.interval } ?? true
     }
@@ -126,6 +135,7 @@ final class Updater {
         work = Task {
             do {
                 let newest = try await Release.newest()
+                if isInstalling { return }  // an automatic check that lands after Install Update
                 lastChecked = .now
                 UserDefaults.standard.set(lastChecked, forKey: Keys.lastChecked)
                 let skipped = UserDefaults.standard.string(forKey: Keys.skipped)
@@ -135,7 +145,7 @@ final class Updater {
                     phase = .upToDate
                 }
             } catch {
-                if userInitiated { phase = .failed(nil, message: Self.message(for: error)) }
+                if userInitiated, !isInstalling { phase = .failed(nil, message: Self.message(for: error)) }
             }
         }
     }
@@ -162,7 +172,7 @@ final class Updater {
 
     /// Quits, installs, and opens the new version. Quitting asks to save open designs first.
     func relaunch() {
-        relaunchAfterInstall = true
+        relaunchRequested = .now
         NSApp.terminate(nil)
     }
 
@@ -173,6 +183,7 @@ final class Updater {
 
     private func download(_ release: Release) async {
         phase = .downloading(release, received: 0, total: release.size)
+        diskImage = nil
         do {
             let image = FileManager.default.temporaryDirectory.appendingPathComponent(release.diskImage.lastPathComponent)
             try await DiskImageDownload(to: image) { received, total in
@@ -218,7 +229,7 @@ final class Updater {
         let appPath = Bundle.main.bundleURL.path
         return try await withCheckedThrowingContinuation { continuation in
             let once = Once(continuation)
-            let installer = connection.remoteObjectProxyWithErrorHandler { error in
+            let installer = connection.remoteObjectProxyWithErrorHandler { @Sendable error in
                 once.resume(with: .failure(UpdateError("The updater stopped: \(error.localizedDescription)")))
             } as? UpdateInstalling
             guard let installer else {
@@ -243,7 +254,7 @@ final class Updater {
             // the user can't write to. Finder can still replace it.
             NSLog("Fillet: the update didn't install (%@); opening the disk image instead", failure)
             openDiskImage()
-        } else if relaunchAfterInstall {
+        } else if let relaunchRequested, Date.now.timeIntervalSince(relaunchRequested) < 10 * 60 {
             Self.open(app, afterExitOf: ProcessInfo.processInfo.processIdentifier)
         }
     }
@@ -253,7 +264,7 @@ final class Updater {
         let connection = connect()
         defer { connection.invalidate() }
         let outcome = Outcome()
-        let installer = connection.synchronousRemoteObjectProxyWithErrorHandler { error in
+        let installer = connection.synchronousRemoteObjectProxyWithErrorHandler { @Sendable error in
             outcome.message = error.localizedDescription
         } as? UpdateInstalling
         guard let installer else { return "This copy of Fillet has no updater." }

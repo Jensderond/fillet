@@ -366,7 +366,8 @@ struct UpdateToolbarButton: View {
                     .foregroundStyle(Theme.filletInk)
             }
         }
-        .help(isReady ? "Fillet \(release.version) installs when you quit" : "Fillet \(release.version) is available")
+        .help(isReady ? "Fillet \(release.version.description) installs when you quit"
+                      : "Fillet \(release.version.description) is available")
     }
 }
 #endif
