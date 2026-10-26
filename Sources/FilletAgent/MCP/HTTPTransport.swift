@@ -25,7 +25,12 @@ public final class MCPHTTPTransport {
     }
 
     public let server: MCPServer
-    public let port: UInt16
+    /// The ports to listen on, in order of preference: when one is taken, the next is tried.
+    public let ports: [UInt16]
+    /// The preferred port (the first of ``ports``).
+    public var port: UInt16 { ports[0] }
+    /// The port it listens on now, or is trying.
+    public private(set) var currentPort: UInt16
     public let binding: Binding
     /// Required from non-loopback clients when set.
     public let token: String?
@@ -35,11 +40,16 @@ public final class MCPHTTPTransport {
     public var onStateChange: ((State) -> Void)?
 
     private var listener: NWListener?
+    private var attempt = 0
     private var connections: [ObjectIdentifier: HTTPConnection] = [:]
 
-    public init(server: MCPServer, port: UInt16, binding: Binding = .loopback, token: String? = nil) {
+    /// - Parameter fallbackPorts: tried in order when `port` (and each earlier fallback) is taken.
+    public init(server: MCPServer, port: UInt16, fallbackPorts: [UInt16] = [], binding: Binding = .loopback, token: String? = nil) {
         self.server = server
-        self.port = port
+        var ports = [port]
+        for p in fallbackPorts where !ports.contains(p) { ports.append(p) }
+        self.ports = ports
+        self.currentPort = port
         self.binding = binding
         self.token = token
     }
@@ -47,9 +57,15 @@ public final class MCPHTTPTransport {
     public func start() {
         guard listener == nil else { return }
         state = .starting
+        attempt = 0
+        listen(on: ports[0])
+    }
+
+    private func listen(on port: UInt16) {
+        currentPort = port
         do {
             let params = NWParameters.tcp
-            params.allowLocalEndpointReuse = true
+            params.allowLocalEndpointReuse = true  // a port another listener holds still fails (tested)
             if binding == .loopback {
                 params.requiredLocalEndpoint = NWEndpoint.hostPort(host: .ipv4(.loopback), port: NWEndpoint.Port(rawValue: port)!)
             }
@@ -59,16 +75,18 @@ public final class MCPHTTPTransport {
             if binding == .network {
                 listener.service = NWListener.Service(name: nil, type: "_fillet-mcp._tcp")
             }
+            let id = ObjectIdentifier(listener)
             listener.stateUpdateHandler = { [weak self] s in
-                Task { @MainActor in self?.listenerChanged(s) }
+                Task { @MainActor in self?.listenerChanged(s, id) }
             }
             listener.newConnectionHandler = { [weak self] c in
                 Task { @MainActor in self?.accept(c) }
             }
-            listener.start(queue: .main)
             self.listener = listener
+            listener.start(queue: .main)
         } catch {
-            state = .failed(error.localizedDescription)
+            listener = nil
+            failOrTryNext(error.localizedDescription, inUse: false)
         }
     }
 
@@ -80,21 +98,38 @@ public final class MCPHTTPTransport {
         state = .stopped
     }
 
-    private func listenerChanged(_ s: NWListener.State) {
+    private func listenerChanged(_ s: NWListener.State, _ id: ObjectIdentifier) {
+        guard let listener, ObjectIdentifier(listener) == id else { return }  // an earlier attempt's
         switch s {
-        case .ready: state = .listening(port: listener?.port?.rawValue ?? port)
-        case .failed(let e):
-            state = .failed(Self.describe(e))
-            listener?.cancel()
-            listener = nil
+        case .ready: state = .listening(port: listener.port?.rawValue ?? currentPort)
+        case .failed(let e), .waiting(let e):
+            // A taken port usually fails at once, but can also leave the listener waiting.
+            if case .waiting = s, !Self.isAddressInUse(e) { return }
+            listener.cancel()
+            self.listener = nil
+            failOrTryNext(Self.describe(e), inUse: Self.isAddressInUse(e))
         case .cancelled: if case .failed = state {} else { state = .stopped }
         default: break
         }
     }
 
+    /// Moves on to the next port when this one is taken, or reports the failure.
+    private func failOrTryNext(_ reason: String, inUse: Bool) {
+        if inUse, attempt + 1 < ports.count {
+            attempt += 1
+            listen(on: ports[attempt])
+        } else {
+            state = .failed(inUse && ports.count > 1 ? "Ports \(ports.min()!)–\(ports.max()!) are all in use" : reason)
+        }
+    }
+
+    private static func isAddressInUse(_ e: NWError) -> Bool {
+        if case .posix(let code) = e, code == .EADDRINUSE { return true }
+        return false
+    }
+
     private static func describe(_ e: NWError) -> String {
-        if case .posix(let code) = e, code == .EADDRINUSE { return "Port already in use" }
-        return e.debugDescription
+        isAddressInUse(e) ? "Port already in use" : e.debugDescription
     }
 
     private func accept(_ connection: NWConnection) {

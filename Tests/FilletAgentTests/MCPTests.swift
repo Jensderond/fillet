@@ -501,6 +501,111 @@ struct HTTPTransportTests {
         #expect(localOrigin == 200)
     }
 
+    /// A plain BSD listener on 127.0.0.1:`port` (SO_REUSEADDR, as most servers set), or nil.
+    func occupy(_ port: UInt16) -> Int32? {
+        let fd = socket(AF_INET, SOCK_STREAM, 0)
+        var yes: Int32 = 1
+        setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, socklen_t(MemoryLayout<Int32>.size))
+        var addr = sockaddr_in()
+        addr.sin_family = sa_family_t(AF_INET)
+        addr.sin_port = port.bigEndian
+        addr.sin_addr.s_addr = inet_addr("127.0.0.1")
+        let bound = withUnsafePointer(to: &addr) {
+            $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_in>.size)) }
+        }
+        guard bound == 0, listen(fd, 4) == 0 else { close(fd); return nil }
+        return fd
+    }
+
+    func waitUntilSettled(_ t: MCPHTTPTransport) async throws {
+        for _ in 0..<500 {
+            switch t.state {
+            case .listening, .failed: return
+            default: try await Task.sleep(for: .milliseconds(20))
+            }
+        }
+    }
+
+    @Test func movesOnWhenThePortIsTaken() async throws {
+        let base = UInt16.random(in: 40000...60000)
+        let taken = try #require(occupy(base))
+        defer { close(taken) }
+        let ports = [base + 1, base + 2]
+
+        let first = MCPHTTPTransport(server: FilletMCP.makeServer(host: HeadlessHost(workspace: HeadlessWorkspace())),
+                                     port: base, fallbackPorts: ports)
+        first.start()
+        defer { first.stop() }
+        try await waitUntilSettled(first)
+        #expect(first.state == .listening(port: base + 1))
+        #expect(first.currentPort == base + 1)
+        let (status, _) = try await post(base + 1, #"{"jsonrpc":"2.0","id":1,"method":"ping"}"#)
+        #expect(status == 200)
+
+        // A second copy (another app instance) doesn't share the port: it takes the next one.
+        let second = MCPHTTPTransport(server: FilletMCP.makeServer(host: HeadlessHost(workspace: HeadlessWorkspace())),
+                                      port: base, fallbackPorts: ports)
+        second.start()
+        defer { second.stop() }
+        try await waitUntilSettled(second)
+        #expect(second.state == .listening(port: base + 2))
+
+        // With every port taken it gives up and says so.
+        let third = MCPHTTPTransport(server: FilletMCP.makeServer(host: HeadlessHost(workspace: HeadlessWorkspace())),
+                                     port: base, fallbackPorts: ports)
+        third.start()
+        defer { third.stop() }
+        try await waitUntilSettled(third)
+        #expect(third.state == .failed("Ports \(base)–\(base + 2) are all in use"))
+
+        // Without fallbacks a taken port fails as before.
+        let fixed = MCPHTTPTransport(server: FilletMCP.makeServer(host: HeadlessHost(workspace: HeadlessWorkspace())), port: base)
+        fixed.start()
+        defer { fixed.stop() }
+        try await waitUntilSettled(fixed)
+        #expect(fixed.state == .failed("Port already in use"))
+
+        // Turning the server off and on gets the same port back straight away.
+        first.stop()
+        first.start()
+        try await waitUntilSettled(first)
+        #expect(first.state == .listening(port: base + 1))
+    }
+
+    @Test func findsTheAppForTheBridge() async throws {
+        let base = UInt16.random(in: 40000...60000)
+        // Something else holds the first port (it accepts but never answers), the second is free.
+        let other = try #require(occupy(base))
+        defer { close(other) }
+        let app = MCPHTTPTransport(server: FilletMCP.makeServer(host: HeadlessHost(workspace: HeadlessWorkspace())), port: base + 2)
+        app.start()
+        defer { app.stop() }
+        try await waitUntilSettled(app)
+        try #require(app.state == .listening(port: base + 2))
+
+        let ports = [base, base + 1, base + 2]
+        #expect(await MCPDiscovery.scanLoopback(ports: ports, timeout: .milliseconds(500)) == MCPDiscovery.endpoint(port: base + 2))
+        #expect(await MCPDiscovery.isFillet(MCPDiscovery.endpoint(port: base), timeout: .milliseconds(300)) == false)
+
+        // The endpoint file the Mac app writes, for a port outside the usual range.
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("fillet-discovery-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let file = dir.appendingPathComponent("mcp-endpoint")
+        try Data("\(MCPDiscovery.endpoint(port: base + 2).absoluteString)\n".utf8).write(to: file)
+        let found = await MCPDiscovery.discover(ports: [base + 1], endpointFiles: [file], bonjourTimeout: .zero)
+        #expect(found.url == MCPDiscovery.endpoint(port: base + 2) && found.source == .file)
+        // A stale file (the app has gone) is skipped, ending at the default.
+        try Data("http://127.0.0.1:\(base + 1)/mcp\n".utf8).write(to: file)
+        let none = await MCPDiscovery.discover(ports: [base + 1], endpointFiles: [file], bonjourTimeout: .zero)
+        #expect(none.url == MCPDiscovery.defaultEndpoint && none.source == .fallback)
+        // The loopback scan comes first.
+        let scanned = await MCPDiscovery.discover(ports: ports, endpointFiles: [file], bonjourTimeout: .zero)
+        #expect(scanned.url == MCPDiscovery.endpoint(port: base + 2) && scanned.source == .loopback)
+        #expect(MCPDiscovery.endpointFiles(home: URL(fileURLWithPath: "/Users/x")).first?.path
+                == "/Users/x/Library/Containers/app.fillet.Fillet/Data/Library/Application Support/Fillet/mcp-endpoint")
+    }
+
     @Test func dechunksBodies() throws {
         let raw = Data("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n".utf8)
         #expect(HTTPConnection.dechunk(raw, from: raw.startIndex, limit: 100) == .complete(Data("Wikipedia".utf8), raw.endIndex))

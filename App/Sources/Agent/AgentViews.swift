@@ -100,7 +100,7 @@ extension AgentHub {
         case .stopped: "Off"
         case .starting: "Starting…"
         case .listening: clientName != nil ? "\(agentName) connected at \(endpoint)" : "Waiting for agents at \(endpoint)"
-        case .failed(let reason): "Can't listen on port \(port): \(reason)"
+        case .failed(let reason): triedSeveralPorts ? "Can't listen: \(reason)" : "Can't listen on port \(port): \(reason)"
         }
     }
 }

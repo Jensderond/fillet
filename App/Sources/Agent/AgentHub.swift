@@ -11,15 +11,24 @@ import AppKit
 /// the user watches: every agent step lands in the window's document as one undoable change.
 ///
 /// Off until the user allows it (Design ▸ Allow Agent Connections, or the toolbar's agent
-/// button); `FILLET_MCP=1` turns it on at launch and `FILLET_MCP_PORT` picks another port.
+/// button); `FILLET_MCP=1` turns it on at launch and `FILLET_MCP_PORT` forces a port.
 /// On the Mac the server only listens on 127.0.0.1. On iPad it listens on the network so an
 /// agent on a Mac can reach it, and clients from other devices must send the bearer token.
+///
+/// When 7878 is taken (another app, or a second copy of Fillet) it tries 7879…7888 and
+/// remembers the port that worked, so later launches (and the agents set up for it) get it
+/// first. On the Mac it also writes the endpoint to `Application Support/Fillet/mcp-endpoint`
+/// (inside the sandbox container), where `fillet-mcp --connect` looks for it.
 @MainActor @Observable
 final class AgentHub: WorkspaceHost {
     static let shared = AgentHub()
 
     static let enabledKey = "agentConnectionsEnabled"
     private static let tokenKey = "agentConnectionToken"
+    /// The port that worked last time.
+    private static let portKey = "agentConnectionPort"
+    /// 7878 first, then the fallbacks (the same range `fillet-mcp --connect` looks in).
+    static let ports: [UInt16] = MCPDiscovery.appPorts
 
     /// Whether agents may connect (remembered across launches).
     var isEnabled: Bool {
@@ -37,13 +46,18 @@ final class AgentHub: WorkspaceHost {
     /// When the agent last did something, to keep its indicator up between calls.
     private(set) var lastActivity: Date?
 
-    let port: UInt16
+    /// `FILLET_MCP_PORT`: this port only, no fallback.
+    private let forcedPort: UInt16?
     #if os(iOS)
     /// Required from agents on other devices.
     let token: String
     #endif
 
     @ObservationIgnored private var transport: MCPHTTPTransport?
+    #if os(macOS)
+    /// The endpoint this copy wrote to the endpoint file.
+    @ObservationIgnored private var writtenEndpoint: String?
+    #endif
     @ObservationIgnored private var live: [LiveWorkspace] = []
     @ObservationIgnored private var currentID: UUID?
     /// Waiting for the window `openNewDesign` asked for.
@@ -51,7 +65,7 @@ final class AgentHub: WorkspaceHost {
 
     private init() {
         let env = ProcessInfo.processInfo.environment
-        port = env["FILLET_MCP_PORT"].flatMap(UInt16.init) ?? 7878
+        forcedPort = env["FILLET_MCP_PORT"].flatMap(UInt16.init)
         #if os(iOS)
         if let saved = UserDefaults.standard.string(forKey: Self.tokenKey) {
             token = saved
@@ -61,7 +75,42 @@ final class AgentHub: WorkspaceHost {
         }
         #endif
         isEnabled = env["FILLET_MCP"] == "1" || UserDefaults.standard.bool(forKey: Self.enabledKey)
+        #if os(macOS)
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { AgentHub.shared.removeEndpointFile() }
+        }
+        #endif
         if isEnabled { start() }
+    }
+
+    /// The port to try first and the ones to fall back to.
+    private var candidatePorts: (first: UInt16, fallbacks: [UInt16]) {
+        if let forcedPort { return (forcedPort, []) }
+        let saved = UInt16(exactly: UserDefaults.standard.integer(forKey: Self.portKey)).flatMap { Self.ports.contains($0) ? $0 : nil }
+        let first = saved ?? Self.ports[0]
+        return (first, Self.ports.filter { $0 != first })
+    }
+
+    /// The port the server listens on (or is trying, or last tried).
+    var port: UInt16 {
+        if case .listening(let p) = state { return p }
+        return transport?.currentPort ?? candidatePorts.first
+    }
+
+    private func stateChanged(_ s: MCPHTTPTransport.State) {
+        state = s
+        switch s {
+        case .listening(let p):
+            if forcedPort == nil { UserDefaults.standard.set(Int(p), forKey: Self.portKey) }
+            #if os(macOS)
+            writeEndpointFile(endpoint)
+            #endif
+        case .failed, .stopped:
+            #if os(macOS)
+            removeEndpointFile()
+            #endif
+        case .starting: break
+        }
     }
 
     // MARK: Server
@@ -70,12 +119,13 @@ final class AgentHub: WorkspaceHost {
         guard transport == nil else { return }
         let server = FilletMCP.makeServer(host: self)
         server.onInitialize = { [weak self] name in self?.clientName = name }
+        let (first, fallbacks) = candidatePorts
         #if os(iOS)
-        let transport = MCPHTTPTransport(server: server, port: port, binding: .network, token: token)
+        let transport = MCPHTTPTransport(server: server, port: first, fallbackPorts: fallbacks, binding: .network, token: token)
         #else
-        let transport = MCPHTTPTransport(server: server, port: port, binding: .loopback)
+        let transport = MCPHTTPTransport(server: server, port: first, fallbackPorts: fallbacks, binding: .loopback)
         #endif
-        transport.onStateChange = { [weak self] s in self?.state = s }
+        transport.onStateChange = { [weak self] s in self?.stateChanged(s) }
         self.transport = transport
         transport.start()
     }
@@ -83,9 +133,36 @@ final class AgentHub: WorkspaceHost {
     private func stop() {
         transport?.stop()
         transport = nil
-        state = .stopped
+        stateChanged(.stopped)
         activity = nil
     }
+
+    /// Whether a failure means every port was taken (rather than this one port).
+    var triedSeveralPorts: Bool { forcedPort == nil }
+
+    #if os(macOS)
+    /// `~/Library/Containers/app.fillet.Fillet/Data/Library/Application Support/Fillet/mcp-endpoint`
+    /// in the sandbox (`~/Library/Application Support/…` when run unsandboxed).
+    private static var endpointFile: URL? {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first?
+            .appendingPathComponent(MCPDiscovery.endpointFilePath)
+    }
+
+    private func writeEndpointFile(_ endpoint: String) {
+        guard let url = Self.endpointFile else { return }
+        try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? Data((endpoint + "\n").utf8).write(to: url, options: .atomic)
+        writtenEndpoint = endpoint
+    }
+
+    /// Removes the file if it still names this copy's server (a second copy may have written its own since).
+    private func removeEndpointFile() {
+        guard let written = writtenEndpoint, let url = Self.endpointFile else { return }
+        writtenEndpoint = nil
+        let current = (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if current == written { try? FileManager.default.removeItem(at: url) }
+    }
+    #endif
 
     /// The endpoint agents connect to.
     var endpoint: String {

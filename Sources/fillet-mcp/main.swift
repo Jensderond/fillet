@@ -5,7 +5,7 @@ import Foundation
 /// `fillet-mcp`: Fillet's MCP server for agents, over stdio.
 ///
 ///     fillet-mcp [design.fillet]           headless: model in this process, saving to the file after every step
-///     fillet-mcp --connect [url] [--token t]  bridge to the running app, so the user watches (default http://127.0.0.1:7878/mcp)
+///     fillet-mcp --connect [url] [--token t]  bridge to the running app, so the user watches (found when no url)
 @main
 struct FilletMCPCommand {
     static func main() async {
@@ -16,15 +16,27 @@ struct FilletMCPCommand {
         }
         if let i = args.firstIndex(of: "--connect") {
             args.remove(at: i)
-            var url = URL(string: "http://127.0.0.1:7878/mcp")!
-            if i < args.count, !args[i].hasPrefix("--"), let u = URL(string: args[i]) {
+            var url: URL?
+            if i < args.count, !args[i].hasPrefix("--"), let u = URL(string: args[i]), u.scheme != nil {
                 url = u
                 args.remove(at: i)
             }
             var token = ProcessInfo.processInfo.environment["FILLET_MCP_TOKEN"]
             if let t = args.firstIndex(of: "--token"), t + 1 < args.count { token = args[t + 1] }
-            log("bridging stdio to \(url.absoluteString)")
-            await MCPStdioTransport.bridge(to: url, token: token)
+            if let url {
+                log("bridging stdio to \(url.absoluteString)")
+                await MCPStdioTransport.bridge(to: url, token: token)
+            } else {
+                log("bridging stdio to the running Fillet app (found at the first request)")
+                await MCPStdioTransport.bridge(token: token) { again in
+                    let (url, source) = await MCPDiscovery.discover()
+                    switch source {
+                    case .fallback: log("no running Fillet found\(again ? " again" : ""); trying \(url.absoluteString)")
+                    default: log("found Fillet at \(url.absoluteString) (\(source.rawValue))")
+                    }
+                    return url
+                }
+            }
             return
         }
 
@@ -54,9 +66,11 @@ struct FilletMCPCommand {
               Headless: designs in this process, no window. With a file, the design is loaded from it
               (or created) and saved after every step, so it opens in Fillet afterwards.
 
-          fillet-mcp --connect [http://127.0.0.1:7878/mcp] [--token TOKEN]
+          fillet-mcp --connect [URL] [--token TOKEN]
               Bridges to the running Fillet app (Design ▸ Allow Agent Connections), so the user sees
-              the agent work in their window. TOKEN (or $FILLET_MCP_TOKEN) is needed for an iPad.
+              the agent work in their window. Without a URL it finds the app: on 127.0.0.1 ports
+              7878-7888, then the endpoint the Mac app writes, then Bonjour (an iPad), and finally
+              http://127.0.0.1:7878/mcp. TOKEN (or $FILLET_MCP_TOKEN) is needed for an iPad.
         """
 
     static func log(_ s: String) {
