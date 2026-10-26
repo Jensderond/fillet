@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 import simd
+import Synchronization
 @testable import FilletKernel
 
 @Suite("Primitives")
@@ -175,6 +176,27 @@ struct FeatureTests {
         #expect(close(try a.boolean(.common, [b, d]).volume, 125, rel: 1e-9))
         expectKernelError("overlap") { _ = try a.boolean(.common, [b, c]) }
         expectKernelError("nothing is left") { _ = try a.boolean(.cut, [b, try cube(30, at: Vec3(-10, -10, -10))]) }
+    }
+
+    @Test func cutInsideLeavesACavity() throws {
+        // The cut's result has a hole shell, which OCCT tells from an outer one by classifying a
+        // point at infinity (the face intersectors behind that are built in parallel).
+        let block = try cube(20)
+        let squash = Transform(matrix: [1.5, 0, 0, -5, 0, 1, 0, 10, 0, 0, 0.8, 2])  // B-spline faces
+        let blob = try Shape.sphere(center: Vec3(10, 0, 10), radius: 4).transformed(squash)
+        let hollow = try block.cut(by: blob)
+        #expect(hollow.solidCount == 1 && hollow.isValid)
+        #expect(close(hollow.volume, 8000 - blob.volume, rel: 1e-6), "\(hollow.volume) vs \(8000 - blob.volume)")
+        #expect(close(blob.volume, 4.0 / 3.0 * .pi * 64 * 1.5 * 0.8, rel: 1e-3), "\(blob.volume)")
+        #expect(close(hollow.surfaceArea, 2400 + blob.surfaceArea, rel: 1e-6))
+        // Filling it again, from several threads at once, gives the block back each time.
+        let filled = try (0..<8).map { _ in try hollow.copy() }
+        let volumes = Mutex<[Double]>([])
+        DispatchQueue.concurrentPerform(iterations: filled.count) { i in
+            if let v = try? filled[i].fused(with: blob).volume { volumes.withLock { $0.append(v) } }
+        }
+        #expect(volumes.withLock { $0 }.count == filled.count)
+        #expect(volumes.withLock { $0 }.allSatisfy { close($0, 8000, rel: 1e-6) })
     }
 
     @Test func insideOutSolidsAreTurnedRightWayOut() throws {
