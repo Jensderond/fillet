@@ -28,6 +28,8 @@ import UniformTypeIdentifiers
 /// Every step also checks the layout against the window: the editor is exactly as wide as
 /// its window, the tool strip and timeline sit inside it, and in sketch mode every sketch
 /// tool is either visible in the viewport or folded into "More shapes".
+///
+/// `FILLET_SCENARIO=featurePattern` runs only the feature pattern scenario (Automation+Pattern.swift).
 @MainActor
 enum DebugAutomation {
     static var isEnabled: Bool { ProcessInfo.processInfo.environment["FILLET_AUTOMATION"] != nil }
@@ -96,6 +98,11 @@ enum DebugAutomation {
         try? await Task.sleep(for: .milliseconds(300))
         await settle(session)
         await snap(session, "01-empty")
+        if ProcessInfo.processInfo.environment["FILLET_SCENARIO"] == "featurePattern" {
+            await featurePatternScenario(session)
+            log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
+            return
+        }
 
         // Sketch on the bed, picked like in Fusion: Sketch shows the origin planes, tap XY.
         session.startSketch()
