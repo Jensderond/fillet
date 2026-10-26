@@ -46,6 +46,7 @@ struct AgentToolbarButton: View {
 struct AgentSettings: View {
     @Bindable private var hub = AgentHub.shared
     @State private var copied = false
+    @State private var copiedDesktop = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
@@ -73,6 +74,19 @@ struct AgentSettings: View {
                         copy(hub.claudeCodeCommand)
                         copied = true
                     }
+                    #if os(macOS)
+                    if let config = hub.claudeDesktopConfig {
+                        Text("Connect Claude Desktop").font(Theme.caption.weight(.semibold)).foregroundStyle(Theme.inkSecondary)
+                            .padding(.top, Theme.Space.s)
+                        Text("Paste it into Claude Desktop's config (Settings ▸ Developer ▸ Edit Config), next to any servers already there, and restart Claude Desktop.")
+                            .font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Button(copiedDesktop ? "Copied" : "Copy Claude Desktop config") {
+                            copy(config)
+                            copiedDesktop = true
+                        }
+                    }
+                    #endif
                     #if os(iOS)
                     Text("Run it on a Mac on the same network. Other devices need the token in the command.")
                         .font(Theme.caption).foregroundStyle(Theme.inkSecondary)

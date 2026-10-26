@@ -162,6 +162,21 @@ final class AgentHub: WorkspaceHost {
         let current = (try? String(contentsOf: url, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines)
         if current == written { try? FileManager.default.removeItem(at: url) }
     }
+
+    /// The bundled stdio helper (`Contents/Helpers/fillet-mcp`), when this build has one.
+    var helperPath: String? {
+        let url = Bundle.main.bundleURL.appendingPathComponent("Contents/Helpers/fillet-mcp")
+        return FileManager.default.isExecutableFile(atPath: url.path) ? url.path : nil
+    }
+
+    /// Claude Desktop's `claude_desktop_config.json` entry for the bundled helper, bridging to this app.
+    var claudeDesktopConfig: String? {
+        guard let helperPath else { return nil }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .withoutEscapingSlashes
+        guard let command = try? encoder.encode(helperPath) else { return nil }
+        return #"{"mcpServers":{"fillet":{"command":"# + String(decoding: command, as: UTF8.self) + #","args":["--connect"]}}}"#
+    }
     #endif
 
     /// The endpoint agents connect to.
