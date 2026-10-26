@@ -105,10 +105,16 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
         try centers.map { plane.point(try $0.evaluate(using: ev)) }
     }
 
-    /// Drills the holes into `shape` (the body before them), whose face lies on `plane`.
-    public func drilled(_ shape: Shape, plane: Plane, using ev: Evaluator) throws -> Shape {
+    /// What drilling on `plane` (the face's plane) takes: world centres, drill direction and size.
+    public func drilling(on plane: Plane, using ev: Evaluator) throws -> (centers: [Vec3], direction: Vec3, spec: HoleSpec) {
         guard !centers.isEmpty else { throw FeatureError("Place at least one hole on the face") }
         let spec = try spec(using: ev)
-        return try shape.drilled(at: try worldCenters(on: plane, using: ev), direction: -plane.normal, spec)
+        return (try worldCenters(on: plane, using: ev), -plane.normal, spec)
+    }
+
+    /// Drills the holes into `shape` (the body before them), whose face lies on `plane`.
+    public func drilled(_ shape: Shape, plane: Plane, using ev: Evaluator) throws -> Shape {
+        let d = try drilling(on: plane, using: ev)
+        return try shape.drilled(at: d.centers, direction: d.direction, d.spec)
     }
 }

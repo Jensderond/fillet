@@ -22,7 +22,20 @@ public actor ModelEvaluator {
         var status: [UUID: FeatureStatus] = [:]
         var resolvedEdges: [UUID: [EdgeInfo]] = [:]
         var references: [UUID: [ResolvedReference?]] = [:]
+        /// What each step a feature pattern can repeat did, recorded when it succeeds.
+        var recipes: [UUID: FeatureRecipe] = [:]
+        /// Each evaluated step's place in the timeline, so a feature pattern repeats its steps in
+        /// timeline order whatever order they were picked in.
+        var order: [UUID: Int] = [:]
         var bodyCounter = 0
+    }
+
+    /// What a patternable step did (see ``FeatureKind/canBePatterned``), so a pattern can repeat it.
+    private enum FeatureRecipe: Sendable {
+        /// A tool solid applied with `operation`; `targets` as the step picked them (empty: what it overlaps).
+        case tool(Shape, operation: Operation, targets: [BodyRef])
+        /// Holes drilled at world `centers` along `direction` into `body`.
+        case holes(body: BodyRef, centers: [Vec3], direction: Vec3, spec: HoleSpec)
     }
 
     private struct CacheEntry: Sendable {
@@ -209,6 +222,7 @@ public actor ModelEvaluator {
     // MARK: - Features
 
     private func apply(_ feature: Feature, to state: inout State, evaluator ev: Evaluator) {
+        state.order[feature.id] = state.order.count
         do {
             switch feature.kind {
             case .sketch(let s): try sketch(s, feature, &state, ev)
@@ -309,6 +323,7 @@ public actor ModelEvaluator {
         let taper = try ev.angleRadians(e.taper)
         let tool = try profile.extruded(along: dir, distance: forward, back: back, taper: taper)
         try combineTool(tool, operation: e.operation, targets: e.targets, feature, &state)
+        state.recipes[feature.id] = .tool(tool, operation: e.operation, targets: e.targets)
     }
 
     private func revolve(_ r: Revolve, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
@@ -331,6 +346,7 @@ public actor ModelEvaluator {
         guard abs(angle) > 1e-9 else { throw FeatureError("Angle must not be zero") }
         let tool = try profile.revolved(axisOrigin: origin, axisDir: angle < 0 ? -dir : dir, angle: min(abs(angle), 2 * .pi))
         try combineTool(tool, operation: r.operation, targets: r.targets, feature, &state)
+        state.recipes[feature.id] = .tool(tool, operation: r.operation, targets: r.targets)
     }
 
     private func edgeFeature(_ f: EdgeFeature, fillet: Bool, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
@@ -388,7 +404,9 @@ public actor ModelEvaluator {
         let (index, body) = try bodyIndex(face.body, state)
         let (_, found, plane) = try h.resolveFace(on: body.shape)
         state.references[feature.id] = [found]
-        state.bodies[index].shape = try h.drilled(body.shape, plane: plane, using: ev)
+        let d = try h.drilling(on: plane, using: ev)
+        state.bodies[index].shape = try body.shape.drilled(at: d.centers, direction: d.direction, d.spec)
+        state.recipes[feature.id] = .holes(body: face.body, centers: d.centers, direction: d.direction, spec: d.spec)
     }
 
     private func pressPull(_ p: PressPull, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
@@ -442,6 +460,7 @@ public actor ModelEvaluator {
             tool = try Shape.torus(base: base, majorRadius: try dim(0) / 2, minorRadius: try dim(1) / 2)
         }
         try combineTool(tool, operation: p.operation, targets: p.targets, feature, &state)
+        state.recipes[feature.id] = .tool(tool, operation: p.operation, targets: p.targets)
     }
 
     private func combine(_ c: Combine, _ feature: Feature, _ state: inout State) throws {
@@ -543,6 +562,7 @@ public actor ModelEvaluator {
         }
         let tool = try Shape.loft(sections, ruled: l.ruled)
         try combineTool(tool, operation: l.operation, targets: l.targets, feature, &state)
+        state.recipes[feature.id] = .tool(tool, operation: l.operation, targets: l.targets)
     }
 
     private func mirror(_ m: Mirror, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
@@ -561,24 +581,9 @@ public actor ModelEvaluator {
     }
 
     private func pattern(_ p: Pattern, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
+        if p.objects == .features { return try patternFeatures(p, feature, &state, ev) }
         guard !p.bodies.isEmpty else { throw FeatureError("Select at least one body") }
-        var transforms: [Transform] = []
-        switch p.layout {
-        case .linear(let direction, let countExpr, let spacingExpr):
-            let count = try ev.integer(countExpr)
-            let spacing = try ev.length(spacingExpr)
-            guard count >= 1, count <= 1000 else { throw FeatureError("Count must be between 1 and 1000") }
-            let (_, dir) = try axis(direction, state)
-            transforms = (1..<max(count, 1)).map { Transform.translation(dir * (spacing * Double($0))) }
-        case .circular(let axisRef, let countExpr, let angleExpr):
-            let count = try ev.integer(countExpr)
-            guard count >= 1, count <= 1000 else { throw FeatureError("Count must be between 1 and 1000") }
-            let total = try ev.angleRadians(angleExpr)
-            let full = abs(abs(total) - 2 * .pi) < 1e-9
-            let step = count > 1 ? total / Double(full ? count : count - 1) : 0
-            let (origin, dir) = try axis(axisRef, state)
-            transforms = (1..<max(count, 1)).map { Transform.rotation(axis: dir, angle: step * Double($0), origin: origin) }
-        }
+        let transforms = try patternTransforms(p.layout, state, ev)
         for ref in p.bodies {
             let (i, body) = try bodyIndex(ref, state)
             var shape = body.shape
@@ -586,6 +591,100 @@ public actor ModelEvaluator {
             state.bodies[i].shape = shape
             state.bodies[i].lastFeature = feature.id
         }
+    }
+
+    /// Where a pattern's copies go: one transform per copy, the original left out.
+    private func patternTransforms(_ layout: PatternLayout, _ state: State, _ ev: Evaluator) throws -> [Transform] {
+        switch layout {
+        case .linear(let direction, let countExpr, let spacingExpr):
+            let count = try ev.integer(countExpr)
+            let spacing = try ev.length(spacingExpr)
+            guard count >= 1, count <= 1000 else { throw FeatureError("Count must be between 1 and 1000") }
+            let (_, dir) = try axis(direction, state)
+            return (1..<max(count, 1)).map { Transform.translation(dir * (spacing * Double($0))) }
+        case .circular(let axisRef, let countExpr, let angleExpr):
+            let count = try ev.integer(countExpr)
+            guard count >= 1, count <= 1000 else { throw FeatureError("Count must be between 1 and 1000") }
+            let total = try ev.angleRadians(angleExpr)
+            let full = abs(abs(total) - 2 * .pi) < 1e-9
+            let step = count > 1 ? total / Double(full ? count : count - 1) : 0
+            let (origin, dir) = try axis(axisRef, state)
+            return (1..<max(count, 1)).map { Transform.rotation(axis: dir, angle: step * Double($0), origin: origin) }
+        }
+    }
+
+    /// Repeats each picked step's recipe at every copy's place: a tool solid is moved and applied
+    /// again with the step's operation, holes are drilled again at the moved centres.
+    private func patternFeatures(_ p: Pattern, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
+        guard !p.features.isEmpty else { throw FeatureError("Pick at least one step in the timeline") }
+        // Timeline order, like the steps themselves ran: a body made by one step is there for a
+        // later step's cut to cut, however the steps were picked.
+        let ids = p.features.sorted { (state.order[$0] ?? .max) < (state.order[$1] ?? .max) }
+        let recipes = try ids.map { id in
+            if let recipe = state.recipes[id] { return recipe }
+            switch state.status[id] {
+            case .ok: throw FeatureError("Only extrudes, revolves, primitives, lofts and holes can be patterned")
+            case .failed: throw FeatureError("A patterned step failed")
+            case .inactive, nil: throw FeatureError("A patterned step is missing, suppressed or after the pattern")
+            }
+        }
+        let transforms = try patternTransforms(p.layout, state, ev)
+        // Work on a copy so a step that fails halfway leaves the model as it was.
+        var s = state
+        var n = 0  // derived body ids, unique across all steps and copies
+        for recipe in recipes {
+            switch recipe {
+            case .tool(let tool, .newBody, _):
+                for t in transforms {
+                    addBody(try tool.transformed(t), ref: Self.derivedRef(feature.id, n), feature, &s)
+                    n += 1
+                }
+            case .tool(let tool, .cut, let targets):
+                let copies = try transforms.map { try tool.transformed($0) }
+                let live = targets.filter { ref in s.bodies.contains { $0.ref == ref } }
+                var touched = false
+                for i in s.bodies.indices where live.isEmpty || live.contains(s.bodies[i].ref) {
+                    let tools = copies.filter { Self.boundsOverlap(s.bodies[i].shape, $0) }
+                    guard !tools.isEmpty else { continue }
+                    var shape = s.bodies[i].shape
+                    do {
+                        // One boolean with every copy: OCCT intersects and cleans up once, not per copy.
+                        shape = try shape.boolean(.cut, tools)
+                    } catch {
+                        for tool in tools { shape = try shape.boolean(.cut, tool) }
+                    }
+                    s.bodies[i].shape = shape
+                    s.bodies[i].lastFeature = feature.id
+                    touched = true
+                }
+                if !copies.isEmpty, !touched { throw FeatureError("The patterned cut doesn't touch any body") }
+            case .tool(let tool, let operation, let targets):
+                for t in transforms {
+                    let live = targets.filter { ref in s.bodies.contains { $0.ref == ref } }
+                    try combineTool(try tool.transformed(t), operation: operation, targets: live,
+                                    newBody: Self.derivedRef(feature.id, n), feature, &s)
+                    n += 1
+                }
+            case .holes(let ref, let centers, let direction, let spec):
+                let (i, body) = try bodyIndex(ref, s)
+                // One drill per direction: a translated copy drills the same way, a rotated one may not.
+                var groups: [(direction: Vec3, centers: [Vec3])] = []
+                for t in transforms {
+                    let d = t.applyDirection(direction)
+                    let moved = centers.map { t.apply($0) }
+                    if let g = groups.firstIndex(where: { $0.direction.distance(to: d) < 1e-9 }) {
+                        groups[g].centers += moved
+                    } else {
+                        groups.append((d, moved))
+                    }
+                }
+                var shape = body.shape
+                for g in groups { shape = try shape.drilled(at: g.centers, direction: g.direction, spec) }
+                s.bodies[i].shape = shape
+                if !groups.isEmpty { s.bodies[i].lastFeature = feature.id }
+            }
+        }
+        state = s
     }
 
     private func importedSTEP(_ s: ImportedSTEP, _ feature: Feature, _ state: inout State) throws {
@@ -619,10 +718,12 @@ public actor ModelEvaluator {
     // MARK: - Helpers
 
     /// Applies a tool solid to the model according to the feature's operation.
-    /// Empty `targets` means: every body the tool overlaps (join falls back to a new body).
-    private func combineTool(_ tool: Shape, operation: Operation, targets: [BodyRef], _ feature: Feature, _ state: inout State) throws {
+    /// Empty `targets` means: every body the tool overlaps (join falls back to a new body, `newBody`).
+    private func combineTool(_ tool: Shape, operation: Operation, targets: [BodyRef], newBody: BodyRef? = nil,
+                             _ feature: Feature, _ state: inout State) throws {
+        let newBody = newBody ?? BodyRef(feature.id)
         if operation == .newBody {
-            addBody(tool, ref: BodyRef(feature.id), feature, &state)
+            addBody(tool, ref: newBody, feature, &state)
             return
         }
         var refs = targets
@@ -632,7 +733,7 @@ public actor ModelEvaluator {
         if refs.isEmpty {
             switch operation {
             case .join:
-                addBody(tool, ref: BodyRef(feature.id), feature, &state)
+                addBody(tool, ref: newBody, feature, &state)
                 return
             default:
                 throw FeatureError("The \(operation == .cut ? "cut" : "intersection") doesn't touch any body")

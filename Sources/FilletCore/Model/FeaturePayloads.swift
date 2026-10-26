@@ -322,17 +322,61 @@ public enum PatternLayout: Hashable, Sendable, Codable {
     }
 }
 
-/// Repeats bodies in a linear or circular pattern (copies are fused with the originals).
+/// What a pattern repeats.
+public enum PatternObjects: String, Hashable, Sendable, Codable {
+    /// Whole bodies; each copy is fused with its original.
+    case bodies
+    /// Timeline steps (see ``FeatureKind/canBePatterned``); each copy repeats the step's
+    /// operation at its new place, so a patterned cut cuts again and a patterned hole drills again.
+    case features
+}
+
+/// Repeats bodies or features in a linear or circular pattern.
 public struct Pattern: Hashable, Sendable, Codable, FeatureReferencing {
+    public var objects: PatternObjects
+    /// The bodies to repeat (``PatternObjects/bodies``).
     public var bodies: [BodyRef]
+    /// The features to repeat, in the order picked (``PatternObjects/features``).
+    public var features: [UUID]
     public var layout: PatternLayout
 
     public init(bodies: [BodyRef], layout: PatternLayout) {
-        self.bodies = bodies; self.layout = layout
+        self.init(objects: .bodies, bodies: bodies, features: [], layout: layout)
+    }
+
+    public init(features: [UUID], layout: PatternLayout) {
+        self.init(objects: .features, bodies: [], features: features, layout: layout)
+    }
+
+    public init(objects: PatternObjects, bodies: [BodyRef], features: [UUID], layout: PatternLayout) {
+        self.objects = objects; self.bodies = bodies; self.features = features; self.layout = layout
     }
 
     public var referencedFeatures: Set<UUID> {
-        Set(bodies.map(\.feature)).union(layout.axis.referencedBodies.featureIDs)
+        let repeated: Set<UUID> = switch objects {
+        case .bodies: Set(bodies.map(\.feature))
+        case .features: Set(features)
+        }
+        return repeated.union(layout.axis.referencedBodies.featureIDs)
+    }
+
+    private enum CodingKeys: String, CodingKey { case objects, bodies, features, layout }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        objects = try c.decodeIfPresent(PatternObjects.self, forKey: .objects) ?? .bodies
+        bodies = try c.decodeIfPresent([BodyRef].self, forKey: .bodies) ?? []
+        features = try c.decodeIfPresent([UUID].self, forKey: .features) ?? []
+        layout = try c.decode(PatternLayout.self, forKey: .layout)
+    }
+
+    /// Body patterns encode as before feature patterns existed, so older versions still read them.
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        if objects != .bodies { try c.encode(objects, forKey: .objects) }
+        try c.encode(bodies, forKey: .bodies)
+        if !features.isEmpty { try c.encode(features, forKey: .features) }
+        try c.encode(layout, forKey: .layout)
     }
 }
 

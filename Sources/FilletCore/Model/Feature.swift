@@ -117,6 +117,15 @@ public enum FeatureKind: Hashable, Sendable, Codable {
     /// Ids of features this one directly depends on.
     public var referencedFeatures: Set<UUID> { payload?.referencedFeatures ?? [] }
 
+    /// True for steps a feature pattern can repeat: those that shape the model with a tool
+    /// solid (extrude, revolve, primitive, loft) or drill (hole).
+    public var canBePatterned: Bool {
+        switch self {
+        case .extrude, .revolve, .primitive, .loft, .hole: true
+        default: false
+        }
+    }
+
     public init(from decoder: Decoder) throws {
         let type = try decoder.decodeTypeTag()
         switch type {

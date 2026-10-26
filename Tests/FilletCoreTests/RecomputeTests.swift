@@ -302,6 +302,143 @@ struct RecomputeTests {
     }
 }
 
+@Suite("Feature pattern")
+struct FeaturePatternTests {
+    let box = UUID(), pattern = UUID()
+
+    /// A 60×20×10 box centred on the origin (x −30…30, y −10…10, z 0…10).
+    func boxDocument() -> Document {
+        var doc = Document()
+        doc.features = [Feature(id: box, name: "Box", .primitive(Primitive(kind: .box, dimensions: [60, 20, 10])))]
+        return doc
+    }
+
+    func linear(count: Expr, spacing: Expr) -> PatternLayout { .linear(direction: .x, count: count, spacing: spacing) }
+
+    @Test func linearPatternRepeatsACut() async throws {
+        var doc = boxDocument()
+        let sketch = UUID(), cut = UUID()
+        doc.features += [
+            Feature(id: sketch, name: "Sketch", .sketch(Sketch(plane: .xy, shapes: [
+                SketchShape(.circle(center: Point2Expr(-20, 0), diameter: 6)),
+            ]))),
+            Feature(id: cut, name: "Cut", .extrude(Extrude(
+                sketch: sketch, regions: [RegionRef(x: -20, y: 0)], distance: 30, symmetric: true, operation: .cut))),
+            Feature(id: pattern, name: "Pattern", .pattern(Pattern(features: [cut], layout: linear(count: 3, spacing: 20)))),
+        ]
+        let model = await ModelEvaluator().evaluate(doc)
+        #expect(model.status[pattern] == .ok, "\(String(describing: model.status[pattern]))")
+        #expect(model.bodies.count == 1)
+        let body = try #require(model.bodies.first)
+        #expect(abs(body.shape.volume - (12000 - 3 * Double.pi * 9 * 10)) < 1e-3)
+        #expect(body.lastFeature == pattern)
+    }
+
+    /// Holes in a side face, patterned around Z: each copy drills along its own turned direction.
+    @Test func circularPatternRepeatsAHole() async throws {
+        var doc = Document()
+        let block = UUID(), hole = UUID()
+        // 40×40×40, x and y −20…20.
+        doc.features = [Feature(id: block, name: "Block", .primitive(Primitive(kind: .box, dimensions: [40, 40, 40])))]
+        let ev = ModelEvaluator()
+        let first = await ev.evaluate(doc)
+        let body = try #require(first.bodies.first)
+        let side = try #require(body.shape.faceInfos.firstIndex { $0.normal.x > 0.99 })
+        let face = try #require(first.faceRef(body: body.ref, face: side))
+        let plane = try #require(body.shape.facePlane(side))
+        doc.features += [
+            Feature(id: hole, name: "Hole", .hole(Hole(
+                face: face, centers: [Point2Expr(plane.project(Vec3(20, 0, 20)))], diameter: 4, depth: 5, tipAngle: 0))),
+            Feature(id: pattern, name: "Pattern", .pattern(Pattern(
+                features: [hole], layout: .circular(axis: .z, count: 4, angle: 360)))),
+        ]
+        let model = await ev.evaluate(doc)
+        #expect(model.status[hole] == .ok)
+        #expect(model.status[pattern] == .ok, "\(String(describing: model.status[pattern]))")
+        let drilled = try #require(model.bodies.first)
+        #expect(abs(drilled.shape.volume - (64000 - 4 * Double.pi * 4 * 5)) < 1e-3)
+        // One hole wall per side.
+        let walls = drilled.shape.faceInfos.filter { $0.surface == .cylinder }
+        #expect(walls.count == 4)
+        #expect(drilled.lastFeature == pattern)
+    }
+
+    @Test func linearPatternRepeatsAJoin() async throws {
+        var doc = boxDocument()
+        let boss = UUID()
+        doc.features += [
+            Feature(id: boss, name: "Boss", .primitive(Primitive(
+                kind: .cylinder, plane: .standard(.xy, offset: 10), position: Point2Expr(-20, 0), dimensions: [6, 5],
+                operation: .join))),
+            Feature(id: pattern, name: "Pattern", .pattern(Pattern(features: [boss], layout: linear(count: 3, spacing: 20)))),
+        ]
+        let model = await ModelEvaluator().evaluate(doc)
+        #expect(model.status[pattern] == .ok, "\(String(describing: model.status[pattern]))")
+        #expect(model.bodies.count == 1)
+        #expect(abs(try #require(model.bodies.first).shape.volume - (12000 + 3 * Double.pi * 9 * 5)) < 1e-3)
+    }
+
+    @Test func newBodyCopiesBecomeBodies() async throws {
+        var doc = Document()
+        let ball = UUID()
+        doc.features = [
+            Feature(id: ball, name: "Ball", .primitive(Primitive(kind: .sphere, dimensions: [4]))),
+            Feature(id: pattern, name: "Pattern", .pattern(Pattern(features: [ball], layout: linear(count: 4, spacing: 10)))),
+        ]
+        let model = await ModelEvaluator().evaluate(doc)
+        #expect(model.status[pattern] == .ok)
+        #expect(model.bodies.count == 4)
+        #expect(Set(model.bodies.map(\.ref)).count == 4)
+        #expect(model.bodies.allSatisfy { abs($0.shape.volume - 4 / 3 * Double.pi * 8) < 1e-3 })
+        let xs = model.bodies.compactMap { $0.shape.bounds.map { (($0.min.x + $0.max.x) / 2).rounded() } }
+        #expect(xs == [0, 10, 20, 30])
+    }
+
+    /// A new body and a cut through it, picked either way round: the copies run in timeline
+    /// order, so each copied box gets its copied hole.
+    @Test func stepsRepeatInTimelineOrder() async throws {
+        let cut = UUID()
+        for picked in [[box, cut], [cut, box]] {
+            var doc = boxDocument()
+            doc.features += [
+                Feature(id: cut, name: "Cut", .primitive(Primitive(
+                    kind: .cylinder, position: Point2Expr(-20, 0), dimensions: [6, 12], operation: .cut))),
+                Feature(id: pattern, name: "Pattern", .pattern(Pattern(features: picked, layout: linear(count: 2, spacing: 70)))),
+            ]
+            let model = await ModelEvaluator().evaluate(doc)
+            #expect(model.status[pattern] == .ok, "\(String(describing: model.status[pattern]))")
+            #expect(model.bodies.count == 2)
+            #expect(model.bodies.allSatisfy { abs($0.shape.volume - (12000 - Double.pi * 9 * 10)) < 1e-3 })
+        }
+    }
+
+    @Test func missingOrUnpatternableStepsFail() async throws {
+        var doc = boxDocument()
+        doc.features.append(Feature(id: pattern, name: "Pattern", .pattern(Pattern(features: [], layout: linear(count: 2, spacing: 70)))))
+        let ev = ModelEvaluator()
+        #expect(await ev.evaluate(doc).error(for: pattern) == "Pick at least one step in the timeline")
+
+        doc.features[1].kind = .pattern(Pattern(features: [box], layout: linear(count: 2, spacing: 70)))
+        var model = await ev.evaluate(doc)
+        #expect(model.status[pattern] == .ok)
+        #expect(model.bodies.count == 2)
+
+        // The picked step suppressed: the pattern says so instead of doing nothing.
+        doc.features[0].suppressed = true
+        model = await ev.evaluate(doc)
+        #expect(model.error(for: pattern)?.contains("suppressed") == true)
+        #expect(model.bodies.isEmpty)
+
+        // A step that can't be patterned.
+        doc.features[0].suppressed = false
+        let sketch = UUID()
+        doc.features.insert(Feature(id: sketch, name: "Sketch", .sketch(Sketch(plane: .xy, shapes: []))), at: 1)
+        doc.features[2].kind = .pattern(Pattern(features: [sketch], layout: linear(count: 2, spacing: 70)))
+        model = await ev.evaluate(doc)
+        #expect(model.error(for: pattern)?.hasPrefix("Only extrudes") == true)
+    }
+}
+
 @Suite("Parameter rename")
 struct ParameterRenameTests {
     @Test func renamesReferencesEverywhere() throws {
