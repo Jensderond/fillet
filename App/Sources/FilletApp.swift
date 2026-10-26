@@ -20,12 +20,13 @@ struct FilletApp: App {
         .commands { FilletCommands() }
 
         #if os(macOS)
-        Window("Software Update", id: UpdateWindow.id) { UpdateWindow() }
-            .windowResizability(.contentSize)
-            .windowMinimizeBehavior(.disabled)
-            .defaultLaunchBehavior(.suppressed)
-            .restorationBehavior(.disabled)
-            .commandsRemoved()
+        Window("Software Update", id: UpdateWindow.id) {
+            UpdateWindow().windowMinimizeBehavior(.disabled)
+        }
+        .windowResizability(.contentSize)
+        .defaultLaunchBehavior(.suppressed)
+        .restorationBehavior(.disabled)
+        .commandsRemoved()
         #endif
 
         #if os(iOS)
