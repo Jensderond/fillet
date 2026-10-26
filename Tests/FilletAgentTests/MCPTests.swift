@@ -383,6 +383,30 @@ struct ModelingToolTests {
         #expect(throws: ToolError.self) { try ScaleAxes.turn(toAxes: ["x": [1, 0, 0], "z": [2, 0, 0]]) }
     }
 
+    @Test func refusesBrokenResults() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [10, 10, 10], "name": "Cube"])
+        // The kernel returns a fillet this big without complaint, but it is no solid.
+        let r = try await c.call("fillet", ["body": "Cube", "edges": "all", "radius": 6])
+        #expect(r.isError && r.text.contains("Fillet 1 failed: it would leave “Cube”"), "\(r.text)")
+        #expect(c.workspace.document.features.count == 1)
+    }
+
+    @Test func adviceForFailedBooleans() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [10, 10, 10], "name": "Staff"])
+        try await c.ok("primitive", ["kind": "sphere", "dimensions": ["diameter": 8], "at": [0, 0, 10], "name": "Gem"])
+        let model = await c.workspace.evaluated()
+        let r = Resolver(document: c.workspace.document, model: model)
+        let staff = try r.body("Staff"), gem = try r.body("Gem")
+        let cut = Combine(target: staff.ref, tools: [gem.ref], operation: .cut)
+        let swapped = await FilletTools.booleanAdvice(cut, target: staff, tool: gem, r, quick: true)
+        #expect(swapped.hasPrefix("Cutting “Staff” out of “Gem” instead works (checked): combine with target “Gem”, tools “Staff”"))
+        let join = Combine(target: staff.ref, tools: [gem.ref], operation: .join)
+        #expect(await FilletTools.booleanAdvice(join, target: staff, tool: gem, r, quick: true).contains("0.05 mm"))
+        #expect(await FilletTools.booleanAdvice(cut, target: staff, tool: gem, r, quick: false).contains("0.05 mm"))
+    }
+
     @Test func shapeInputAcceptsArraysAndBulges() throws {
         let shapes = try ShapeInput.shapes([
             ["type": "polyline", "vertices": [[0, 0], [10, 0, 2], [10, 10]], "closed": true, "construction": true],

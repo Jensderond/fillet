@@ -40,6 +40,9 @@ enum Change {
             let name = doc.feature(id)?.name ?? "The step"
             throw ToolError("\(name) failed: \(reason). Nothing was changed.")
         }
+        if let id = newFeature, let problem = brokenBody(candidate, before: before, step: id, doc: doc) {
+            throw ToolError("\(doc.feature(id)?.name ?? "The step") failed: \(problem). Nothing was changed.")
+        }
         let broken = doc.features.compactMap { f -> String? in
             guard f.id != newFeature, case .failed(let reason) = candidate.status[f.id] else { return nil }
             if case .failed = before.status[f.id] { return nil }
@@ -49,6 +52,20 @@ enum Change {
             throw ToolError("Refused: this change makes \(broken.count == 1 ? "a step" : "\(broken.count) steps") fail — "
                 + broken.joined(separator: "; ") + ". Nothing was changed. Pass allow_failures: true to apply it anyway.")
         }
+    }
+
+    /// A body the step left broken (no solid, or not a valid one) although it was fine before:
+    /// the kernel sometimes returns such a result without failing.
+    private static func brokenBody(_ candidate: EvaluatedModel, before: EvaluatedModel, step: UUID, doc: Document) -> String? {
+        for b in candidate.bodies where b.lastFeature == step {
+            let noSolid = b.shape.solidCount == 0
+            guard noSolid || !b.shape.isValid else { continue }
+            // Only blame the step for what it broke.
+            if let old = before.body(b.ref), old.shape.solidCount == 0 || !old.shape.isValid { continue }
+            let name = doc.feature(b.ref.feature)?.name ?? b.name
+            return noSolid ? "it would leave “\(name)” without a closed solid" : "it would leave “\(name)” an invalid solid"
+        }
+        return nil
     }
 
     /// Steps that still work but whose face/edge references now land somewhere else, or only

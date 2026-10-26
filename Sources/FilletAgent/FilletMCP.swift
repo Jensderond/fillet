@@ -72,16 +72,21 @@ public enum FilletMCP {
         what that step made (edges/faces of the body after it that no body had before it): \
         {"created_by": "Join arm"} is the seam the join left, ready to fillet, however the numbering shifts.
 
-        CHECK YOUR WORK: call render_view often (it returns an image) and get_design for bounds. A step that fails is \
-        not added (you get the kernel's reason); fix the input and retry. A change that makes later steps fail is \
-        refused too. When a change makes a later fillet, chamfer, shell or lay-flat find its edges/faces somewhere \
-        else, it is made but the result has "warnings" naming that step: check it, and redo it if it went wrong. \
-        Fillet radii must be smaller than the faces they round; boolean tools must overlap their targets. \
-        A failed fillet or chamfer says which edges are the trouble and the largest size the others take. Fillet \
-        seams one join at a time (join a part, fillet {"created_by": that join}, then the next part): where many \
-        parts meet in one spot, or a seam runs into a thin sliver, fillets fail. \
-        undo takes back the last change, whatever it was (a new step, an edit, a parameter, a colour); its result says \
-        what. Pass expect ("New Hat", "Edit Hat", or the step name) to be sure. In the app the user shares the \
+        CHECK YOUR WORK: call render_view often (it returns an image) and get_design for bounds. A step that fails, \
+        or leaves a body that isn't a valid closed solid, is not added (you get the reason); fix the input and retry. \
+        A change that makes later steps fail is refused too. When a change makes a later fillet, chamfer, shell or \
+        lay-flat find its edges/faces somewhere else, it is made, but the result has "warnings" naming that step: \
+        check it, and redo it if it went wrong. Big booleans and fillets on detailed bodies can take tens of seconds; \
+        if a call times out it may still have been made, so call get_design before you retry.
+
+        FILLETS AND BOOLEANS: fillet radii must be smaller than the faces they round; boolean tools must overlap \
+        their targets. Fillet seams one join at a time (join a part, fillet {"created_by": that join}, then join the \
+        next part): where many parts meet in one spot, or a seam runs into a thin sliver, fillets fail. A failed \
+        fillet or chamfer says which edges are the trouble and the largest size the others take; a failed cut says \
+        whether cutting the other way round works.
+
+        UNDO: undo takes back the last change, whatever it was (a new step, an edit, a parameter, a colour), and \
+        says what. Pass expect ("New Hat", "Edit Hat", or the step name) to be sure. In the app the user shares the \
         undo history: undo refuses to take back their changes unless you name them in expect.
         """
     }

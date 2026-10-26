@@ -407,8 +407,31 @@ extension FilletTools {
             guard !tools.isEmpty else { throw ToolError("`tools` must name bodies other than the target") }
             let c = Combine(target: target.ref, tools: tools, operation: try a.operation(default: .join),
                             keepTools: a.bool("keep_tools", default: false))
-            return try await add(ws, .combine(c), base: "Combine", a)
+            let clock = ContinuousClock()
+            let start = clock.now
+            do {
+                return try await add(ws, .combine(c), base: "Combine", a)
+            } catch let error as ToolError where error.message.contains(" failed: ") {
+                let tool = tools.count == 1 ? r.model.body(tools[0]) : nil
+                throw ToolError(error.message + " " + (await Self.booleanAdvice(c, target: target, tool: tool, r, quick: clock.now - start < .seconds(10))))
+            }
         }
+    }
+
+    /// What to try when a boolean fails. A failed cut of one body from another is tried the other
+    /// way round (when the failure was quick enough to afford another boolean): cutting the
+    /// target out of the tool often works where the original doesn't, and it also leaves the two
+    /// bodies no longer overlapping, which is what a multi-colour print needs.
+    static func booleanAdvice(_ c: Combine, target: EvaluatedBody, tool: EvaluatedBody?, _ r: Resolver, quick: Bool) async -> String {
+        let general = "Booleans trip over faces that coincide or only just touch, and over very thin slivers: move or scale one body slightly (about 0.05 mm) so the faces cross cleanly."
+        guard c.operation == .cut, let tool, quick else { return general }
+        let (t, s) = (target.shape, tool.shape)
+        let swapped = await Task.detached(priority: .userInitiated) {
+            guard let result = try? s.boolean(.cut, t) else { return false }
+            return result.solidCount > 0 && result.isValid
+        }.value
+        guard swapped else { return general }
+        return "Cutting “\(r.bodyLabel(target))” out of “\(r.bodyLabel(tool))” instead works (checked): combine with target “\(r.bodyLabel(tool))”, tools “\(r.bodyLabel(target))”, operation cut and keep_tools: true. That keeps “\(r.bodyLabel(target))” whole and trims “\(r.bodyLabel(tool))” where they overlap."
     }
 
     private var moveBodies: MCPTool {
