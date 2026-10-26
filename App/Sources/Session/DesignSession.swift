@@ -235,6 +235,16 @@ final class DesignSession {
         setDocument(doc)
     }
 
+    /// Live update of the document around the feature being edited (e.g. a parameter it starts
+    /// using); like `updateEditing`, part of the edit's undo step, and cancel takes it back.
+    func updateEditingDocument(_ change: (inout Document) -> Void) {
+        guard editing != nil else { return }
+        var doc = document
+        change(&doc)
+        guard doc != document else { return }
+        setDocument(doc)
+    }
+
     var editingFeature: Feature? { editing.flatMap { document.feature($0.feature) } }
 
     func commitEdit() {

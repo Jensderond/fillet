@@ -23,6 +23,16 @@ extension DesignSession {
         return nil
     }
 
+    /// Gives the open hole a screw preset's sizes (nil keeps the sizes and drops the name). A clearance
+    /// fit adds the design's `clearance` parameter if it has none, in the same edit.
+    func applyHolePreset(_ preset: HolePreset?) {
+        guard let id = editing?.feature, var h = editingHole else { return }
+        updateEditingDocument { doc in
+            if let preset { doc.apply(preset, to: &h) } else { h.preset = nil }
+            if let i = doc.index(of: id) { doc.features[i].kind = .hole(h) }
+        }
+    }
+
     /// The open hole has no face yet: the viewport offers only flat faces.
     var choosingHoleFace: Bool { editingHole.map { $0.face == nil } ?? false }
 

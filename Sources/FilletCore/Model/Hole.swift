@@ -38,6 +38,8 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
     public var countersinkDiameter: Expr
     /// Included angle of the countersink cone.
     public var countersinkAngle: Expr
+    /// The screw preset the sizes came from (they may have been edited since; see ``presetTitle``).
+    public var preset: HolePreset?
 
     /// A standard twist drill's point.
     public static let drillPoint: Expr = 118
@@ -46,8 +48,10 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
         face: FaceRef?, centers: [Point2Expr] = [], holeType: HoleType = .simple, diameter: Expr = 5,
         extent: HoleExtent = .distance, depth: Expr = 10, tipAngle: Expr = Hole.drillPoint,
         counterboreDiameter: Expr = 9, counterboreDepth: Expr = 3,
-        countersinkDiameter: Expr = 10, countersinkAngle: Expr = 90, anchor: FaceAnchor = .centroid
+        countersinkDiameter: Expr = 10, countersinkAngle: Expr = 90, anchor: FaceAnchor = .centroid,
+        preset: HolePreset? = nil
     ) {
+        self.preset = preset
         self.face = face; self.centers = centers; self.anchor = anchor; self.holeType = holeType; self.diameter = diameter
         self.extent = extent; self.depth = depth; self.tipAngle = tipAngle
         self.counterboreDiameter = counterboreDiameter; self.counterboreDepth = counterboreDepth
@@ -58,7 +62,7 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
 
     private enum CodingKeys: String, CodingKey {
         case face, centers, anchor, holeType, diameter, extent, depth, tipAngle
-        case counterboreDiameter, counterboreDepth, countersinkDiameter, countersinkAngle
+        case counterboreDiameter, counterboreDepth, countersinkDiameter, countersinkAngle, preset
     }
 
     /// Everything but the face may be left out (agents write holes by hand); defaults as `init`.
@@ -77,6 +81,8 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
         counterboreDepth = try c.decodeIfPresent(Expr.self, forKey: .counterboreDepth) ?? d.counterboreDepth
         countersinkDiameter = try c.decodeIfPresent(Expr.self, forKey: .countersinkDiameter) ?? d.countersinkDiameter
         countersinkAngle = try c.decodeIfPresent(Expr.self, forKey: .countersinkAngle) ?? d.countersinkAngle
+        // A preset this version doesn't know leaves the sizes as they are, without a name.
+        preset = try? c.decodeIfPresent(HolePreset.self, forKey: .preset)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -94,6 +100,7 @@ public struct Hole: Hashable, Sendable, Codable, FeatureReferencing {
         try c.encode(counterboreDepth, forKey: .counterboreDepth)
         try c.encode(countersinkDiameter, forKey: .countersinkDiameter)
         try c.encode(countersinkAngle, forKey: .countersinkAngle)
+        try c.encodeIfPresent(preset, forKey: .preset)
     }
 
     /// The kernel's hole size, with the expressions evaluated.

@@ -62,7 +62,7 @@ public enum FilletMCP {
         - scale_bodies: non-uniform scale about a centre — squash a sphere into a mochi-like head or a flat foot. \
           With `axes` ({"z": [0, -0.5, 0.87]}) the factors apply along tilted directions: a disc on a sloped cheek \
           in one step, no squash-then-rotate.
-        - Then fillet/chamfer edges, shell, hole (drilled, counterbored or countersunk holes in a flat face), press_pull faces (move them in or out), combine, move_bodies (rotate about a centre, translate), mirror, pattern.
+        - Then fillet/chamfer edges, shell, hole (drilled, counterbored or countersunk holes in a flat face; screw presets like "m3-clearance" use the `clearance` parameter for the printer's fit), press_pull faces (move them in or out), combine, move_bodies (rotate about a centre, translate), mirror, pattern.
         - Soft, organic characters: overlap rounded parts and join them (combine), then fillet the seams where they \
           meet (edges {"created_by": "<the join step>"}) with small radii.
         - set_body_color gives bodies display colours (hex like "#4CAF50" or a name like "green").

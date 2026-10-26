@@ -243,7 +243,7 @@ struct FeatureInspector: View {
         case .fillet(let f): edgeFeature(f, fillet: true)
         case .chamfer(let f): edgeFeature(f, fillet: false)
         case .shell(let s): shell(s)
-        case .hole(let h): HoleInspector(hole: h, evaluator: ev) { set(.hole($0)) }
+        case .hole(let h): HoleInspector(hole: h, evaluator: ev, set: { set(.hole($0)) }, applyPreset: { session.applyHolePreset($0) })
         case .pressPull(let p): PressPullInspector(session: session, pressPull: p)
         case .primitive(let p): primitive(p)
         case .combine(let c): combine(c)

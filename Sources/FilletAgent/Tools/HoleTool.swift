@@ -12,7 +12,13 @@ extension FilletTools {
                 cap screw head) or countersink (a cone for a flat-head screw). Place them with `points` on the face \
                 (world [x, y, z]) or `centers` in the face's own coordinates [u, v] (mm along its u/v axes from its \
                 origin, as returned in `face_plane`; axes as for a sketch on a face). The holes go straight in, along \
-                the face's inward normal, and follow the face when earlier steps move it.
+                the face's inward normal, and follow the face when earlier steps move it. For screws, give a \
+                `preset` ("m3-clearance", "m4-counterbore"…; M2–M6): clearance (ISO 273 normal), counterbore \
+                (socket head cap screw, ISO 4762), countersink (flat head, ISO 10642), tap (undersized, for a screw \
+                that cuts its own thread in the plastic) or insert (heat-set insert, CNC Kitchen / Ruthex sizes). \
+                Clearance, counterbore and countersink add the design's `clearance` parameter (created at 0.2 mm if \
+                missing) to their diameters, so set_parameter on it tunes every screw hole to the printer. Size \
+                arguments given with a preset override its values.
                 """,
             inputSchema: Self.object([
                 "body": Self.body,
@@ -26,7 +32,8 @@ extension FilletTools {
                 "depth": Self.expr("Depth of the full-diameter part from the face (default 10); the drill point goes below it"),
                 "through_all": Self.boolean("Drill through the whole body (ignores depth and tip_angle)"),
                 "tip_angle": Self.expr("Drill point angle in degrees (default 118); 0 = flat bottom"),
-                "hole_type": Self.string("Default simple", enum: HoleType.allCases.map(\.rawValue)),
+                "preset": Self.string("Screw preset: size-fit, e.g. \"m3-clearance\"", enum: HolePreset.all.map(\.id)),
+                "hole_type": Self.string("Default simple (or the preset's)", enum: HoleType.allCases.map(\.rawValue)),
                 "counterbore_diameter": Self.expr("Counterbore diameter (default 9)"),
                 "counterbore_depth": Self.expr("Counterbore depth (default 3)"),
                 "countersink_diameter": Self.expr("Countersink diameter at the face (default 10)"),
@@ -53,25 +60,43 @@ extension FilletTools {
                 centers.append(Point2Expr(round(uv.x), round(uv.y)))
             }
             guard !centers.isEmpty else { throw ToolError("Give at least one hole centre in `points` or `centers`") }
-            let typeName = a.optionalString("hole_type") ?? HoleType.simple.rawValue
+            var preset: HolePreset?
+            if let name = a.optionalString("preset") {
+                guard let p = HolePreset(id: name) else {
+                    throw ToolError("Unknown `preset` \"\(name)\": use size-fit, size M2, M2.5, M3, M4, M5 or M6 and fit "
+                        + "\(HoleFit.allCases.map(\.rawValue).joined(separator: ", ")) (e.g. \"m3-clearance\")")
+                }
+                preset = p
+            }
+            // A preset gives the defaults; explicit arguments still win.
+            var d = Hole(face: nil)
+            preset?.apply(to: &d)
+            let typeName = a.optionalString("hole_type") ?? d.holeType.rawValue
             guard let type = HoleType(rawValue: typeName) else {
                 throw ToolError("`hole_type` must be \(HoleType.allCases.map(\.rawValue).joined(separator: ", "))")
             }
-            let d = Hole(face: nil)
-            let hole = Hole(
+            var hole = Hole(
                 face: ref, centers: centers, holeType: type, diameter: try a.expr("diameter", default: d.diameter),
-                extent: a.bool("through_all", default: false) ? .throughAll : .distance,
+                extent: a.bool("through_all", default: false) ? .throughAll : d.extent,
                 depth: try a.expr("depth", default: d.depth), tipAngle: try a.expr("tip_angle", default: d.tipAngle),
                 counterboreDiameter: try a.expr("counterbore_diameter", default: d.counterboreDiameter),
                 counterboreDepth: try a.expr("counterbore_depth", default: d.counterboreDepth),
                 countersinkDiameter: try a.expr("countersink_diameter", default: d.countersinkDiameter),
                 countersinkAngle: try a.expr("countersink_angle", default: d.countersinkAngle), anchor: .world)
+            hole.preset = preset
             let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: "Hole", in: ws.document), .hole(hole))
-            let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
+            var addedClearance = false
+            let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { doc in
+                if preset?.fit.usesClearance == true { addedClearance = doc.addClearanceParameterIfMissing() }
+                _ = doc.addFeature(feature)
+            }
+            var extra: [String: JSONValue] = [:]
+            if let title = hole.presetTitle { extra["preset"] = .string(title) }
+            if addedClearance { extra["added_parameter"] = .string("\(HolePreset.clearanceParameter) = \(HolePreset.defaultClearance.source)") }
             let world = (try? hole.worldCenters(on: plane, using: model.parameters.evaluator)) ?? []
-            return Report.added(ws, model, warnings: warnings, feature: feature.id, extra: [
+            return Report.added(ws, model, warnings: warnings, feature: feature.id, extra: extra.merging([
                 "face_plane": Describe.plane(plane), "hole_centers": .array(world.map { .vec($0, 3) }),
-            ])
+            ]) { a, _ in a })
         }
     }
 }
