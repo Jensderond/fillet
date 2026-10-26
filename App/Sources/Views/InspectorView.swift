@@ -320,14 +320,19 @@ struct FeatureInspector: View {
     // MARK: Modify
 
     @ViewBuilder private func edgeFeature(_ f: EdgeFeature, fillet: Bool) -> some View {
-        SelectionCount(count: f.edges.count, noun: "edge", plural: "edges", hint: "\(Theme.Copy.pick) edges in the viewport") {
+        let chains = f.tangentChain && !f.edges.isEmpty
+        SelectionCount(count: session.pickedEdgeCount(f), noun: "edge", plural: "edges",
+                       hint: chains ? "In \(f.edges.count) tangent \(f.edges.count == 1 ? "chain" : "chains"). \(Theme.Copy.pick) one to drop it."
+                                    : "\(Theme.Copy.pick) edges in the viewport") {
             var x = f; x.edges = []
             set(fillet ? .fillet(x) : .chamfer(x))
         }
+        TangentChainToggle(isOn: f.tangentChain) { session.setTangentChain($0) }
         ExprField(label: fillet ? "Radius" : "Distance", value: f.size, evaluator: ev) {
             var x = f; x.size = $0
             set(fillet ? .fillet(x) : .chamfer(x))
         }
+        Hint("\(Theme.Copy.doublePick) an edge to pick the loop around a face.", symbol: "hand.tap")
         Hint(fillet ? "Tip: a 0.5–1 mm fillet on bottom edges helps parts release; chamfers print without supports."
                     : "Chamfers on bottom edges print without supports.")
     }
@@ -637,6 +642,38 @@ struct ThemeSegmented<Value: Hashable>: View {
     }
 
     private var isDark: Bool { colorScheme == .dark }
+}
+
+/// Fillet's and Chamfer's "Tangent chain" (Fusion's name): on, a picked edge brings every edge
+/// that runs on smoothly from it. A switch with a line saying what it does, like the panel's other
+/// options; the small chain glyph echoes how the picked run looks in the viewport.
+struct TangentChainToggle: View {
+    let isOn: Bool
+    let onChange: (Bool) -> Void
+    @Environment(\.touchTargets) private var touch
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { isOn }, set: onChange)) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
+                Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isOn ? Theme.selectInk : Theme.inkTertiary)
+                    .frame(width: 18)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Tangent chain").font(Theme.body.weight(.medium)).foregroundStyle(Theme.ink)
+                    Text(isOn ? "Picks the edges that run on smoothly too" : "Picks single edges")
+                        .font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .frame(minHeight: Theme.Metrics.target(touch: touch))
+        .animation(Theme.Motion.hover, value: isOn)
+        .automationFrame("tangent-chain")
+        .help("Tangent chain: a picked edge brings every edge joined smoothly to it, like the rounded outline of a plate")
+        .accessibilityHint(isOn ? "Picked edges bring the edges joined smoothly to them" : "Each pick is a single edge")
+    }
 }
 
 /// Guidance or a printing tip, quiet enough to ignore.

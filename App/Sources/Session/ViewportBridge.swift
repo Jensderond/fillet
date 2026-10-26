@@ -306,11 +306,12 @@ extension DesignSession: ViewportDelegate {
         return editor.tool != .select
     }
 
-    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers) {
+    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers,
+                        pointer: PointerKind) {
+        noteTap(target)
         switch pickMode {
         case .idle:
-            guard let target, let s = Selection(target) else { selection = []; return }
-            toggleSelection(s, additive: true)
+            selectionTapped(target, modifiers: modifiers, pointer: pointer)
         case .sketchPlane:
             // Empty space and curved faces keep waiting; the bar over the viewport says what to pick.
             switch target {
@@ -360,6 +361,15 @@ extension DesignSession: ViewportDelegate {
         case .measure:
             measureTapped(target)
         }
+    }
+
+    func viewportDidDoubleTap(target: PickTarget?, face: PickTarget?, location: CGPoint, modifiers: ViewportModifiers,
+                              pointer: PointerKind) {
+        doubleTapped(target, face: face, modifiers: modifiers, pointer: pointer)
+    }
+
+    func viewportDidBoxSelect(_ targets: [PickTarget], box: SelectionBox) {
+        boxSelected(targets, box: box)
     }
 
     func viewportHoverChanged(target: PickTarget?) {

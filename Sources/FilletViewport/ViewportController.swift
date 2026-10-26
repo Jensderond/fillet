@@ -200,7 +200,7 @@ public final class ViewportController {
         let hit = pick(at: p, pointer: pointer, filter: filter)
         var count = clickCount ?? tapCount(at: p, target: hit?.target, pointer: pointer, time: time)
         // A double click that lands on another element than the first click is two clicks.
-        if clickCount != nil, count > 1, lastTap?.target != hit?.target || hit == nil { count = 1 }
+        if clickCount != nil, count > 1, !Self.sameElement(lastTap?.target, hit?.target) { count = 1 }
         lastTap = (p, hit?.target, pointer, time, count)
         if count == 2 {
             // The face beside the edge, for its loop: whichever one is under the pointer.
@@ -219,11 +219,28 @@ public final class ViewportController {
     /// 1 for a first tap, 2 for a second one on the same element close by and soon after, 3 for
     /// a third (ignored, like a triple click).
     func tapCount(at p: CGPoint, target: PickTarget?, pointer: PointerKind, time: TimeInterval) -> Int {
-        guard let last = lastTap, last.pointer == pointer, last.target == target, target != nil,
-            time - last.time <= Self.doubleTapInterval,
-            hypot(p.x - last.location.x, p.y - last.location.y) <= max(pointer.tolerance * 2, 12)
+        guard let last = lastTap, last.pointer == pointer, Self.sameElement(last.target, target),
+            time - last.time <= Self.doubleTapInterval
         else { return 1 }
-        return last.count + 1
+        // The very same element may be a fingertip away; another one of the same body (the first
+        // tap renumbered it) only right on the same spot, so quick taps on two neighbouring
+        // edges stay two taps.
+        let distance = hypot(p.x - last.location.x, p.y - last.location.y)
+        let reach = last.target == target ? max(pointer.tolerance * 2, 12) : max(pointer.tolerance, 6)
+        return distance <= reach ? last.count + 1 : 1
+    }
+
+    /// Two taps landed on the same element: the same target, or (as the first tap may have
+    /// changed the model, renumbering its edges and faces) the same kind of element of the same
+    /// body. Taps on nothing are never the same.
+    static func sameElement(_ a: PickTarget?, _ b: PickTarget?) -> Bool {
+        guard let a, let b else { return false }
+        switch (a, b) {
+        case (.edge(let x, _), .edge(let y, _)), (.face(let x, _), .face(let y, _)), (.vertex(let x, _), .vertex(let y, _)):
+            return x == y
+        default:
+            return a == b
+        }
     }
 
     // MARK: Selection box
@@ -239,20 +256,20 @@ public final class ViewportController {
         return options.boxSelects || pointer == .pencil || !modifiers.isDisjoint(with: [.shift, .command])
     }
 
-    func beginBox(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
+    public func beginBox(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
         renderer?.cancelAnimation()
         boxPointer = pointer
         selectionBox = SelectionBox(start: p, end: p, update: SelectionRules.box(modifiers: modifiers, pointer: pointer))
         setHover(nil)
     }
 
-    func dragBox(to p: CGPoint) {
+    public func dragBox(to p: CGPoint) {
         selectionBox?.end = p
     }
 
     /// Lets go of the box: what it selects goes to the delegate. A box too small to mean
     /// anything (a slip of the finger) selects nothing.
-    func endBox(at p: CGPoint) {
+    public func endBox(at p: CGPoint) {
         guard var box = selectionBox else { return }
         box.end = p
         selectionBox = nil
@@ -263,7 +280,7 @@ public final class ViewportController {
         delegate?.viewportDidBoxSelect(targets, box: box)
     }
 
-    func cancelBox() {
+    public func cancelBox() {
         selectionBox = nil
     }
 

@@ -246,7 +246,8 @@ struct EditorContent: View {
                 // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
                 options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion,
                                          cameraAnimationDuration: cameraAnimationDuration,
-                                         contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary),
+                                         contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary,
+                                         boxFilter: session.boxFilter, boxSelects: session.boxSelecting),
                 visualStyle: $visualStyle,
                 delegate: session,
                 controller: controller)
@@ -269,6 +270,13 @@ struct EditorContent: View {
                 }
                 if session.pickMode == .sketchPlane {
                     SketchPlaneBar(session: session)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.panel(from: .top, reduceMotion: reduceMotion))
+                }
+                if showsBoxBar {
+                    BoxSelectBar(session: session)
                         .dynamicTypeSize(...Theme.TypeLimit.chrome)
                         .padding(.trailing, Self.cubeClearance)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -311,6 +319,7 @@ struct EditorContent: View {
             .padding(Theme.Space.l)
             .animation(Theme.Motion.enter, value: session.sketchEditor != nil)
             .animation(Theme.Motion.enter, value: session.choosingSketchPlane)
+            .animation(Theme.Motion.enter, value: showsBoxBar)
             .animation(Theme.Motion.enter, value: session.document.activeFeatureCount < session.document.features.count)
             .animation(Theme.Motion.enter, value: session.message)
             .animation(Theme.Motion.enter, value: agentWorking)
@@ -373,8 +382,13 @@ struct EditorContent: View {
         return hint
     }
 
+    /// Box select is on and there is something to box: the bar says what a box picks and how.
+    private var showsBoxBar: Bool { session.boxSelecting && !session.boxFilter.isEmpty }
+
     private var currentHint: (text: String, symbol: String, context: String)? {
         let pick = Theme.Copy.pick
+        // The box bar takes the hint's place and says what to do.
+        if showsBoxBar { return nil }
         if let editor = session.sketchEditor {
             // Tools are icon-only and touch has no tooltips, so the hint names the live tool.
             let title = editor.tool.title  // menu titles are Title Case; app copy is sentence case
@@ -385,7 +399,7 @@ struct EditorContent: View {
         switch session.pickMode {
         case .sketchPlane: return nil  // the plane bar says what to pick
         case .regions: return ("\(pick) the profiles to use", "hand.tap", "pick")
-        case .edges: return ("\(pick) edges to add or remove them", "hand.tap", "pick")
+        case .edges: return ("\(pick) edges to add or remove them, \(Theme.Copy.doublePick.lowercased()) for a loop", "hand.tap", "pick")
         case .faces:
             if session.editingKind == "pressPull" { return ("\(pick) faces to move, or again to drop them", "hand.tap", "pick") }
             return ("\(pick) faces to remove them", "hand.tap", "pick")
@@ -596,6 +610,14 @@ struct ToolStrip: View {
                                    unavailable: session.showOverhangs ? nil : session.unavailableReason(.overhangs)) { session.showOverhangs.toggle() }
                         ToolButton("Measure", "ruler", active: session.measure != nil,
                                    unavailable: session.measure != nil ? nil : session.measureUnavailableReason, shortcut: "I") { session.startMeasure() }
+                    }
+                    ToolCluster {
+                        // A mode, not a step: "on" in ink like the other view toggles, and it stays
+                        // usable while a step is open (that's when boxing edges or faces helps most).
+                        ToolButton("Box select", "rectangle.dashed", active: session.boxSelecting && !session.boxFilter.isEmpty,
+                                   toggle: true, unavailable: session.boxSelectUnavailableReason, shortcut: "W") {
+                            session.toggleBoxSelect()
+                        }
                     }
                 }
                 .padding(.vertical, 1)

@@ -150,8 +150,16 @@ enum Theme {
         /// The pointing verb: "Click" with a pointer, "Tap" on iPad.
         #if os(iOS)
         static let pick = "Tap"
+        static let doublePick = "Double-tap"
+        /// How to add to the selection rather than replace it.
+        static let addHint = "Tap more to add them, or one again to drop it."
+        /// How to draw a selection box without turning Box select on.
+        static let boxShortcut = "Apple Pencil draws a box any time."
         #else
         static let pick = "Click"
+        static let doublePick = "Double-click"
+        static let addHint = "Shift-click to add more, or one again to drop it."
+        static let boxShortcut = "Shift- or ⌘-drag draws a box any time."
         #endif
     }
 }

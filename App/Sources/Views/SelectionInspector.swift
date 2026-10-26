@@ -5,6 +5,7 @@ import SwiftUI
 /// Measurements of the current selection, or a design summary when nothing is selected.
 struct SelectionInspector: View {
     @Bindable var session: DesignSession
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
@@ -18,9 +19,15 @@ struct SelectionInspector: View {
                     ForEach(Array(session.selection.prefix(4).enumerated()), id: \.offset) { _, item in
                         describe(item)
                     }
+                    if session.selection.count > 4 {
+                        Text("and \(session.selection.count - 4) more").font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+                            .padding(.leading, 28 + Theme.Space.m)
+                    }
                 }
                 if session.selection.count == 2 { distance }
+                if session.lastSelectedEdge != nil { growEdges }
                 actions
+                Hint("\(Theme.Copy.addHint) \(Theme.Copy.doublePick) an edge for its loop.", symbol: "hand.tap")
             }
         }
     }
@@ -120,6 +127,31 @@ struct SelectionInspector: View {
             }
             .padding(Theme.Space.m)
             .background(RoundedRectangle(cornerRadius: Theme.Radius.card, style: .continuous).fill(Theme.selectSoft))
+        }
+    }
+
+    /// Grow the last picked edge into its tangent chain or its loop: the same as a fillet's chain and
+    /// a double tap, as buttons (for VoiceOver, and for anyone who hasn't found the double tap).
+    private var growEdges: some View {
+        PanelSection("Select more") {
+            // Side by side; stacked at accessibility sizes, so neither label wraps word by word.
+            let layout = typeSize.isAccessibilitySize ? AnyLayout(VStackLayout(spacing: Theme.Space.s))
+                : AnyLayout(HStackLayout(spacing: Theme.Space.s))
+            layout {
+                Button { session.selectTangentChain() } label: {
+                    Label("Tangent chain", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                        .frame(maxWidth: .infinity)
+                }
+                .help("Add the edges joined smoothly to the last picked edge")
+                .automationFrame("select-chain")
+                Button { session.selectLoop() } label: {
+                    Label("Loop", systemImage: "square.dashed").frame(maxWidth: .infinity)
+                }
+                .help("Add the loop around the face of the last picked edge (or \(Theme.Copy.doublePick.lowercased()) it)")
+                .automationFrame("select-loop")
+            }
+            .buttonStyle(SecondaryButtonStyle())
+            .labelStyle(.titleAndIcon)
         }
     }
 
