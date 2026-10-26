@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds the Mac release: Fillet.app (Release, arm64 only, ad-hoc signed with the hardened runtime
-# and the app's entitlements) with the fillet-mcp helper embedded in Contents/Helpers.
+# and the app's entitlements) with the fillet-mcp helper embedded in Contents/Helpers, staged with
+# an Applications link in build/release/stage and packed as build/release/Fillet-<version>.dmg.
 #
 # Usage: scripts/release.sh <version>      e.g. scripts/release.sh 0.2.0
 # The version must match MARKETING_VERSION in App/project.yml.
@@ -46,4 +47,16 @@ codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP
 codesign --verify --strict "$HELPER"
 codesign --verify --strict --deep "$APP"
 
-echo "==> $APP ($SHORT)"
+echo "==> Making the DMG"
+OUT="$ROOT/build/release"
+STAGE="$OUT/stage"
+DMG="$OUT/Fillet-$VERSION.dmg"
+rm -rf "$STAGE"
+mkdir -p "$STAGE"
+ditto "$APP" "$STAGE/Fillet.app"
+ln -s /Applications "$STAGE/Applications"
+rm -f "$DMG"
+hdiutil create -quiet -volname Fillet -srcfolder "$STAGE" -format UDZO "$DMG"
+
+echo "==> $DMG ($(du -h "$DMG" | awk '{ print $1 }'))"
+shasum -a 256 "$DMG" | awk -v name="$(basename "$DMG")" '{ print "SHA-256  " $1 "  " name }'

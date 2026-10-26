@@ -21,6 +21,9 @@ open Fillet.xcodeproj          # pick the Fillet scheme, a Mac or your iPad, Run
 To run on an iPad, put your team in `App/Local.xcconfig` (gitignored): `DEVELOPMENT_TEAM = ABCDE12345`.
 A team picked under *Signing & Capabilities* is lost on the next `xcodegen generate`; this one isn't.
 
+`scripts/release.sh 0.2.0` builds the Mac release: `build/release/Fillet-0.2.0.dmg`, with the
+`fillet-mcp` helper inside the app (set the version in `App/project.yml` first).
+
 ## Layout
 
 | Path | What |
