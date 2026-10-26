@@ -45,14 +45,14 @@ public final class ViewportController {
     // MARK: Sync from SwiftUI
 
     func update(scene: ViewportScene, camera: Camera, filter: PickFilter, options: ViewportOptions,
-                delegate: (any ViewportDelegate)?, appearance: ViewportAppearance) {
+                delegate: (any ViewportDelegate)?, appearance: ViewportAppearance, increasedContrast: Bool = false) {
         self.scene = scene
         self.filter = filter
         self.options = options
         self.delegate = delegate
         picker.prune(keeping: Set(scene.bodies.map(\.id)))
         renderer?.update(scene: scene)
-        renderer?.palette = appearance.palette
+        renderer?.palette = increasedContrast ? appearance.palette.increasedContrast : appearance.palette
         if lastSyncedCamera == nil {
             lastSyncedCamera = camera
             setLive(camera)

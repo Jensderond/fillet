@@ -146,11 +146,14 @@ public final class ViewportRenderer: NSObject {
     private let pGrid: MTLRenderPipelineState
     private let pHull: MTLRenderPipelineState
     private let pShadow: MTLRenderPipelineState
+    /// Resets depth to the far plane over the whole target (a mid-pass depth clear).
+    private let pDepthReset: MTLRenderPipelineState
     private let dsGreater: MTLDepthStencilState
     private let dsWrite: MTLDepthStencilState
     private let dsTest: MTLDepthStencilState
     private let dsLess: MTLDepthStencilState
     private let dsAlways: MTLDepthStencilState
+    private let dsReset: MTLDepthStencilState
     private let zeroBuffer: MTLBuffer
     private let cone: GPUBody
 
@@ -167,6 +170,8 @@ public final class ViewportRenderer: NSObject {
     public var activeHandleID: String?
 
     private var bodies: [UUID: GPUBody] = [:]
+    /// `scene.bodiesBefore`, by the id of the shown body each replaces (only ever depth).
+    private var bodiesBefore: [UUID: GPUBody] = [:]
     private var sceneBounds: Bounds3?
     private var bodiesDirty = true
     private var statesDirty = true
@@ -182,7 +187,7 @@ public final class ViewportRenderer: NSObject {
     private var measureSegs: MTLBuffer?, measureSegCount = 0
     private var measurePoints: MTLBuffer?, measurePointCount = 0
     private var highlightSegs: MTLBuffer?, highlightSegCount = 0
-    private var highlightStates: MTLBuffer?, highlightCount = 0
+    private var highlightStates: MTLBuffer?, highlightCount = 0, highlightDashedCount = 0
     private var vertexMarks: MTLBuffer?, vertexMarkCount = 0
     private var planeVerts: MTLBuffer?
     private var planeSegs: MTLBuffer?
@@ -237,6 +242,7 @@ public final class ViewportRenderer: NSObject {
         pGrid = try pipeline("grid_vertex", "grid_fragment", blend: true)
         pHull = try pipeline("hull_vertex", "hull_fragment", blend: true)
         pShadow = try pipeline("shadow_vertex", "shadow_fragment", blend: true)
+        pDepthReset = try pipeline("bg_vertex", "bg_fragment", blend: false, writeColor: false)
 
         func depth(_ cmp: MTLCompareFunction, write: Bool) -> MTLDepthStencilState {
             let d = MTLDepthStencilDescriptor()
@@ -249,6 +255,7 @@ public final class ViewportRenderer: NSObject {
         dsLess = depth(.less, write: false)
         dsAlways = depth(.always, write: false)
         dsGreater = depth(.greater, write: false)
+        dsReset = depth(.always, write: true)
         zeroBuffer = device.makeBuffer(length: 64, options: .storageModeShared)!
         let coneMesh = DemoMeshes.cone(radius: Float(HandleMetrics.headRadius / HandleMetrics.headLength))
         cone = GPUBody(device: device, mesh: coneMesh, key: MeshKey(SceneBody(id: UUID(), mesh: coneMesh)))
@@ -285,6 +292,13 @@ public final class ViewportRenderer: NSObject {
             for b in scene.bodies { sync(b); keep.insert(b.id) }
             for b in scene.previews { sync(b); keep.insert(b.id) }
             if keep.count != bodies.count { bodies = bodies.filter { keep.contains($0.key) } }
+            var keepBefore = Set<UUID>()
+            for b in scene.bodiesBefore {
+                keepBefore.insert(b.id)
+                let key = MeshKey(b)
+                if bodiesBefore[b.id]?.key != key { bodiesBefore[b.id] = GPUBody(device: device, mesh: b.mesh, key: key) }
+            }
+            if keepBefore.count != bodiesBefore.count { bodiesBefore = bodiesBefore.filter { keepBefore.contains($0.key) } }
             sceneBounds = computeBounds()
         }
         if statesDirty {
@@ -303,9 +317,11 @@ public final class ViewportRenderer: NSObject {
         func add(_ o: Bounds3?) { if let o { b = b.map { $0.union(o) } ?? o } }
         for x in scene.bodies where x.visible { add(bodies[x.id]?.bounds) }
         for x in scene.previews where x.visible { add(bodies[x.id]?.bounds) }
+        for x in scene.bodiesBefore { add(bodiesBefore[x.id]?.bounds) }
         var rest = scene
         rest.bodies = []
         rest.previews = []
+        rest.bodiesBefore = []
         add(rest.bounds)
         return b
     }
@@ -417,6 +433,7 @@ public final class ViewportRenderer: NSObject {
         let hs = GPUBody.segments(hl.map { $0.points.map(\.float) })
         highlightSegs = makeBuffer(hs); highlightSegCount = hs.count
         highlightStates = makeBuffer(hl.map { UInt8($0.dashed ? 1 : 0) }); highlightCount = hl.count
+        highlightDashedCount = hl.filter(\.dashed).count
         // Picked (state 1) and hovered (state 0) vertices: dots where the edges meet.
         var marks: [GPUPointInst] = []
         func mark(_ t: PickTarget?, _ state: UInt32) {
@@ -625,7 +642,7 @@ public final class ViewportRenderer: NSObject {
             d.pull = 1
             drawEdges(enc, id: b.id, draw: &d)
         }
-        drawEdgeHighlights(enc, U: U, pixelsPerPoint: pixelsPerPoint)
+        drawEdgeHighlights(enc, U: U, pixelsPerPoint: pixelsPerPoint, opaque: opaque)
 
         // Translucent bodies and previews: depth pre-pass so only the front layer blends.
         func drawTranslucent(_ b: SceneBody, xray: Bool) {
@@ -733,37 +750,91 @@ public final class ViewportRenderer: NSObject {
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: g.segmentCount)
     }
 
-    /// Picked edges are 3 pt (4 pt on touch, read at arm's length) with a halo, and still
-    /// show at 35 % where the model is in front of them.
+    /// Picked edges are 3 pt (4 pt on touch, read at arm's length) with a halo. Where the model is
+    /// in front of them they draw as hidden edges do (`VisualStyle.hiddenEdges`): thin, faint and
+    /// finely dashed, so a picked back edge can still be found and dropped but reads as behind.
     #if os(iOS) || os(visionOS)
     static let pickedEdgeWidth: Float = 4
     #else
     static let pickedEdgeWidth: Float = 3
     #endif
+    /// Dash period of picked edges in front and behind (pt): behind is finer, like hidden edges.
+    static let pickedEdgeDash: Float = 10
+    static let hiddenPickedEdgeDash: Float = 5
 
-    private func drawEdgeHighlights(_ enc: MTLRenderCommandEncoder, U: FrameUniforms, pixelsPerPoint: Float) {
+    /// The edge highlights. A fillet's or chamfer's edges (dashed) belong to the body before it, so
+    /// with `scene.bodiesBefore` they test depth against those rather than the rounded result: the
+    /// depth buffer is reset and laid down from the bodies before for them, then restored from the
+    /// shown bodies. That's a few depth-only draws while such a step is open, no per-edge work.
+    private func drawEdgeHighlights(_ enc: MTLRenderCommandEncoder, U: FrameUniforms, pixelsPerPoint: Float, opaque: [SceneBody]) {
         guard highlightSegCount > 0, let segs = highlightSegs else { return }
+        guard highlightDashedCount > 0, !scene.bodiesBefore.isEmpty else {
+            drawHighlightPasses(enc, segs: segs, U: U, pixelsPerPoint: pixelsPerPoint, solid: true, dashed: true)
+            return
+        }
+        if highlightDashedCount < highlightCount {
+            drawHighlightPasses(enc, segs: segs, U: U, pixelsPerPoint: pixelsPerPoint, solid: true, dashed: false)
+        }
+        let hover = effectiveHover
+        resetDepth(enc)
+        enc.setRenderPipelineState(pMeshDepth)
+        enc.setDepthStencilState(dsWrite)
+        let replaced = Set(scene.bodiesBefore.map(\.id))
+        for b in scene.bodiesBefore where scene.bodies.first(where: { $0.id == b.id })?.visible ?? true {
+            if let g = bodiesBefore[b.id] { drawDepth(enc, g) }
+        }
+        for b in opaque where !replaced.contains(b.id) { drawMesh(enc, body: b, hover: hover, overhang: false) }
+        drawHighlightPasses(enc, segs: segs, U: U, pixelsPerPoint: pixelsPerPoint, solid: false, dashed: true)
+        // Back to the shown bodies' depth for everything drawn after.
+        resetDepth(enc)
+        enc.setRenderPipelineState(pMeshDepth)
+        enc.setDepthStencilState(dsWrite)
+        for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
+    }
+
+    /// Hidden, halo and front passes over the highlights; `solid` / `dashed` say which take part
+    /// (a zero width skips the others).
+    private func drawHighlightPasses(_ enc: MTLRenderCommandEncoder, segs: MTLBuffer, U: FrameUniforms, pixelsPerPoint: Float,
+                                     solid: Bool, dashed: Bool) {
         let pal = palette
         let w = Self.pickedEdgeWidth
-        let dashPeriod = U.viewport.w * pixelsPerPoint * 10
+        let pointDash = U.viewport.w * pixelsPerPoint
         enc.setRenderPipelineState(pLine)
         enc.setVertexBuffer(segs, offset: 0, index: 0)
         enc.setVertexBuffer(highlightStates ?? zeroBuffer, offset: 0, index: 3)
-        func pass(_ depth: MTLDepthStencilState, _ solid: LineStyle, _ dashed: LineStyle) {
-            var d = LineDraw(solid, dashed)
+        func pass(_ depth: MTLDepthStencilState, _ style: LineStyle, dashedStyle: LineStyle, dash: Float) {
+            var d = LineDraw(solid ? style : LineStyle(), dashed ? dashedStyle : LineStyle())
             d.stateCount = UInt32(highlightCount)
             d.pull = 1
-            d.dashPeriod = dashPeriod
+            d.dashPeriod = pointDash * dash
             enc.setDepthStencilState(depth)
             enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
             enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: highlightSegCount)
         }
-        let hidden = pal.accent.withAlpha(0.35)
-        pass(dsGreater, LineStyle(hidden, width: w - 1), LineStyle(hidden, width: w - 1, dashed: true))
+        let behind = LineStyle(pal.accent.withAlpha(pal.hiddenPickedEdgeAlpha), width: w * 0.5, dashed: true)
+        pass(dsGreater, behind, dashedStyle: behind, dash: Self.hiddenPickedEdgeDash)
         let halo = LineStyle(pal.edgeHalo, width: w + 3)
-        pass(dsTest, halo, halo)
-        pass(dsTest, LineStyle(pal.accent, width: w), LineStyle(pal.accent, width: w, dashed: true))
+        pass(dsTest, halo, dashedStyle: halo, dash: Self.pickedEdgeDash)
+        pass(dsTest, LineStyle(pal.accent, width: w), dashedStyle: LineStyle(pal.accent, width: w, dashed: true), dash: Self.pickedEdgeDash)
+    }
+
+    /// Sets depth to the far plane everywhere, without touching colour.
+    private func resetDepth(_ enc: MTLRenderCommandEncoder) {
+        enc.setRenderPipelineState(pDepthReset)
+        enc.setDepthStencilState(dsReset)
+        enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
+    }
+
+    /// Lays down a body's depth only (with `pMeshDepth` set).
+    private func drawDepth(_ enc: MTLRenderCommandEncoder, _ g: GPUBody) {
+        guard let vb = g.vertexBuffer, let ib = g.indexBuffer else { return }
+        var d = MeshDraw()
+        enc.setFragmentBuffer(zeroBuffer, offset: 0, index: 3)
+        enc.setVertexBuffer(vb, offset: 0, index: 0)
+        enc.setVertexBytes(&d, length: MemoryLayout<MeshDraw>.stride, index: 2)
+        enc.setFragmentBytes(&d, length: MemoryLayout<MeshDraw>.stride, index: 2)
+        enc.drawIndexedPrimitives(type: .triangle, indexCount: g.indexCount, indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
     }
 
     /// Hovered and picked vertices as haloed dots in the hover and selection colours. On top of

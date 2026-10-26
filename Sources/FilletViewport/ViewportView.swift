@@ -114,7 +114,8 @@ struct ViewportRepresentable: UIViewRepresentable {
 
     func updateUIView(_ view: ViewportUIView, context: Context) {
         controller.cameraBinding = $camera
-        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance)
+        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance,
+                          increasedContrast: context.environment.colorSchemeContrast == .increased)
     }
 }
 #elseif os(macOS)
@@ -135,7 +136,8 @@ struct ViewportRepresentable: NSViewRepresentable {
 
     func updateNSView(_ view: ViewportNSView, context: Context) {
         controller.cameraBinding = $camera
-        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance)
+        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance,
+                          increasedContrast: context.environment.colorSchemeContrast == .increased)
     }
 }
 #endif
