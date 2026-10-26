@@ -40,13 +40,18 @@ public enum HoleFit: String, Hashable, Sendable, CaseIterable {
 /// Sizes (mm):
 /// - Clearance: ISO 273 medium (normal) series.
 /// - Counterbore: DIN 974-1 diameter for ISO 4762 socket head cap screws; depth = ISO 4762
-///   head height k (max), so the head sits flush.
-/// - Countersink: theoretical (sharp-edged) head diameter, 90°: ISO 10642 for M3–M6; ISO 10642
-///   starts at M3, so M2 and M2.5 use ISO 14581 heads, which are also 90°.
+///   head height k (max), so the head sits flush. DIN 974-1 starts at M3: M2 and M2.5 follow the
+///   same ISO 4762-based charts (head dk 3.8 / 4.5 plus room).
+/// - Countersink: theoretical (sharp-edged) head diameter dk, 90°, ISO 10642 (M2–M6; the 2019
+///   edition added M2 and M2.5, the 2004 one started at M3). ISO 14581 heads are smaller (M2 3.8,
+///   M2.5 4.7), so those screws sit a little deeper.
 /// - Tap: tap drill (d − pitch, coarse thread) + 0.2 mm, e.g. M3 → 2.7: printed holes come out a
 ///   little small, and a screw cuts its thread into plastic more easily than into metal.
-/// - Heat-set insert: hole diameter for the common CNC Kitchen / Ruthex standard inserts (M3 × 5.7 →
-///   Ø4.0) as their sheets give them, depth = insert length + 1 mm for the plastic the insert pushes ahead.
+/// - Heat-set insert: hole diameter for the standard-length CNC Kitchen / Ruthex inserts as their
+///   sheets give them (CNC Kitchen "Dimensions & Design Guidelines" PDF, D2; Ruthex spec table, D3),
+///   depth = insert length + 1 mm for the plastic the insert pushes ahead. Lengths are Ruthex's
+///   (M2 × 4, M2.5 × 5.7; CNC Kitchen's are 3 and 4, so these holes are deeper than needed for those).
+///   Where the makers differ (M4–M6: CNC Kitchen 5.7 / 6.5 / 8.1) this uses Ruthex's smaller hole.
 ///   Other inserts differ; check the maker's sheet.
 public struct HolePreset: Hashable, Sendable, Codable, CustomStringConvertible {
     public var size: ScrewSize
@@ -86,8 +91,8 @@ public struct HolePreset: Hashable, Sendable, Codable, CustomStringConvertible {
 
     private var sizes: Sizes {
         switch size {
-        case .m2: Sizes(clearance: 2.4, counterbore: 4.4, counterboreDepth: 2, countersink: 4.4, tap: 1.8, insert: 3.2, insertLength: 4)
-        case .m2_5: Sizes(clearance: 2.9, counterbore: 5.5, counterboreDepth: 2.5, countersink: 5.5, tap: 2.25, insert: 3.6, insertLength: 5.7)
+        case .m2: Sizes(clearance: 2.4, counterbore: 4.4, counterboreDepth: 2, countersink: 4.7, tap: 1.8, insert: 3.2, insertLength: 4)
+        case .m2_5: Sizes(clearance: 2.9, counterbore: 5.5, counterboreDepth: 2.5, countersink: 5.88, tap: 2.25, insert: 4, insertLength: 5.7)
         case .m3: Sizes(clearance: 3.4, counterbore: 6.5, counterboreDepth: 3, countersink: 6.72, tap: 2.7, insert: 4, insertLength: 5.7)
         case .m4: Sizes(clearance: 4.5, counterbore: 8, counterboreDepth: 4, countersink: 8.96, tap: 3.5, insert: 5.6, insertLength: 8.1)
         case .m5: Sizes(clearance: 5.5, counterbore: 10, counterboreDepth: 5, countersink: 11.2, tap: 4.4, insert: 6.4, insertLength: 9.5)
