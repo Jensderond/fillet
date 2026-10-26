@@ -386,9 +386,11 @@ struct ModelingToolTests {
     @Test func refusesBrokenResults() async throws {
         let c = Client()
         try await c.ok("primitive", ["kind": "box", "dimensions": [10, 10, 10], "name": "Cube"])
-        // The kernel returns a fillet this big without complaint, but it is no solid.
+        // OCCT returns a fillet this big as done, but it is no solid: the kernel refuses it as
+        // too large (it used to get as far as the "would leave … without a closed solid" check).
         let r = try await c.call("fillet", ["body": "Cube", "edges": "all", "radius": 6])
-        #expect(r.isError && r.text.contains("Fillet 1 failed: it would leave “Cube”"), "\(r.text)")
+        #expect(r.isError && r.text.contains("Fillet 1 failed: Fillet radius too large for the selected edges"), "\(r.text)")
+        #expect(r.text.contains("Use a radius of at most"), "\(r.text)")
         #expect(c.workspace.document.features.count == 1)
     }
 

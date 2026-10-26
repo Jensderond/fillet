@@ -120,6 +120,22 @@ std::vector<TopoDS_Edge> blendEdges(const FKShape *shape, const int32_t *indices
   return edges;
 }
 
+/// Whether every shell in the shape is closed (each edge shared by two faces).
+bool shellsClosed(const TopoDS_Shape &s) {
+  for (TopExp_Explorer ex(s, TopAbs_SHELL); ex.More(); ex.Next())
+    if (!BRep_Tool::IsClosed(ex.Current())) return false;
+  return true;
+}
+
+/// A blend that is too big can come back from OCCT as "done" and pass BRepCheck while it has
+/// lost its solid: an open shell (the four edges of a 10 mm cube's face at r = 6). Refuse
+/// it when the body going in was a closed solid.
+void requireBlendedSolid(const TopoDS_Shape &input, const TopoDS_Shape &result) {
+  if (countOf(input, TopAbs_SOLID) == 0) return;
+  if (countOf(result, TopAbs_SOLID) == 0) fail("blend lost the solid");
+  if (shellsClosed(input) && !shellsClosed(result)) fail("blend left an open shell");
+}
+
 /// Runs a size-dependent blend; on failure probes a much smaller size to tell
 /// the user whether the size was simply too large.
 TopoDS_Shape blendWithDiagnosis(const std::function<TopoDS_Shape(double)> &attempt, double size,
@@ -365,7 +381,9 @@ extern "C" FKShape *fk_fillet(const FKShape *shape, const int32_t *edgeIndices, 
       for (auto &e : edges) mk.Add(r, e);
       mk.Build();
       if (!mk.IsDone()) fail("fillet not done");
-      return finish(mk.Shape(), "invalid fillet");
+      TopoDS_Shape result = finish(mk.Shape(), "invalid fillet");
+      requireBlendedSolid(s, result);
+      return result;
     };
     return wrapFinished(blendWithDiagnosis(attempt, radius, "Fillet radius too large for the selected edges",
                                    "Could not fillet the selected edges"));
@@ -382,7 +400,9 @@ extern "C" FKShape *fk_chamfer(const FKShape *shape, const int32_t *edgeIndices,
       for (auto &e : edges) mk.Add(d, e);
       mk.Build();
       if (!mk.IsDone()) fail("chamfer not done");
-      return finish(mk.Shape(), "invalid chamfer");
+      TopoDS_Shape result = finish(mk.Shape(), "invalid chamfer");
+      requireBlendedSolid(s, result);
+      return result;
     };
     return wrapFinished(blendWithDiagnosis(attempt, distance, "Chamfer distance too large for the selected edges",
                                    "Could not chamfer the selected edges"));

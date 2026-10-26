@@ -272,6 +272,23 @@ struct FeatureTests {
         expectKernelError("seam") { _ = try cyl.filleted(edges: [seam], radius: 1) }
     }
 
+    /// OCCT "succeeds" at filleting a face's four edges with r = 6 on a 10 mm cube, but the
+    /// result is an open shell with no solid; the kernel must refuse it as too large.
+    @Test func refusesBlendsThatLoseTheSolid() throws {
+        let box = try cube(10)
+        let loop = (0..<box.edgeCount).filter { e in
+            let info = box.edgeInfo(e)
+            return close(info.start.z, 10) && close(info.end.z, 10)
+        }
+        #expect(loop.count == 4)
+        expectKernelError("Fillet radius too large for the selected edges") { _ = try box.filleted(edges: loop, radius: 6) }
+        // Smaller blends of the same edges still work and stay closed solids.
+        let ok = try box.filleted(edges: loop, radius: 4)
+        #expect(ok.solidCount == 1 && ok.isValid)
+        let chamfered = try box.chamfered(edges: loop, distance: 4)
+        #expect(chamfered.solidCount == 1 && chamfered.isValid)
+    }
+
     @Test func shellBoxWithTopRemoved() throws {
         let box = try cube(10)
         let top = try #require(faceIndex(box) { $0.normal.z > 0.99 })
