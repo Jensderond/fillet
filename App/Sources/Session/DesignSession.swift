@@ -79,6 +79,8 @@ final class DesignSession {
     var choosingSketchPlane = false
     /// A drawing tool's shortcut was pressed outside sketch mode: the sketch it starts opens with it.
     var pendingSketchTool: SketchTool?
+    /// Measure is on (see `MeasureState`); nil otherwise.
+    var measure: MeasureState?
     var hiddenBodies: Set<BodyRef> = []
     var camera = Camera(target: Vec3(0, 0, 10), distance: 260)
     /// Size of the viewport in points (for converting screen tolerances to mm).
@@ -216,6 +218,7 @@ final class DesignSession {
         // Whatever starts next (a feature, a sketch, editing a step) replaces choosing a plane.
         choosingSketchPlane = false
         pendingSketchTool = nil
+        measure = nil
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil
@@ -272,6 +275,7 @@ final class DesignSession {
                 let previousBodies = self.model.bodies.count
                 let previousStatus = self.model.status
                 self.model = result
+                self.measure?.dropStale(in: result)
                 self.reframeAfterRecompute(previousBodyCount: previousBodies)
                 self.announceFailures(previous: previousStatus)
             }

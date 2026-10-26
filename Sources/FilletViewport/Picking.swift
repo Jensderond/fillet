@@ -115,7 +115,7 @@ public final class ViewportPicker {
 
     /// Picks the most relevant target under `location`.
     ///
-    /// Priority: handles, sketch points, sketch curves, regions, edges (when within
+    /// Priority: handles, sketch points, sketch curves, regions, vertices and then edges (when within
     /// `tolerance` and not occluded), faces/bodies, then reference planes (see below).
     public func pick(scene: ViewportScene, camera: Camera, at location: CGPoint, viewSize: CGSize,
                      filter: PickFilter, tolerance: Double = PointerKind.mouse.tolerance) -> PickHit? {
@@ -133,6 +133,10 @@ public final class ViewportPicker {
         let planeHit = filter.contains(.referencePlanes) ? pickReferencePlane(scene.referencePlanes, ray: ray) : nil
         guard !filter.intersection([.faces, .edges, .bodies]).isEmpty else { return planeHit?.hit }
         let faceHit = raycast(ray, bodies: scene.bodies)
+        if filter.contains(.vertices),
+           let v = pickVertex(scene.bodies, camera: camera, location: loc, viewSize: viewSize, tolerance: tolerance * 1.4) {
+            return v
+        }
         if filter.contains(.edges),
            let e = pickEdge(scene.bodies, camera: camera, location: loc, viewSize: viewSize, tolerance: tolerance) {
             return e
@@ -152,6 +156,27 @@ public final class ViewportPicker {
             if filter.contains(.bodies) {
                 return PickHit(target: .body(f.body), point: f.point, normal: f.normal, screenDistance: 0)
             }
+        }
+        return nil
+    }
+
+    // MARK: Vertices
+
+    /// Nearest visible B-rep vertex within `tolerance` points of `location`. A corner is where
+    /// edges end, so it gets a slightly larger target than the edges (the caller scales it).
+    func pickVertex(_ bodies: [SceneBody], camera: Camera, location: SIMD2<Double>, viewSize: CGSize, tolerance: Double) -> PickHit? {
+        var candidates: [(body: UUID, index: Int, point: Vec3, d: Double)] = []
+        for body in bodies where body.visible && body.pickable {
+            for (i, v) in body.mesh.brepVertices.enumerated() {
+                let p = Vec3(v)
+                guard let s = camera.project(p, viewSize: viewSize) else { continue }
+                let d = simd_distance(SIMD2(Double(s.x), Double(s.y)), location)
+                if d <= tolerance { candidates.append((body.id, i, p, d)) }
+            }
+        }
+        candidates.sort { $0.d < $1.d }
+        for c in candidates.prefix(8) where isVisible(c.point, bodies: bodies, camera: camera, viewSize: viewSize) {
+            return PickHit(target: .vertex(body: c.body, index: c.index), point: c.point, normal: nil, screenDistance: c.d)
         }
         return nil
     }

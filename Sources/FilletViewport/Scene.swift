@@ -286,6 +286,8 @@ public enum PickTarget: Hashable, Sendable, Codable {
     case edge(body: UUID, index: Int)
     /// A whole body.
     case body(UUID)
+    /// A B-rep vertex (index into `Mesh.brepVertices`), where edges meet.
+    case vertex(body: UUID, index: Int)
     /// A sketch profile region.
     case region(Int)
     /// A sketch shape (any of its curves).
@@ -300,7 +302,7 @@ public enum PickTarget: Hashable, Sendable, Codable {
     /// The body this target belongs to, if any.
     public var bodyID: UUID? {
         switch self {
-        case .face(let b, _), .edge(let b, _), .body(let b): b
+        case .face(let b, _), .edge(let b, _), .vertex(let b, _), .body(let b): b
         default: nil
         }
     }
@@ -320,11 +322,13 @@ public struct PickFilter: OptionSet, Hashable, Sendable {
     public static let regions = PickFilter(rawValue: 1 << 5)
     public static let handles = PickFilter(rawValue: 1 << 6)
     public static let referencePlanes = PickFilter(rawValue: 1 << 7)
+    /// B-rep vertices (corners), taking priority over the edges that meet there.
+    public static let vertices = PickFilter(rawValue: 1 << 8)
 
     public static let sketch: PickFilter = [.sketchPoints, .sketchCurves]
     /// Faces, edges and handles.
     public static let `default`: PickFilter = [.faces, .edges, .handles]
-    public static let all: PickFilter = [.faces, .edges, .bodies, .sketchPoints, .sketchCurves, .regions, .handles, .referencePlanes]
+    public static let all: PickFilter = [.faces, .edges, .vertices, .bodies, .sketchPoints, .sketchCurves, .regions, .handles, .referencePlanes]
     public static let none: PickFilter = []
 }
 

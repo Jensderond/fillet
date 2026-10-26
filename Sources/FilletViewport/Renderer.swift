@@ -183,6 +183,7 @@ public final class ViewportRenderer: NSObject {
     private var measurePoints: MTLBuffer?, measurePointCount = 0
     private var highlightSegs: MTLBuffer?, highlightSegCount = 0
     private var highlightStates: MTLBuffer?, highlightCount = 0
+    private var vertexMarks: MTLBuffer?, vertexMarkCount = 0
     private var planeVerts: MTLBuffer?
     private var planeSegs: MTLBuffer?
 
@@ -408,6 +409,17 @@ public final class ViewportRenderer: NSObject {
         let hs = GPUBody.segments(hl.map { $0.points.map(\.float) })
         highlightSegs = makeBuffer(hs); highlightSegCount = hs.count
         highlightStates = makeBuffer(hl.map { UInt8($0.dashed ? 1 : 0) }); highlightCount = hl.count
+        // Picked (state 1) and hovered (state 0) vertices: dots where the edges meet.
+        var marks: [GPUPointInst] = []
+        func mark(_ t: PickTarget?, _ state: UInt32) {
+            guard case .vertex(let id, let i)? = t, let body = scene.bodies.first(where: { $0.id == id }),
+                body.visible, body.mesh.brepVertices.indices.contains(i) else { return }
+            let p = body.mesh.brepVertices[i]
+            marks.append(GPUPointInst(x: p.x, y: p.y, z: p.z, state: state))
+        }
+        if let hover, !scene.selection.contains(hover) { mark(hover, 0) }
+        for t in scene.selection { mark(t, 1) }
+        vertexMarks = makeBuffer(marks); vertexMarkCount = marks.count
         // Reference planes: two triangles and a closed outline (4 segments) each.
         let planes = scene.referencePlanes
         let tris = planes.flatMap { r -> [GPURegionVertex] in
@@ -659,6 +671,9 @@ public final class ViewportRenderer: NSObject {
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: measurePointCount)
         }
 
+        // Picked vertices over the measure's end dots, which land on them.
+        drawVertexMarks(enc)
+
         // Handles.
         if !scene.handles.isEmpty { drawHandles(enc, U: U, pixelsPerPoint: pixelsPerPoint, hover: hover) }
     }
@@ -737,6 +752,22 @@ public final class ViewportRenderer: NSObject {
         let halo = LineStyle(pal.edgeHalo, width: w + 3)
         pass(dsTest, halo, halo)
         pass(dsTest, LineStyle(pal.accent, width: w), LineStyle(pal.accent, width: w, dashed: true))
+    }
+
+    /// Hovered and picked vertices as haloed dots in the hover and selection colours. On top of
+    /// everything: a vertex sits exactly on its faces, so a depth test would make it flicker, and
+    /// only visible vertices can be picked in the first place.
+    private func drawVertexMarks(_ enc: MTLRenderCommandEncoder) {
+        guard vertexMarkCount > 0, let buf = vertexMarks else { return }
+        let pal = palette
+        enc.setRenderPipelineState(pPoint)
+        enc.setDepthStencilState(dsAlways)
+        enc.setVertexBuffer(buf, offset: 0, index: 0)
+        var d = PointDraw()
+        d.s0 = PointStyle(color: pal.hover, ring: pal.edgeHalo, size: 11, ringWidth: 2)
+        d.s1 = PointStyle(color: pal.accent, ring: pal.edgeHalo, size: 11, ringWidth: 2)
+        enc.setVertexBytes(&d, length: MemoryLayout<PointDraw>.stride, index: 2)
+        enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: vertexMarkCount)
     }
 
     /// Translucent patches in their axis colour, behind the model faintly (so a plane through a

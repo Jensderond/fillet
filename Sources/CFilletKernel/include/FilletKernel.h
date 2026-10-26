@@ -197,6 +197,9 @@ typedef struct {
 
 int32_t fk_face_count(const FKShape *shape);
 int32_t fk_edge_count(const FKShape *shape);
+/// Vertices are indexed like faces and edges (TopExp::MapShapes order).
+int32_t fk_vertex_count(const FKShape *shape);
+bool fk_vertex_point(const FKShape *shape, int32_t vertexIndex, FKVec3 *out);
 bool fk_face_info(const FKShape *shape, int32_t faceIndex, FKFaceInfo *out);
 /// fk_face_info for every face at once, computed in parallel. `out` and `ok` have room for
 /// `count` entries, which must equal fk_face_count; ok[i] tells whether out[i] could be computed.
@@ -226,6 +229,15 @@ bool fk_distance(const FKShape *a, const FKShape *b, double *distance, FKVec3 *p
 /// Copy of one face or edge of a shape as a standalone shape (for measuring).
 FKShape *fk_subshape_face(const FKShape *shape, int32_t faceIndex);
 FKShape *fk_subshape_edge(const FKShape *shape, int32_t edgeIndex);
+FKShape *fk_subshape_vertex(const FKShape *shape, int32_t vertexIndex);
+
+/// Radius of a cylindrical or spherical face. Returns false for any other surface.
+bool fk_face_radius(const FKShape *shape, int32_t faceIndex, double *radius);
+/// Angle between two (sub)shapes, each a flat face or a straight edge, in radians. Between two
+/// edges, or an edge and a face, 0…π/2 (a line has no direction); between two faces, the angle
+/// between their outward normals, 0…π (adjacent box faces 90°, opposite ones 180°). Returns
+/// false for any other pair.
+bool fk_angle(const FKShape *a, const FKShape *b, double *radians);
 
 // MARK: Tessellation
 
@@ -246,6 +258,8 @@ const int32_t *fk_mesh_triangle_faces(const FKMesh *mesh); // face index × tria
 int32_t fk_mesh_edge_count(const FKMesh *mesh);            // == fk_edge_count(shape)
 /// Polyline points of edge i (xyz × *pointCount).
 const float *fk_mesh_edge_points(const FKMesh *mesh, int32_t edgeIndex, int32_t *pointCount);
+/// Position of every B-rep vertex, indexed like fk_vertex_point (xyz × *count).
+const float *fk_mesh_brep_vertices(const FKMesh *mesh, int32_t *count);
 
 // MARK: Exchange
 

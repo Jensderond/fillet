@@ -16,6 +16,7 @@
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
+#include <TopoDS_Vertex.hxx>
 
 #include <cmath>
 
@@ -124,6 +125,9 @@ extern "C" FKMesh *fk_tessellate(const FKShape *shape, double linearDeflection, 
       TopoDS_Edge edge = TopoDS::Edge(copier.ModifiedShape(edges(ei)));
       mesh->edges.push_back(edgePolyline(edge, edgeFaces.Seek(edge), linearDeflection, angularDeflection));
     }
+    const ShapeMap &vertices = shape->vertices();
+    mesh->brepVertices.reserve(3 * vertices.Extent());
+    for (int vi = 1; vi <= vertices.Extent(); vi++) pushPoint(mesh->brepVertices, BRep_Tool::Pnt(TopoDS::Vertex(vertices(vi))));
     return mesh.release();
   });
 }
@@ -151,4 +155,8 @@ extern "C" const float *fk_mesh_edge_points(const FKMesh *mesh, int32_t edgeInde
   const auto &e = mesh->edges[edgeIndex];
   if (pointCount) *pointCount = (int32_t)(e.size() / 3);
   return e.empty() ? nullptr : e.data();
+}
+extern "C" const float *fk_mesh_brep_vertices(const FKMesh *mesh, int32_t *count) {
+  if (count) *count = mesh ? (int32_t)(mesh->brepVertices.size() / 3) : 0;
+  return mesh && !mesh->brepVertices.empty() ? mesh->brepVertices.data() : nullptr;
 }

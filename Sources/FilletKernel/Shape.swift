@@ -207,6 +207,8 @@ public final class Shape: @unchecked Sendable {
 
     public var faceCount: Int { Int(fk_face_count(handle)) }
     public var edgeCount: Int { Int(fk_edge_count(handle)) }
+    /// Vertices are indexed like faces and edges, and only valid for this exact shape.
+    public var vertexCount: Int { Int(fk_vertex_count(handle)) }
     public var solidCount: Int { Int(fk_solid_count(handle)) }
 
     /// Geometric signature of face `index`. Returns a zero `.other` placeholder for an invalid index;
@@ -331,6 +333,25 @@ public final class Shape: @unchecked Sendable {
         try Shape.make(fk_subshape_edge(handle, Int32(clamping: index)), "Edge")
     }
 
+    /// Standalone copy of one vertex.
+    public func vertex(_ index: Int) throws -> Shape {
+        try Shape.make(fk_subshape_vertex(handle, Int32(clamping: index)), "Vertex")
+    }
+
+    /// Position of vertex `index`; nil for an invalid index.
+    public func vertexPoint(_ index: Int) -> Vec3? {
+        var p = FKVec3()
+        guard index >= 0, fk_vertex_point(handle, Int32(clamping: index), &p) else { return nil }
+        return Vec3(p)
+    }
+
+    /// Radius of a cylindrical or spherical face; nil for other faces or invalid indices.
+    public func faceRadius(_ index: Int) -> Double? {
+        var r = 0.0
+        guard index >= 0, fk_face_radius(handle, Int32(clamping: index), &r) else { return nil }
+        return r
+    }
+
     /// The solids of this shape as separate shapes.
     public func solids() -> [Shape] {
         guard let list = fk_solids(handle) else { return [] }
@@ -386,6 +407,16 @@ public final class Shape: @unchecked Sendable {
         return ok ? (d, Vec3(a), Vec3(b)) : nil
     }
 
+    /// Angle in radians between this shape and `other`, each a flat face or a straight edge (as
+    /// returned by `face(_:)` / `edge(_:)`): 0…π/2 when an edge is involved (lines have no
+    /// direction), the angle between the outward normals (0…π) for two faces. Throws for anything else.
+    public func angle(to other: Shape) throws -> Double {
+        var a = 0.0
+        let ok = withExtendedLifetime(other) { fk_angle(handle, other.handle, &a) }
+        guard ok else { throw KernelError.last("Angle failed") }
+        return a
+    }
+
     // MARK: Tessellation
 
     /// Triangulates the shape: triangles grouped per face (crisp normals between faces,
@@ -428,7 +459,13 @@ public final class Shape: @unchecked Sendable {
             }
             edges.append((0..<Int(count)).map { SIMD3(pts[3 * $0], pts[3 * $0 + 1], pts[3 * $0 + 2]) })
         }
-        return Mesh(positions: positions, normals: normals, indices: indices, triangleFaces: triangleFaces, edges: edges)
+        var cornerCount: Int32 = 0
+        var brepVertices = [SIMD3<Float>]()
+        if let v = fk_mesh_brep_vertices(m, &cornerCount), cornerCount > 0 {
+            brepVertices = (0..<Int(cornerCount)).map { i -> SIMD3<Float> in SIMD3(v[3 * i], v[3 * i + 1], v[3 * i + 2]) }
+        }
+        return Mesh(positions: positions, normals: normals, indices: indices, triangleFaces: triangleFaces, edges: edges,
+                    brepVertices: brepVertices)
     }
 
     // MARK: Exchange
