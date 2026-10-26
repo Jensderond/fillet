@@ -349,7 +349,8 @@ extern "C" bool fk_is_valid(const FKShape *shape) {
   return guarded("Validity check", false, [&] {
     const TopoDS_Shape &s = shapeOf(shape);
     if (isEmpty(s)) return false;
-    BRepCheck_Analyzer ana(s, true);
+    // Parallel mode, as finish() uses: the same checks, run per sub-shape on OCCT's pool.
+    BRepCheck_Analyzer ana(s, true, true);
     if (!ana.IsValid()) return false;
     // Closed geometry: every solid must be closed (each edge shared by two faces).
     for (TopExp_Explorer ex(s, TopAbs_SHELL); ex.More(); ex.Next())
