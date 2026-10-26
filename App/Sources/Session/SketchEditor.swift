@@ -8,7 +8,16 @@ struct SketchEditor {
     var sketch: UUID
     var engine = SketchToolEngine(tool: .line) {
         // Typing belongs to the shape in progress: a new tool, Escape or a finished shape ends it.
-        didSet { if engine.isIdle, typing != nil { typing = nil } }
+        didSet {
+            if engine.isIdle, typing != nil { typing = nil }
+            // Offset starts from shapes selected with Select (not a shape just drawn), and what it
+            // has picked shows as selected.
+            if engine.tool == .offset {
+                let started = oldValue.tool != .offset
+                if oldValue.tool == .select { engine.preselectOffset(selectedShapes) }
+                if started || engine.offset.shapes != oldValue.offset.shapes { selectedShapes = engine.offset.shapes }
+            }
+        }
     }
     var selectedShapes: Set<UUID> = []
     /// Grid spacing in mm used for snapping (0 = off).

@@ -77,7 +77,7 @@ extension DesignSession {
     /// Adds drawn shapes to the open sketch as one undo step each.
     func addSketchShapes(_ shapes: [SketchShape]) {
         guard !shapes.isEmpty, let id = sketchEditor?.sketch else { return }
-        updateSketch("Add \(shapes[0].kind.typeName.capitalized)") { $0.shapes += shapes }
+        updateSketch(sketchEditor?.tool == .offset ? "Offset" : "Add \(shapes[0].kind.typeName.capitalized)") { $0.shapes += shapes }
         sketchEditor?.selectedShapes = Set(shapes.map(\.id))
         revealSketchAfterRecompute = true
         _ = id

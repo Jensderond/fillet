@@ -118,9 +118,10 @@ extension SketchTool {
         case .circle: "c"
         case .arc: "a"
         case .polygon: "p"
-        case .slot: "o"
+        case .slot: "s"
         case .spline: "b"
         case .point: "."
+        case .offset: "o"
         }
     }
 }

@@ -452,7 +452,10 @@ extension DesignSession: ViewportDelegate {
         points.append(SnapPoint(position: .zero, kind: .point, shape: UUID()))  // sketch origin
         let perPoint = camera.worldUnitsPerPoint(at: world, viewSize: viewSize)
         let tolerance = perPoint * event.pointer.tolerance * 1.5
-        return (p, SnapContext(points: points, tolerance: tolerance, gridSize: editor.gridSize))
+        var context = SnapContext(points: points, tolerance: tolerance, gridSize: editor.gridSize)
+        // Offset picks curves, including ones drawn since the last recompute.
+        if editor.tool == .offset, case .sketch(let sketch)? = document.feature(editor.sketch)?.kind { context.sketch = sketch; context.evaluator = ev }
+        return (p, context)
     }
 }
 

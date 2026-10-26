@@ -294,6 +294,7 @@ enum DebugAutomation {
         }
         try? session.document.encoded().write(to: outputDirectory.appendingPathComponent("design.fillet"))
 
+        await sketchOffset(session)
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         #if os(macOS)
@@ -313,7 +314,7 @@ enum DebugAutomation {
 
     private static var failures = 0
 
-    private static func check(_ ok: Bool, _ what: String) {
+    static func check(_ ok: Bool, _ what: String) {
         if !ok { failures += 1 }
         log("\(ok ? "✔" : "✘") \(what)")
     }
@@ -475,7 +476,7 @@ enum DebugAutomation {
               + (unreachable.isEmpty ? "" : ", unreachable: \(unreachable.joined(separator: ", "))"))
     }
 
-    private static func log(_ s: String) {
+    static func log(_ s: String) {
         print("[automation] \(s)")
         let url = outputDirectory.appendingPathComponent("log.txt")
         let line = Data((s + "\n").utf8)
@@ -487,7 +488,7 @@ enum DebugAutomation {
     }
 
     /// Waits for recompute to finish.
-    private static func settle(_ session: DesignSession) async {
+    static func settle(_ session: DesignSession) async {
         try? await Task.sleep(for: .milliseconds(150))
         while session.isRecomputing { try? await Task.sleep(for: .milliseconds(30)) }
         try? await Task.sleep(for: .milliseconds(250))
@@ -499,7 +500,7 @@ enum DebugAutomation {
     }
 
     /// A tap at a sketch-plane point, delivered as tool events with a real camera ray.
-    private static func tap(_ session: DesignSession, _ p: SIMD2<Double>) {
+    static func tap(_ session: DesignSession, _ p: SIMD2<Double>) {
         guard let sketch = session.sketchEditor.flatMap({ session.model.sketches[$0.sketch] }) else { return }
         let world = sketch.plane.point(p)
         let size = session.viewSize
@@ -518,7 +519,7 @@ enum DebugAutomation {
     }
 
     /// Pointer hover over a sketch-plane point (drives the rubber-band preview).
-    private static func hover(_ session: DesignSession, _ p: SIMD2<Double>) {
+    static func hover(_ session: DesignSession, _ p: SIMD2<Double>) {
         guard let sketch = session.sketchEditor.flatMap({ session.model.sketches[$0.sketch] }) else { return }
         let size = session.viewSize
         guard let screen = session.camera.project(sketch.plane.point(p), viewSize: size) else { return }
@@ -715,7 +716,7 @@ enum DebugAutomation {
     /// screen. The token tells a view's own entry from that of a newer view with the same name.
     static var frames: [String: (token: UUID, rect: CGRect)] = [:]
 
-    private static func snap(_ session: DesignSession, _ name: String) async {
+    static func snap(_ session: DesignSession, _ name: String) async {
         checkLayout(session, name)
         let size = CGSize(width: max(session.viewSize.width, 400), height: max(session.viewSize.height, 300))
         if let image = ViewportRenderer.snapshot(scene: session.makeScene(), camera: session.camera, size: size, scale: 2,
