@@ -253,11 +253,42 @@ struct Resolver {
             }
         }
         if value.object != nil {
-            let found = try filter(value, .edges, on: body).edges(infos).filter(usable)
+            let found = try chainsAndLoops(of: body, value, filtered: { try filter(value, .edges, on: body).edges(infos) })
+                .filter(usable)
             guard !found.isEmpty else { throw ToolError("No \(forRounding ? "roundable " : "")edge of “\(bodyLabel(body))” matches \(value.serialized())") }
             return found
         }
         throw ToolError("`\(key)` must be edge indices, \"all\", or a filter object")
+    }
+
+    /// The edge filter's topology keys, as the app picks them: `{"chain_of": edge}` is the edge's
+    /// tangent chain, `{"loop_of_face": face, "loop": 0}` a loop of a face (0 = its outer boundary,
+    /// 1… its holes), and `"tangent_chain": true` grows what a geometric filter found into chains.
+    /// Without these keys, just the geometric filter.
+    func chainsAndLoops(of body: EvaluatedBody, _ value: JSONValue, filtered: () throws -> [Int]) throws -> [Int] {
+        let shape = body.shape
+        if let seed = value["chain_of"] {
+            guard let i = seed.int, (0..<shape.edgeCount).contains(i) else {
+                throw ToolError("`chain_of` must be an edge index of “\(bodyLabel(body))” (0–\(shape.edgeCount - 1))")
+            }
+            return shape.tangentChain(from: i)
+        }
+        if let faceValue = value["loop_of_face"] {
+            guard let f = faceValue.int, (0..<shape.faceCount).contains(f) else {
+                throw ToolError("`loop_of_face` must be a face index of “\(bodyLabel(body))” (0–\(shape.faceCount - 1))")
+            }
+            let loops = shape.faceLoops(f)
+            let which = value["loop"]?.int ?? 0
+            guard loops.indices.contains(which) else {
+                throw ToolError("Face \(f) of “\(bodyLabel(body))” has \(loops.count) \(loops.count == 1 ? "loop" : "loops") (0 is its outer boundary), not \(which)")
+            }
+            return loops[which]
+        }
+        let found = try filtered()
+        guard value["tangent_chain"]?.bool == true else { return found }
+        var grown: [Int] = []
+        for i in found { for j in shape.tangentChain(from: i) where !grown.contains(j) { grown.append(j) } }
+        return grown
     }
 
     enum Topology { case faces, edges }
