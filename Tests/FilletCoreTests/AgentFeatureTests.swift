@@ -53,6 +53,21 @@ struct AgentFeatureTests {
         #expect(await ModelEvaluator().evaluate(sphereDocument([zero])).error(for: zero.id)?.contains("axis") == true)
     }
 
+    /// Without a turn, the translation stays c·(1 − f) bit for bit: c − f·c is the same maths but
+    /// rounds differently (20.3 × 0.3 vs 20.3 − 0.7 × 20.3), which moved every scaled body of
+    /// existing designs by an ulp and changed the bench's mesh and face-info digests.
+    @Test func unturnedScaleKeepsItsTranslation() async throws {
+        let scale = Feature(name: "Squash", .scale(Scale(bodies: [BodyRef(sphere)], factors: Vec3Expr("0.7", 1, "0.7"),
+                                                          center: Vec3Expr("20.3", 0, "20.3"))))
+        let model = await ModelEvaluator().evaluate(sphereDocument([scale]))
+        let scaled = try #require(model.bodies.first?.shape)
+        let ball = try #require(await ModelEvaluator().evaluate(sphereDocument([])).bodies.first?.shape)
+        let t = 20.3 * (1 - 0.7)
+        #expect(t != 20.3 - 0.7 * 20.3)
+        let expected = try ball.transformed(Transform(matrix: [0.7, 0, 0, t, 0, 1, 0, 0, 0, 0, 0.7, t]))
+        #expect(scaled.brepString() == expected.brepString())
+    }
+
     @Test func scaleRefusesZero() async {
         let scale = Feature(name: "Flat", .scale(Scale(bodies: [BodyRef(sphere)], factors: Vec3Expr(1, 1, 0))))
         let model = await ModelEvaluator().evaluate(sphereDocument([scale]))

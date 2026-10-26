@@ -466,7 +466,9 @@ public actor ModelEvaluator {
             let r = simd_double3x3(simd_quatd(angle: try ev.angleRadians(o.angle), axis: simd_normalize(axis)))
             m = r * m * r.transpose
         }
-        let t = c - m * c
+        // Unturned, keep c·(1 − f): the same maths as c − M·c but rounded differently, and
+        // every existing design's scaled bodies (and the bench digests) depend on it bit for bit.
+        let t = sc.orientation == nil ? c * (SIMD3(1, 1, 1) - f) : c - m * c
         // Transform takes rows; simd matrices index columns first.
         let transform = Transform(matrix: [m[0][0], m[1][0], m[2][0], t.x, m[0][1], m[1][1], m[2][1], t.y,
                                            m[0][2], m[1][2], m[2][2], t.z])
