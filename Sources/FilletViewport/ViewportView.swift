@@ -322,9 +322,23 @@ struct SelectionBoxOverlay: View {
                 .overlay(Rectangle().strokeBorder(blue, style: StrokeStyle(lineWidth: 1.5, dash: window ? [] : [6, 4])))
                 .frame(width: rect.width, height: rect.height)
                 .offset(x: rect.minX, y: rect.minY)
+            anchorMarks
             tag.position(tagCenter(rect))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Crop marks at the corner the drag started from, as on a drawing sheet: they pin the box
+    /// down there, so it reads which way it was dragged (and so whether it's a window or crossing).
+    private var anchorMarks: some View {
+        let s = box.start
+        let dx: CGFloat = box.end.x >= s.x ? -1 : 1, dy: CGFloat = box.end.y >= s.y ? -1 : 1
+        return Path { p in
+            // Two short ticks running on from the box's edges, a little outside the corner.
+            p.move(to: CGPoint(x: s.x + dx * 4, y: s.y)); p.addLine(to: CGPoint(x: s.x + dx * 12, y: s.y))
+            p.move(to: CGPoint(x: s.x, y: s.y + dy * 4)); p.addLine(to: CGPoint(x: s.x, y: s.y + dy * 12))
+        }
+        .stroke(blue, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
     }
 
     private var tag: some View {
@@ -352,7 +366,8 @@ struct SelectionBoxOverlay: View {
     /// Above the box's top edge, at the corner the drag started from (away from the finger or
     /// pointer at the other end), kept inside the view.
     private func tagCenter(_ rect: CGRect) -> CGPoint {
-        let x = window ? rect.minX + 36 : rect.maxX - 40
+        // Inward from the corner, clear of its crop marks.
+        let x = window ? rect.minX + 64 : rect.maxX - 64
         let y = rect.minY > 18 ? rect.minY - 12 : rect.minY + 12
         return CGPoint(x: min(max(x, 40), max(viewSize.width - 40, 40)), y: y)
     }

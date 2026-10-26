@@ -14,7 +14,7 @@ struct SelectionInspector: View {
             } else {
                 InspectorHeader(
                     symbol: "cursorarrow.rays", title: session.selection.count == 1 ? name(of: session.selection[0]) : "\(session.selection.count) selected",
-                    subtitle: session.selection.count == 2 ? nil : "Pick two items to measure between them", tint: Theme.select)
+                    subtitle: session.selection.count == 1 ? "Pick one more to measure between them" : nil, tint: Theme.select)
                 VStack(alignment: .leading, spacing: Theme.Space.s) {
                     ForEach(Array(session.selection.prefix(4).enumerated()), id: \.offset) { _, item in
                         describe(item)
