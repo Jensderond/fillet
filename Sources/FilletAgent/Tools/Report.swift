@@ -15,19 +15,20 @@ enum Change {
     static func apply(
         _ ws: any DesignWorkspace, action: String, newFeature: UUID? = nil, allowFailures: Bool = false,
         _ mutate: (inout Document) throws -> Void
-    ) async throws -> EvaluatedModel {
+    ) async throws -> (model: EvaluatedModel, warnings: [String]) {
         for _ in 0..<5 {
             let base = ws.document
             let before = await ws.evaluated()
             guard base == ws.document else { continue }
             var doc = base
             try mutate(&doc)
-            guard doc != base else { return before }
+            guard doc != base else { return (before, []) }
             let candidate = await ws.preview(doc)
             guard base == ws.document else { continue }
             try check(candidate, before: before, doc: doc, newFeature: newFeature, allowFailures: allowFailures)
+            let warnings = drift(candidate, before: before, doc: doc, newFeature: newFeature)
             // No suspension between the check above and the commit's write, so nothing slips in between.
-            return await ws.commit(doc, action: action)
+            return (await ws.commit(doc, action: action), warnings)
         }
         throw ToolError("The design kept changing while this step was checked (is the user editing?). Try again.")
     }
@@ -39,6 +40,9 @@ enum Change {
             let name = doc.feature(id)?.name ?? "The step"
             throw ToolError("\(name) failed: \(reason). Nothing was changed.")
         }
+        if let id = newFeature, let problem = brokenBody(candidate, before: before, step: id, doc: doc) {
+            throw ToolError("\(doc.feature(id)?.name ?? "The step") failed: \(problem). Nothing was changed.")
+        }
         let broken = doc.features.compactMap { f -> String? in
             guard f.id != newFeature, case .failed(let reason) = candidate.status[f.id] else { return nil }
             if case .failed = before.status[f.id] { return nil }
@@ -49,6 +53,55 @@ enum Change {
                 + broken.joined(separator: "; ") + ". Nothing was changed. Pass allow_failures: true to apply it anyway.")
         }
     }
+
+    /// A body the step left broken (no solid, or not a valid one) although it was fine before:
+    /// the kernel sometimes returns such a result without failing.
+    private static func brokenBody(_ candidate: EvaluatedModel, before: EvaluatedModel, step: UUID, doc: Document) -> String? {
+        for b in candidate.bodies where b.lastFeature == step {
+            let noSolid = b.shape.solidCount == 0
+            guard noSolid || !b.shape.isValid else { continue }
+            // Only blame the step for what it broke.
+            if let old = before.body(b.ref), old.shape.solidCount == 0 || !old.shape.isValid { continue }
+            let name = doc.feature(b.ref.feature)?.name ?? b.name
+            return noSolid ? "it would leave “\(name)” without a closed solid" : "it would leave “\(name)” an invalid solid"
+        }
+        return nil
+    }
+
+    /// Steps that still work but whose face/edge references now land somewhere else, or only
+    /// vaguely: a found face/edge much further from where it was picked than before the change,
+    /// a match that has become ambiguous, or two references that now find the same edge.
+    static func drift(_ candidate: EvaluatedModel, before: EvaluatedModel, doc: Document, newFeature: UUID?) -> [String] {
+        doc.features.compactMap { f -> String? in
+            guard f.id != newFeature, candidate.status[f.id] == .ok, before.status[f.id] == .ok,
+                  let now = candidate.references[f.id], let was = before.references[f.id], now.count == was.count
+            else { return nil }
+            var moved: [Double] = [], ambiguous = 0
+            for (n, w) in zip(now, was) {
+                guard let n, let w else { continue }
+                if n.score > w.score + driftScore { moved.append(n.offset) }
+                if n.isAmbiguous, !w.isAmbiguous { ambiguous += 1 }
+            }
+            let distinct = { (refs: [ResolvedReference?]) in Set(refs.compactMap { $0?.index }).count }
+            let merged = distinct(was) - distinct(now)
+            var problems: [String] = []
+            let noun = f.kind.typeName == "shell" || f.kind.typeName == "layFlat" ? "face" : "edge"
+            if !moved.isEmpty {
+                let far = String(format: "%.1f", moved.max() ?? 0)
+                problems.append(now.count == 1 ? "its \(noun) is now found \(far) mm from where it was picked"
+                    : "\(moved.count) of its \(now.count) \(noun)s \(moved.count == 1 ? "is" : "are") now found up to \(far) mm from where \(moved.count == 1 ? "it was" : "they were") picked")
+            }
+            if ambiguous > 0 { problems.append("\(ambiguous) \(noun)\(ambiguous == 1 ? " has" : "s have") two equally good matches") }
+            if merged > 0 { problems.append("\(merged + 1) of its \(noun)s now find the same \(noun)") }
+            guard !problems.isEmpty else { return nil }
+            return "“\(f.name)” may now work on different \(noun)s: " + problems.joined(separator: "; ")
+                + ". Check it with render_view; to pick them again, delete it and add it anew (e.g. with {\"created_by\": …})."
+        }
+    }
+
+    /// How much worse a reference's match score may get before it counts as landing elsewhere
+    /// (a quarter of the model's size away costs 1).
+    static let driftScore = 0.3
 
     /// A name for a new step: the agent's choice (made unique) or "Base N".
     static func uniqueName(_ requested: String?, base: String, in doc: Document) -> String {
@@ -95,8 +148,9 @@ enum Report {
         return .object(out)
     }
 
-    /// Body names and failures after a change, kept short (get_design has the details).
-    static func brief(_ ws: any DesignWorkspace, _ model: EvaluatedModel) -> JSONValue {
+    /// Body names and failures after a change, kept short (get_design has the details), and
+    /// warnings about steps the change may have thrown off.
+    static func brief(_ ws: any DesignWorkspace, _ model: EvaluatedModel, warnings: [String] = []) -> JSONValue {
         let r = Resolver(document: ws.document, model: model)
         var out: [String: JSONValue] = [
             "steps": .number(Double(ws.document.features.count)),
@@ -107,11 +161,13 @@ enum Report {
             return .string("\(f.name): \(reason)")
         }
         if !failed.isEmpty { out["failed_steps"] = .array(failed) }
+        if !warnings.isEmpty { out["warnings"] = .array(warnings.map { .string($0) }) }
         return .object(out)
     }
 
     /// What a modeling tool returns: the step it made, the bodies it made or changed, and the body names now.
-    static func added(_ ws: any DesignWorkspace, _ model: EvaluatedModel, feature id: UUID, extra: [String: JSONValue] = [:]) -> ToolResult {
+    static func added(_ ws: any DesignWorkspace, _ model: EvaluatedModel, warnings: [String] = [], feature id: UUID,
+                      extra: [String: JSONValue] = [:]) -> ToolResult {
         let r = Resolver(document: ws.document, model: model)
         var out = extra
         if let f = ws.document.feature(id) {
@@ -119,7 +175,7 @@ enum Report {
             let changed = model.bodies.filter { $0.lastFeature == id }
             if !changed.isEmpty { out["changed_bodies"] = .array(changed.map { Describe.body($0, r, detail: true) }) }
         }
-        out["design"] = brief(ws, model)
+        out["design"] = brief(ws, model, warnings: warnings)
         return .json(.object(out))
     }
 

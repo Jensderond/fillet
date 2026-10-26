@@ -22,15 +22,34 @@ public protocol DesignWorkspace: AnyObject {
     /// The model for the current document, waiting for a running recompute.
     func evaluated() async -> EvaluatedModel
     /// Evaluates a candidate document without changing anything (to check a change first).
-    func preview(_ candidate: Document) async -> EvaluatedModel
+    /// With `before`, the model's `bodiesBefore` holds the bodies just before that step.
+    func preview(_ candidate: Document, before: UUID?) async -> EvaluatedModel
     /// Replaces the document as one undoable step named `action` and returns the recomputed model.
     /// Must write the document before its first suspension (``Change`` relies on that).
     func commit(_ newDocument: Document, action: String) async -> EvaluatedModel
+    /// What `undo()` would take back, nil when there is nothing to undo. In the app, an edit the
+    /// user has open in the inspector is made a step of its own first, so this is exactly it.
+    func nextUndo() -> HistoryStep?
+    /// The action name of what `redo()` would bring back.
+    func nextRedo() -> String?
     /// Undoes the last step; returns its name, or nil when there is nothing to undo.
     func undo() async -> String?
     func redo() async -> String?
     /// Moves the view (live: animates the user's camera).
     func show(_ camera: Camera)
+}
+
+/// One change in a design's undo history.
+public struct HistoryStep: Sendable, Equatable {
+    /// Its undo action name: "New Hat", "Edit Hat", "Set width", "Delete Hat"…
+    public var action: String
+    /// Made by an agent through these tools, not by the user (headless: always).
+    public var byAgent: Bool
+
+    public init(action: String, byAgent: Bool) {
+        self.action = action
+        self.byAgent = byAgent
+    }
 }
 
 /// Where workspaces come from: the app's open windows, or the headless process.
@@ -47,6 +66,10 @@ public protocol WorkspaceHost: AnyObject {
     func openNewDesign() async throws -> (any DesignWorkspace)?
     /// Called around every tool call so the host can show what the agent is doing (nil when done).
     func agentActivity(_ text: String?)
+}
+
+extension DesignWorkspace {
+    func preview(_ candidate: Document) async -> EvaluatedModel { await preview(candidate, before: nil) }
 }
 
 extension WorkspaceHost {
@@ -100,8 +123,8 @@ public final class HeadlessWorkspace: DesignWorkspace {
         return result
     }
 
-    public func preview(_ candidate: Document) async -> EvaluatedModel {
-        await evaluator.preview(candidate)
+    public func preview(_ candidate: Document, before: UUID?) async -> EvaluatedModel {
+        await evaluator.preview(candidate, before: before)
     }
 
     public func commit(_ newDocument: Document, action: String) async -> EvaluatedModel {
@@ -112,6 +135,9 @@ public final class HeadlessWorkspace: DesignWorkspace {
         save()
         return await evaluated()
     }
+
+    public func nextUndo() -> HistoryStep? { undoStack.last.map { HistoryStep(action: $0.action, byAgent: true) } }
+    public func nextRedo() -> String? { redoStack.last?.action }
 
     public func undo() async -> String? {
         guard let last = undoStack.popLast() else { return nil }

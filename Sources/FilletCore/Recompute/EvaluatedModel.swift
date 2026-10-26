@@ -29,6 +29,25 @@ public struct EvaluatedSketch: Sendable {
     public var shapeErrors: [UUID: String]
 }
 
+/// How a face or edge reference was found again on recompute.
+public struct ResolvedReference: Hashable, Sendable {
+    /// Index of the face/edge on the body the step worked on.
+    public var index: Int
+    /// The resolver's score: 0 = exactly as picked (see ``ReferenceResolver``).
+    public var score: Double
+    /// Another face/edge matched almost as well.
+    public var isAmbiguous: Bool
+    /// Distance from where it was picked to the found one (centroid or edge midpoint), mm.
+    public var offset: Double
+
+    public init(_ match: ReferenceMatch, offset: Double) {
+        index = match.index
+        score = match.score
+        isAmbiguous = match.isAmbiguous
+        self.offset = offset
+    }
+}
+
 /// Outcome of one feature during recompute.
 public enum FeatureStatus: Hashable, Sendable {
     case ok
@@ -54,6 +73,9 @@ public struct EvaluatedModel: Sendable {
     /// i.e. exactly the edges the kernel was asked to round or bevel. Recorded before the kernel
     /// runs, so a step that failed has them too; references that no longer resolve are absent.
     public var resolvedEdges: [UUID: [EdgeInfo]] = [:]
+    /// Per fillet, chamfer, shell or lay-flat: how each of its face/edge references was found
+    /// again, in order (nil = not found).
+    public var references: [UUID: [ResolvedReference?]] = [:]
 
     /// The pre-feature version of a body (falls back to the current one).
     public func bodyBefore(_ ref: BodyRef) -> EvaluatedBody? {

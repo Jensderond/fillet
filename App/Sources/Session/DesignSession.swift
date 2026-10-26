@@ -278,8 +278,8 @@ final class DesignSession {
     /// Evaluates a candidate document (an agent's step, checked before it is made) on this
     /// window's evaluator without showing it. Its steps stay cached, so committing it doesn't
     /// recompute them, and the window's own cached steps survive when it is refused.
-    func preview(_ candidate: Document) async -> EvaluatedModel {
-        await evaluator.preview(candidate)
+    func preview(_ candidate: Document, before: UUID? = nil) async -> EvaluatedModel {
+        await evaluator.preview(candidate, before: before)
     }
 
     // MARK: Failures

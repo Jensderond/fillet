@@ -1,5 +1,6 @@
 import FilletKernel
 import Foundation
+import simd
 import Synchronization
 
 /// Error raised while evaluating one feature; its message is shown in the timeline.
@@ -20,6 +21,7 @@ public actor ModelEvaluator {
         var sketches: [UUID: EvaluatedSketch] = [:]
         var status: [UUID: FeatureStatus] = [:]
         var resolvedEdges: [UUID: [EdgeInfo]] = [:]
+        var references: [UUID: [ResolvedReference?]] = [:]
         var bodyCounter = 0
     }
 
@@ -124,6 +126,7 @@ public actor ModelEvaluator {
         model.sketches = state.sketches
         model.status = state.status
         model.resolvedEdges = state.resolvedEdges
+        model.references = state.references
         let meshStart = recordsTimings ? ContinuousClock.now : nil
         model.meshes = displayMeshes(for: state.bodies, preview: preview)
         if let meshStart {
@@ -334,15 +337,19 @@ public actor ModelEvaluator {
         let infos = body.shape.edgeInfos
         var indices: [Int] = []
         var missing = 0
+        var found: [ResolvedReference?] = []
         for ref in f.edges {
-            if let i = ReferenceResolver.resolve(ref.signature, in: infos) {
-                if !indices.contains(i) { indices.append(i) }
+            if let m = ReferenceResolver.match(ref.signature, in: infos) {
+                if !indices.contains(m.index) { indices.append(m.index) }
+                found.append(ResolvedReference(m, offset: ref.signature.mid.distance(to: infos[m.index].mid)))
             } else {
                 missing += 1
+                found.append(nil)
             }
         }
         // What the kernel is asked to round, recorded before it runs so a failed step shows it too.
         state.resolvedEdges[feature.id] = indices.map { infos[$0] }
+        state.references[feature.id] = found
         if missing > 0 {
             throw FeatureError(missing == 1 ? "1 edge can no longer be found — reselect it" : "\(missing) edges can no longer be found — reselect them")
         }
@@ -359,12 +366,15 @@ public actor ModelEvaluator {
         let (index, body) = try bodyIndex(s.body, state)
         let infos = body.shape.faceInfos
         var faces: [Int] = []
+        var found: [ResolvedReference?] = []
         for ref in s.removeFaces {
-            guard let i = ReferenceResolver.resolve(ref.signature, in: infos) else {
+            guard let m = ReferenceResolver.match(ref.signature, in: infos) else {
                 throw FeatureError("A selected face can no longer be found — reselect it")
             }
-            faces.append(i)
+            faces.append(m.index)
+            found.append(ResolvedReference(m, offset: ref.signature.centroid.distance(to: infos[m.index].centroid)))
         }
+        state.references[feature.id] = found
         let thickness = try ev.length(s.thickness)
         guard thickness != 0 else { throw FeatureError("Thickness must not be zero") }
         state.bodies[index].shape = try body.shape.shelled(removing: faces, thickness: thickness)
@@ -448,8 +458,18 @@ public actor ModelEvaluator {
         let f = SIMD3(try ev.scalar(sc.factors.x), try ev.scalar(sc.factors.y), try ev.scalar(sc.factors.z))
         guard f.x > 1e-6, f.y > 1e-6, f.z > 1e-6 else { throw FeatureError("Scale factors must be greater than zero") }
         let c = try sc.center.evaluate(using: ev)
-        let t = c * (SIMD3(1, 1, 1) - f)
-        let transform = Transform(matrix: [f.x, 0, 0, t.x, 0, f.y, 0, t.y, 0, 0, f.z, t.z])
+        // M = R·S·Rᵀ: the factors apply along the turned axes (R's columns); the centre stays put.
+        var m = simd_double3x3(diagonal: f)
+        if let o = sc.orientation {
+            let axis = SIMD3(try ev.scalar(o.axis.x), try ev.scalar(o.axis.y), try ev.scalar(o.axis.z))
+            guard simd_length(axis) > 1e-9 else { throw FeatureError("The orientation axis must not be zero") }
+            let r = simd_double3x3(simd_quatd(angle: try ev.angleRadians(o.angle), axis: simd_normalize(axis)))
+            m = r * m * r.transpose
+        }
+        let t = c - m * c
+        // Transform takes rows; simd matrices index columns first.
+        let transform = Transform(matrix: [m[0][0], m[1][0], m[2][0], t.x, m[0][1], m[1][1], m[2][1], t.y,
+                                           m[0][2], m[1][2], m[2][2], t.z])
         for ref in sc.bodies {
             let (i, body) = try bodyIndex(ref, state)
             state.bodies[i].shape = try body.shape.transformed(transform)
@@ -537,9 +557,12 @@ public actor ModelEvaluator {
 
     private func layFlat(_ l: LayFlat, _ feature: Feature, _ state: inout State) throws {
         let (i, body) = try bodyIndex(l.body, state)
-        guard let face = ReferenceResolver.resolve(l.face.signature, in: body.shape.faceInfos) else {
+        let infos = body.shape.faceInfos
+        guard let m = ReferenceResolver.match(l.face.signature, in: infos) else {
             throw FeatureError("The selected face can no longer be found — reselect it")
         }
+        let face = m.index
+        state.references[feature.id] = [ResolvedReference(m, offset: l.face.signature.centroid.distance(to: infos[face].centroid))]
         guard let plane = body.shape.facePlane(face) else { throw FeatureError("Lay flat needs a flat face") }
         let n = plane.normal, down = -Vec3.unitZ
         var rotation = Transform.identity

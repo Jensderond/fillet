@@ -1,5 +1,6 @@
 import FilletCore
 import FilletKernel
+import FilletViewport
 import Foundation
 import Testing
 
@@ -14,6 +15,11 @@ final class Client {
 
     init() {
         server = FilletMCP.makeServer(host: HeadlessHost(workspace: workspace))
+    }
+
+    /// A client whose workspace is shared with a "user": `userEdit` makes changes the agent didn't.
+    init(sharedWith user: SharedWorkspace) {
+        server = FilletMCP.makeServer(host: SharedHost(workspace: user))
     }
 
     func request(_ method: String, _ params: JSONValue = [:]) async throws -> JSONValue {
@@ -38,6 +44,53 @@ final class Client {
         #expect(!r.isError, "\(tool) failed: \(r.text)", sourceLocation: sourceLocation)
         return r.json
     }
+}
+
+/// A design the user edits too, like a window in the app: their changes aren't the agent's.
+@MainActor
+final class SharedWorkspace: DesignWorkspace {
+    let inner = HeadlessWorkspace()
+    private var userActions: [String] = []
+
+    func userEdit(_ action: String, _ change: (inout Document) -> Void) async {
+        var doc = inner.document
+        change(&doc)
+        _ = await inner.commit(doc, action: action)
+        userActions.append(action)
+    }
+
+    var id: UUID { inner.id }
+    var title: String { inner.title }
+    var document: Document { inner.document }
+    var hiddenBodies: Set<BodyRef> { [] }
+    var camera: Camera { inner.camera }
+    var viewAspect: Double { inner.viewAspect }
+    func evaluated() async -> EvaluatedModel { await inner.evaluated() }
+    func preview(_ candidate: Document, before: UUID?) async -> EvaluatedModel { await inner.preview(candidate, before: before) }
+    func commit(_ newDocument: Document, action: String) async -> EvaluatedModel { await inner.commit(newDocument, action: action) }
+    func nextUndo() -> HistoryStep? {
+        inner.nextUndo().map { HistoryStep(action: $0.action, byAgent: userActions.last != $0.action) }
+    }
+    func nextRedo() -> String? { inner.nextRedo() }
+    func undo() async -> String? {
+        let action = await inner.undo()
+        if action == userActions.last { userActions.removeLast() }
+        return action
+    }
+    func redo() async -> String? { await inner.redo() }
+    func show(_ camera: Camera) {}
+}
+
+@MainActor
+final class SharedHost: WorkspaceHost {
+    let workspace: SharedWorkspace
+    init(workspace: SharedWorkspace) { self.workspace = workspace }
+    var hostDescription: String { "Test window" }
+    var workspaces: [any DesignWorkspace] { [workspace] }
+    var current: (any DesignWorkspace)? { workspace }
+    func select(_ id: UUID) -> Bool { id == workspace.id }
+    func openNewDesign() async throws -> (any DesignWorkspace)? { nil }
+    func agentActivity(_ text: String?) {}
 }
 
 @Suite("MCP protocol")
@@ -150,13 +203,39 @@ struct ModelingToolTests {
         try await c.ok("edit_feature", ["feature": "Peg", "changes": ["kind": ["dimensions": ["10", "30"]]]])
         var bounds = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
         #expect(abs(bounds.max.z - 30) < 1e-6)
-        let undone = try await c.ok("undo")
+        // Undo takes back the edit, not the step, and says so.
+        let wrong = try await c.call("undo", ["expect": "New Peg"])
+        #expect(wrong.isError && wrong.text.contains("The last change is “Edit Peg”") && wrong.text.contains("Nothing was undone"))
+        let undone = try await c.ok("undo", ["expect": "Peg"])
         #expect(undone["undone"] == "Edit Peg")
+        #expect(undone["effect"] == ["Reverted the edit of “Peg”: its earlier definition is back"])
         bounds = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
         #expect(abs(bounds.max.z - 10) < 1e-6)
-        try await c.ok("redo")
+        let redone = try await c.ok("redo", ["expect": "Edit Peg"])
+        #expect(redone["effect"] == ["Redid the edit of “Peg”"])
         bounds = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
         #expect(abs(bounds.max.z - 30) < 1e-6)
+        try await c.ok("undo")
+        let removed = try await c.ok("undo", ["expect": "New Peg"])
+        #expect(removed["effect"] == ["Removed step “Peg”"])
+        let nothing = try await c.call("undo")
+        #expect(nothing.isError)
+    }
+
+    @Test func undoLeavesTheUsersChangesAlone() async throws {
+        let shared = SharedWorkspace()
+        let c = Client(sharedWith: shared)
+        try await c.ok("set_parameter", ["name": "width", "expression": 40])
+        await shared.userEdit("Set width") { $0.parameters[0].expression = "55" }
+        let refused = try await c.call("undo")
+        #expect(refused.isError && refused.text.contains("is the user's own"))
+        #expect(shared.document.parameters[0].expression.source == "55")
+        let undone = try await c.ok("undo", ["expect": "Set width"])
+        #expect(undone["by"] == "the user")
+        #expect(undone["effect"] == ["Parameter width: 55 → 40"])
+        // The agent's own change undoes without naming it.
+        let own = try await c.ok("undo")
+        #expect(own["by"] == "you" && own["effect"] == ["Removed parameter width"])
     }
 
     @Test func characterParts() async throws {
@@ -198,6 +277,134 @@ struct ModelingToolTests {
         #expect(sameName["step"]?["name"] == "Block 2")
         let faces = try await c.ok("list_faces", ["body": "Block", "filter": ["normal": [0, 0, 1]]])
         #expect(faces["matching"]?.number == 1)
+    }
+
+    @Test func selectsWhatAStepMade() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [40, 40, 10], "name": "Base"])
+        try await c.ok("primitive", ["kind": "cylinder", "dimensions": ["diameter": 10, "height": 20], "at": [0, 0, 5], "name": "Peg"])
+        try await c.ok("combine", ["target": "Base", "tools": "Peg", "name": "Join peg"])
+        // Later steps renumber the edges; the filter still finds the seam.
+        try await c.ok("primitive", ["kind": "box", "dimensions": [6, 6, 6], "at": [14, 14, 10], "operation": "join", "targets": "Base", "name": "Nub"])
+        let seam = try await c.ok("list_edges", ["body": "Base", "filter": ["created_by": "Join peg", "type": "circle"]])
+        let edges = try #require(seam["edges"]?.array)
+        #expect(!edges.isEmpty)
+        #expect(edges.allSatisfy { $0["radius"]?.number == 5 && $0["mid"]?.array?[2].number == 10 })
+        let faces = try await c.ok("list_faces", ["body": "Base", "filter": ["created_by": "Join peg"]])
+        // The peg's side, now ending at the box (its top face is the peg's own; the box top changed again with the nub).
+        #expect(faces["faces"]?.array?.compactMap { $0["type"]?.string } == ["cylinder"])
+        try await c.ok("fillet", ["body": "Base", "edges": ["created_by": "Join peg"], "radius": 2, "name": "Peg root"])
+        let f = try #require(c.workspace.document.features.last)
+        guard case .fillet(let e) = f.kind else { Issue.record("not a fillet"); return }
+        #expect(e.edges.count == edges.count)  // the seam circle, not the peg's (unroundable) seam line
+        #expect(e.edges.allSatisfy { abs($0.signature.mid.z - 10) < 1e-6 })
+        let otherBody = try await c.call("list_edges", ["body": "Base", "filter": ["created_by": "Peg"]])
+        #expect(otherBody.isError && otherBody.text.contains("made no edges on “Base”"))
+        let gone = try await c.call("list_edges", ["body": "Base", "filter": ["created_by": "Join peg", "type": "circle"]])
+        #expect(gone.isError && gone.text.contains("changed by later steps"))
+    }
+
+    @Test func warnsWhenReferencesLandElsewhere() async throws {
+        let c = Client()
+        try await c.ok("set_parameter", ["name": "shift", "expression": 0])
+        try await c.ok("primitive", ["kind": "box", "dimensions": [40, 40, 10], "position": ["shift", 0], "name": "Block"])
+        try await c.ok("fillet", ["body": "Block", "edges": ["parallel_to": [0, 0, 1], "near": [20, 20, 5], "limit": 1], "radius": 3, "name": "Corner"])
+        let nudged = try await c.ok("set_parameter", ["name": "shift", "expression": 0.5])
+        #expect(nudged["design"]?["warnings"] == nil)
+        let moved = try await c.ok("set_parameter", ["name": "shift", "expression": 12])
+        let warning = try #require(moved["design"]?["warnings"]?.array?.first?.string)
+        #expect(warning.contains("“Corner”") && warning.contains("12.0 mm"))
+    }
+
+    @Test func explainsFailedFillets() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [40, 40, 4], "name": "Plate"])
+        let top = try await c.ok("list_edges", ["body": "Plate", "filter": ["extreme": "+z"]])
+        let topEdges = try #require(top["edges"]?.array?.compactMap { $0["index"]?.int })
+        // The corners take 6 mm; the top edges of a 4 mm plate don't.
+        let vertical = try await c.ok("list_edges", ["body": "Plate", "filter": ["parallel_to": [0, 0, 1]]])
+        let verticalEdges = try #require(vertical["edges"]?.array?.compactMap { $0["index"]?.int })
+        let both = try await c.call("fillet", ["body": "Plate", "edges": .array((topEdges + verticalEdges).map { .number(Double($0)) }), "radius": 6])
+        #expect(both.isError)
+        let bad = topEdges.sorted().map(String.init).joined(separator: ", ")
+        #expect(both.text.contains("Edges \(bad) can't be rounded at 6 mm, even on their own (together they take up to "), "\(both.text)")
+        #expect(both.text.contains("; the other 4 take the requested 6 mm together. Leave those out"), "\(both.text)")
+        let all = try await c.call("fillet", ["body": "Plate", "edges": .array(topEdges.map { .number(Double($0)) }), "radius": 6])
+        #expect(all.isError && all.text.contains("None of the edges can be rounded at 6 mm"), "\(all.text)")
+        #expect(all.text.contains("together they take up to "), "\(all.text)")
+    }
+
+    @Test func blendDiagnosisSearch() {
+        // Edges 3 and 6 fail at any size; the rest work together up to 1.8.
+        var probes = 0
+        let d = BlendDiagnosis.diagnose(edges: Array(0..<8), size: 3, outOfTime: { _ in false }) { edges, size in
+            probes += 1
+            if edges.contains(3) || edges.contains(6) { return false }
+            return edges.count < 6 || size <= 1.8
+        }
+        #expect(d.badEdges == [3, 6])
+        #expect(d.goodEdges == [0, 1, 2, 4, 5, 7])
+        guard case .works(let largest) = d.size else { Issue.record("no size found"); return }
+        #expect(largest > 1.6 && largest <= 1.8)
+        #expect(d.badSize == .failsDownTo(3.0 / 64))
+        #expect(probes < 30)
+        #expect(d.message(size: 3, fillet: true) == "Edges 3, 6 can't be rounded at 3 mm, even on their own (together they fail even at 0.04 mm); the other 6 take up to \(BlendDiagnosis.format(BlendDiagnosis.floor(largest))) mm together. Leave those out (or give them a step of their own with a smaller radius) and round the rest.")
+        // Out of time: says what it didn't check.
+        var calls = 0
+        let partial = BlendDiagnosis.diagnose(edges: Array(0..<8), size: 3, outOfTime: { _ in calls >= 2 }) { _, _ in calls += 1; return false }
+        #expect(!partial.unchecked.isEmpty)
+        #expect(partial.message(size: 3, fillet: false).contains("no time left to check"))
+    }
+
+    @Test func scalesAlongTiltedAxes() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "sphere", "dimensions": ["diameter": 10], "at": [0, 0, 20], "name": "Blush"])
+        // A disc facing up and 45° forward: squash along that direction.
+        try await c.ok("scale_bodies", ["bodies": "Blush", "factors": [1, 1, 0.3], "axes": ["z": [0, -1, 1]], "name": "Flatten"])
+        let step = try await c.ok("get_feature", ["feature": "Flatten"])
+        let o = try #require(step["feature"]?["kind"]?["orientation"])
+        #expect(o["angle"] == "45")
+        #expect(o["axis"]?["x"] == "1")
+        #expect(step["summary"]?.string?.contains("turned 45°") == true)
+        let body = try #require(await c.workspace.evaluated().bodies.first)
+        #expect(abs(body.shape.volume - 0.3 * 4 / 3 * .pi * 125) < 1)
+        let b = try #require(body.shape.bounds)
+        #expect(abs(b.max.x - 5) < 0.05)
+        #expect(abs(b.max.y - ((25 + 2.25) / 2).squareRoot()) < 0.05)
+        // The same with an explicit turn.
+        try await c.ok("undo")
+        try await c.ok("scale_bodies", ["bodies": "Blush", "factors": [1, 1, 0.3], "orientation": ["axis": "x", "angle": 45], "name": "Flatten"])
+        let b2 = try #require(await c.workspace.evaluated().bodies.first?.shape.bounds)
+        #expect(abs(b2.max.y - b.max.y) < 1e-6 && abs(b2.max.z - b.max.z) < 1e-6)
+        // Two directions are squared up; parallel ones are refused.
+        let frame = try ScaleAxes.turn(toAxes: ["x": [0, 1, 0], "z": [0, 0, 1]])
+        #expect(frame?.angle == 90 && frame?.axis == Vec3Expr(0, 0, 1))
+        #expect(try ScaleAxes.turn(toAxes: ["z": [0, 0, 2]]) == nil)
+        #expect(throws: ToolError.self) { try ScaleAxes.turn(toAxes: ["x": [1, 0, 0], "z": [2, 0, 0]]) }
+    }
+
+    @Test func refusesBrokenResults() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [10, 10, 10], "name": "Cube"])
+        // The kernel returns a fillet this big without complaint, but it is no solid.
+        let r = try await c.call("fillet", ["body": "Cube", "edges": "all", "radius": 6])
+        #expect(r.isError && r.text.contains("Fillet 1 failed: it would leave “Cube”"), "\(r.text)")
+        #expect(c.workspace.document.features.count == 1)
+    }
+
+    @Test func adviceForFailedBooleans() async throws {
+        let c = Client()
+        try await c.ok("primitive", ["kind": "box", "dimensions": [10, 10, 10], "name": "Staff"])
+        try await c.ok("primitive", ["kind": "sphere", "dimensions": ["diameter": 8], "at": [0, 0, 10], "name": "Gem"])
+        let model = await c.workspace.evaluated()
+        let r = Resolver(document: c.workspace.document, model: model)
+        let staff = try r.body("Staff"), gem = try r.body("Gem")
+        let cut = Combine(target: staff.ref, tools: [gem.ref], operation: .cut)
+        let swapped = await FilletTools.booleanAdvice(cut, target: staff, tool: gem, r, quick: true)
+        #expect(swapped.hasPrefix("Cutting “Staff” out of “Gem” instead works (checked): combine with target “Gem”, tools “Staff”"))
+        let join = Combine(target: staff.ref, tools: [gem.ref], operation: .join)
+        #expect(await FilletTools.booleanAdvice(join, target: staff, tool: gem, r, quick: true).contains("0.05 mm"))
+        #expect(await FilletTools.booleanAdvice(cut, target: staff, tool: gem, r, quick: false).contains("0.05 mm"))
     }
 
     @Test func shapeInputAcceptsArraysAndBulges() throws {

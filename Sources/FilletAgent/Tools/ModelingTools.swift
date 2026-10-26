@@ -1,6 +1,7 @@
 import FilletCore
 import FilletKernel
 import Foundation
+import simd
 
 extension FilletTools {
     var modelingTools: [MCPTool] {
@@ -27,7 +28,7 @@ extension FilletTools {
             let name = try a.string("name")
             if let problem = Parameter.validationError(forName: name) { throw ToolError(problem) }
             let expression = try a.expr("expression")
-            let model = try await Change.apply(ws, action: "Set \(name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
+            let (model, warnings) = try await Change.apply(ws, action: "Set \(name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
                 if let i = doc.parameters.firstIndex(where: { $0.name == name }) {
                     doc.parameters[i].expression = expression
                     if let c = a.optionalString("comment") { doc.parameters[i].comment = c }
@@ -38,7 +39,7 @@ extension FilletTools {
             guard let p = ws.document.parameters.first(where: { $0.name == name }) else { return .error("Parameter not saved") }
             if let e = model.parameters.errors[p.id] { return .error("\(name) = \(expression): \(e.message)") }
             let value = model.parameters.values[name].map { JSONValue.rounded($0.value, 4) } ?? .null
-            return .json(["parameter": .string(name), "value": value, "design": Report.brief(ws, model)])
+            return .json(["parameter": .string(name), "value": value, "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -51,10 +52,10 @@ extension FilletTools {
             let ws = try host.requireCurrent()
             let name = try a.string("name")
             guard ws.document.parameters.contains(where: { $0.name == name }) else { throw ToolError("No parameter named \(name)") }
-            let model = try await Change.apply(ws, action: "Delete \(name)", allowFailures: a.bool("allow_failures", default: false)) {
+            let (model, warnings) = try await Change.apply(ws, action: "Delete \(name)", allowFailures: a.bool("allow_failures", default: false)) {
                 $0.parameters.removeAll { $0.name == name }
             }
-            return .json(["deleted": .string(name), "design": Report.brief(ws, model)])
+            return .json(["deleted": .string(name), "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -91,13 +92,13 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let plane = try r.plane(a["plane"], offset: try a.optionalExpr("offset"))
             let shapes = try ShapeInput.shapes(a["shapes"])
             let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: "Sketch", in: ws.document),
                                   .sketch(Sketch(plane: plane, shapes: shapes)))
-            let model = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
-            return Report.added(ws, model, feature: feature.id, extra: Self.sketchInfo(feature, model))
+            let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
+            return Report.added(ws, model, warnings: warnings, feature: feature.id, extra: Self.sketchInfo(feature, model))
         }
     }
 
@@ -110,13 +111,13 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             var (feature, sketch, _) = try r.sketch(try a.string("sketch"))
             sketch.shapes += try ShapeInput.shapes(a["shapes"])
             feature.kind = .sketch(sketch)
-            let model = try await Change.apply(ws, action: "Edit \(feature.name)", newFeature: feature.id,
+            let (model, warnings) = try await Change.apply(ws, action: "Edit \(feature.name)", newFeature: feature.id,
                                                allowFailures: a.bool("allow_failures", default: false)) { try $0.updateFeature(feature) }
-            return Report.added(ws, model, feature: feature.id, extra: Self.sketchInfo(feature, model))
+            return Report.added(ws, model, warnings: warnings, feature: feature.id, extra: Self.sketchInfo(feature, model))
         }
     }
 
@@ -153,7 +154,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let (sk, _, eval) = try r.sketch(try a.string("sketch"))
             let regions = try r.regions(a["regions"], sketch: eval, name: sk.name)
             let targets = try a["targets"].map { try r.bodies($0, key: "targets").map(\.ref) } ?? []
@@ -177,7 +178,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let (sk, sketch, eval) = try r.sketch(try a.string("sketch"))
             let regions = try r.regions(a["regions"], sketch: eval, name: sk.name)
             let axis: RevolveAxis
@@ -221,7 +222,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             guard let kind = PrimitiveKind(rawValue: try a.string("kind")) else {
                 throw ToolError("`kind` must be one of box, cylinder, sphere, cone, torus")
             }
@@ -291,7 +292,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             guard let list = a["sections"]?.array, list.count >= 2 else { throw ToolError("`sections` needs at least two sections") }
             let sections = try list.enumerated().map { i, v -> Loft.Section in
                 let s = Args(v)
@@ -336,7 +337,7 @@ extension FilletTools {
     private var fillet: MCPTool {
         MCPTool(
             name: "fillet", title: "Fillet",
-            description: "Rounds edges of a body. The radius must fit the faces next to the edges (use a smaller one if it fails).",
+            description: "Rounds edges of a body. The radius must fit the faces next to the edges. When it fails, the error names the edges that can't be rounded and the largest radius the others take (finding out takes a few seconds on big bodies). To round the seam a join left, use edges {\"created_by\": \"<join step>\"}.",
             inputSchema: Self.object(["body": Self.body, "edges": Self.selection, "radius": Self.expr("Fillet radius"), "name": Self.name],
                                      required: ["body", "edges", "radius"])
         ) { args in try await edgeFeature(args, fillet: true) }
@@ -344,7 +345,8 @@ extension FilletTools {
 
     private var chamfer: MCPTool {
         MCPTool(
-            name: "chamfer", title: "Chamfer", description: "Bevels edges of a body.",
+            name: "chamfer", title: "Chamfer",
+            description: "Bevels edges of a body. When it fails, the error names the edges that can't be bevelled and the largest distance the others take.",
             inputSchema: Self.object(["body": Self.body, "edges": Self.selection, "distance": Self.expr("Chamfer distance"), "name": Self.name],
                                      required: ["body", "edges", "distance"])
         ) { args in try await edgeFeature(args, fillet: false) }
@@ -353,11 +355,20 @@ extension FilletTools {
     private func edgeFeature(_ args: JSONValue, fillet: Bool) async throws -> ToolResult {
         let a = Args(args)
         let ws = try host.requireCurrent()
-        let r = Resolver(document: ws.document, model: await ws.evaluated())
+        let r = try await Resolver.load(ws, args)
         let b = try r.body(try a.string("body"))
-        let refs = try r.edges(of: b, a["edges"], key: "edges", forRounding: true).compactMap { r.model.edgeRef(body: b.ref, edge: $0) }
-        let e = EdgeFeature(body: b.ref, edges: refs, size: try a.expr(fillet ? "radius" : "distance"))
-        return try await add(ws, fillet ? .fillet(e) : .chamfer(e), base: fillet ? "Fillet" : "Chamfer", a)
+        let indices = try r.edges(of: b, a["edges"], key: "edges", forRounding: true)
+        let refs = indices.compactMap { r.model.edgeRef(body: b.ref, edge: $0) }
+        let size = try a.expr(fillet ? "radius" : "distance")
+        let e = EdgeFeature(body: b.ref, edges: refs, size: size)
+        do {
+            return try await add(ws, fillet ? .fillet(e) : .chamfer(e), base: fillet ? "Fillet" : "Chamfer", a)
+        } catch let error as ToolError {
+            // Find out which edges are the trouble and what size would work.
+            guard error.message.contains(" failed: "), let value = try? r.model.parameters.evaluator.length(size), value > 0 else { throw error }
+            let d = await BlendDiagnosis.run(shape: b.shape, edges: indices, size: value, fillet: fillet)
+            throw ToolError(error.message + " " + d.message(size: value, fillet: fillet))
+        }
     }
 
     private var shell: MCPTool {
@@ -370,7 +381,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let b = try r.body(try a.string("body"))
             let faces = try a["remove_faces"].map { try r.faces(of: b, $0, key: "remove_faces") } ?? []
             let refs = faces.compactMap { r.model.faceRef(body: b.ref, face: $0) }
@@ -390,14 +401,37 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let target = try r.body(try a.string("target"))
             let tools = try r.bodies(a["tools"], key: "tools").map(\.ref).filter { $0 != target.ref }
             guard !tools.isEmpty else { throw ToolError("`tools` must name bodies other than the target") }
             let c = Combine(target: target.ref, tools: tools, operation: try a.operation(default: .join),
                             keepTools: a.bool("keep_tools", default: false))
-            return try await add(ws, .combine(c), base: "Combine", a)
+            let clock = ContinuousClock()
+            let start = clock.now
+            do {
+                return try await add(ws, .combine(c), base: "Combine", a)
+            } catch let error as ToolError where error.message.contains(" failed: ") {
+                let tool = tools.count == 1 ? r.model.body(tools[0]) : nil
+                throw ToolError(error.message + " " + (await Self.booleanAdvice(c, target: target, tool: tool, r, quick: clock.now - start < .seconds(10))))
+            }
         }
+    }
+
+    /// What to try when a boolean fails. A failed cut of one body from another is tried the other
+    /// way round (when the failure was quick enough to afford another boolean): cutting the
+    /// target out of the tool often works where the original doesn't, and it also leaves the two
+    /// bodies no longer overlapping, which is what a multi-colour print needs.
+    static func booleanAdvice(_ c: Combine, target: EvaluatedBody, tool: EvaluatedBody?, _ r: Resolver, quick: Bool) async -> String {
+        let general = "Booleans trip over faces that coincide or only just touch, and over very thin slivers: move or scale one body slightly (about 0.05 mm) so the faces cross cleanly."
+        guard c.operation == .cut, let tool, quick else { return general }
+        let (t, s) = (target.shape, tool.shape)
+        let swapped = await Task.detached(priority: .userInitiated) {
+            guard let result = try? s.boolean(.cut, t) else { return false }
+            return result.solidCount > 0 && result.isValid
+        }.value
+        guard swapped else { return general }
+        return "Cutting “\(r.bodyLabel(target))” out of “\(r.bodyLabel(tool))” instead works (checked): combine with target “\(r.bodyLabel(tool))”, tools “\(r.bodyLabel(target))”, operation cut and keep_tools: true. That keeps “\(r.bodyLabel(target))” whole and trims “\(r.bodyLabel(tool))” where they overlap."
     }
 
     private var moveBodies: MCPTool {
@@ -415,7 +449,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let bodies = try r.bodies(a["bodies"], key: "bodies").map(\.ref)
             let rotations = a["rotate"].map { $0.array ?? [$0] } ?? []
             var moves: [Move] = try rotations.map { rot in
@@ -438,10 +472,10 @@ extension FilletTools {
                 scratch.features.append(f)
                 features.append(f)
             }
-            let model = try await Change.apply(ws, action: features[0].name, newFeature: features.last?.id) { d in
+            let (model, warnings) = try await Change.apply(ws, action: "New \(features[0].name)", newFeature: features.last?.id) { d in
                 for f in features { _ = d.addFeature(f) }
             }
-            return Report.added(ws, model, feature: features.last!.id,
+            return Report.added(ws, model, warnings: warnings, feature: features.last!.id,
                                 extra: ["steps_added": .array(features.map { .string($0.name) })])
         }
     }
@@ -449,17 +483,29 @@ extension FilletTools {
     private var scaleBodies: MCPTool {
         MCPTool(
             name: "scale_bodies", title: "Scale",
-            description: "Scales bodies about a centre point, separately along X, Y and Z if you like (a sphere becomes an ellipsoid). The centre defaults to the middle of the bodies' bounds.",
+            description: """
+                Scales bodies about a centre point, separately along X, Y and Z if you like (a sphere becomes an \
+                ellipsoid). The centre defaults to the middle of the bodies' bounds. The factors can also apply along \
+                turned directions, to squash a tilted part across its tilt in one step: `axes` gives where the X, Y \
+                and/or Z factor points ({"z": [0, -0.5, 0.87]} squashes along that direction), or `orientation` \
+                turns the axes ({"axis": "x", "angle": 30}).
+                """,
             inputSchema: Self.object([
                 "bodies": Self.bodies,
                 "factors": ["description": "One factor for all axes, or [x, y, z] factors (1 = unchanged)",
                             "anyOf": [["type": "number"], ["type": "array", "items": ["type": "number"], "minItems": 3, "maxItems": 3]]],
-                "center": Self.vec3("Point that stays put"), "name": Self.name,
+                "center": Self.vec3("Point that stays put"),
+                "axes": ["type": "object", "description": "Directions the factors apply along: {\"x\": [..], \"y\": [..], \"z\": [..]}, one or two of them (the rest follow, square to them)",
+                         "properties": ["x": Self.vec3("Direction of the X factor"), "y": Self.vec3("Direction of the Y factor"),
+                                        "z": Self.vec3("Direction of the Z factor")]],
+                "orientation": ["type": "object", "description": "Turns the X, Y and Z axes the factors apply along: {\"axis\": \"x\"|\"y\"|\"z\"|[x,y,z], \"angle\": degrees}",
+                                "properties": ["axis": [:], "angle": Self.expr("Degrees")]],
+                "name": Self.name,
             ], required: ["bodies", "factors"])
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let bodies = try r.bodies(a["bodies"], key: "bodies")
             let factors: Vec3Expr
             if let f = a["factors"], f.array == nil {
@@ -482,7 +528,8 @@ extension FilletTools {
                     center = Vec3Expr(Expr((c.x * 1000).rounded() / 1000), Expr((c.y * 1000).rounded() / 1000), Expr((c.z * 1000).rounded() / 1000))
                 }
             }
-            let sc = Scale(bodies: bodies.map(\.ref), factors: factors, center: center ?? .zero)
+            let sc = Scale(bodies: bodies.map(\.ref), factors: factors, center: center ?? .zero,
+                           orientation: try ScaleAxes.orientation(axes: a["axes"], orientation: a["orientation"]))
             return try await add(ws, .scale(sc), base: "Scale", a)
         }
     }
@@ -499,7 +546,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let m = Mirror(bodies: try r.bodies(a["bodies"], key: "bodies").map(\.ref),
                            plane: try r.plane(a["plane"], offset: try a.optionalExpr("offset")),
                            merge: a.bool("merge", default: true))
@@ -520,7 +567,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let axis = try r.axis(a["axis"], key: "axis")
             let layout: PatternLayout = switch try a.string("layout") {
             case "linear": .linear(direction: axis, count: try a.expr("count"), spacing: try a.expr("spacing"))
@@ -542,7 +589,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let (b, _, ref) = try r.faceRef(["body": .string(try a.string("body")), "face": a["face"] ?? .null], key: "face")
             return try await add(ws, .layFlat(LayFlat(body: b.ref, face: ref)), base: "Lay Flat", a)
         }
@@ -564,7 +611,7 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let old = try r.feature(try a.string("feature"))
             guard let changes = a["changes"], changes.object != nil else { throw ToolError("`changes` must be an object") }
             var patched = try JSONValue(encoding: old).merging(patch: changes)
@@ -579,9 +626,9 @@ extension FilletTools {
             }
             f.id = old.id
             let allow = a.bool("allow_failures", default: false)
-            let model = try await Change.apply(ws, action: "Edit \(f.name)", newFeature: allow || f.suppressed ? nil : f.id,
+            let (model, warnings) = try await Change.apply(ws, action: "Edit \(f.name)", newFeature: allow || f.suppressed ? nil : f.id,
                                                allowFailures: allow) { try $0.updateFeature(f) }
-            return Report.added(ws, model, feature: f.id, extra: Self.sketchInfo(f, model))
+            return Report.added(ws, model, warnings: warnings, feature: f.id, extra: Self.sketchInfo(f, model))
         }
     }
 
@@ -595,15 +642,15 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let f = try r.feature(try a.string("feature"))
             var removed: [UUID] = []
-            let model = try await Change.apply(ws, action: "Delete \(f.name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
+            let (model, warnings) = try await Change.apply(ws, action: "Delete \(f.name)", allowFailures: a.bool("allow_failures", default: false)) { doc in
                 removed = try doc.deleteFeature(f.id, cascade: a.bool("cascade", default: false)).removed
                 for id in removed { doc.bodyColors[BodyRef(id)] = nil }
             }
             let names = removed.compactMap { id in r.document.feature(id)?.name }
-            return .json(["deleted": .array(names.map { .string($0) }), "design": Report.brief(ws, model)])
+            return .json(["deleted": .array(names.map { .string($0) }), "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -617,15 +664,15 @@ extension FilletTools {
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = Resolver(document: ws.document, model: await ws.evaluated())
+            let r = try await Resolver.load(ws, args)
             let bodies = try r.bodies(a["bodies"], key: "bodies")
             let input = try a.string("color")
             let hex = try NamedColor.hex(input)
-            let model = try await Change.apply(ws, action: "Color \(bodies.count == 1 ? r.bodyLabel(bodies[0]) : "Bodies")") { doc in
+            let (model, warnings) = try await Change.apply(ws, action: "Color \(bodies.count == 1 ? r.bodyLabel(bodies[0]) : "Bodies")") { doc in
                 for b in bodies { doc.bodyColors[b.ref] = hex }
             }
             return .json(["colored": .array(bodies.map { .string(r.bodyLabel($0)) }), "color": hex.map { .string($0) } ?? "default",
-                          "design": Report.brief(ws, model)])
+                          "design": Report.brief(ws, model, warnings: warnings)])
         }
     }
 
@@ -672,8 +719,8 @@ extension FilletTools {
     /// Adds a feature built by a tool (named from `name` or `base`) and reports it.
     private func add(_ ws: any DesignWorkspace, _ kind: FeatureKind, base: String, _ a: Args) async throws -> ToolResult {
         let feature = Feature(name: Change.uniqueName(a.optionalString("name"), base: base, in: ws.document), kind)
-        let model = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
-        return Report.added(ws, model, feature: feature.id)
+        let (model, warnings) = try await Change.apply(ws, action: "New \(feature.name)", newFeature: feature.id) { _ = $0.addFeature(feature) }
+        return Report.added(ws, model, warnings: warnings, feature: feature.id)
     }
 
     nonisolated static func decodingMessage(_ error: Error) -> String {
@@ -684,6 +731,70 @@ extension FilletTools {
             "\(c.codingPath.map(\.stringValue).joined(separator: ".")): \(c.debugDescription)"
         default: String(describing: error)
         }
+    }
+}
+
+/// Where a scale's factors apply: `axes` (directions) or `orientation` (a turn) to the stored turn.
+enum ScaleAxes {
+    static func orientation(axes: JSONValue?, orientation: JSONValue?) throws -> Scale.Orientation? {
+        switch (axes, orientation) {
+        case (nil, nil): return nil
+        case (.some, .some): throw ToolError("Give `axes` or `orientation`, not both")
+        case (nil, .some(let o)):
+            let a = Args(o)
+            let axis: Vec3Expr
+            switch a["axis"] {
+            case .string(let s):
+                switch s.lowercased() {
+                case "x": axis = Vec3Expr(1, 0, 0)
+                case "y": axis = Vec3Expr(0, 1, 0)
+                case "z": axis = Vec3Expr(0, 0, 1)
+                default: throw ToolError("`orientation.axis` must be \"x\", \"y\", \"z\" or [x, y, z]")
+                }
+            default:
+                guard let v = try a.vec3("axis") else { throw ToolError("`orientation` needs an `axis` (\"x\", \"y\", \"z\" or [x, y, z])") }
+                axis = v
+            }
+            return Scale.Orientation(axis: axis, angle: try a.expr("angle"))
+        case (.some(let v), nil):
+            return try turn(toAxes: v)
+        }
+    }
+
+    /// The turn that takes the X, Y and Z axes to the given directions.
+    static func turn(toAxes v: JSONValue) throws -> Scale.Orientation? {
+        func dir(_ key: String) throws -> SIMD3<Double>? {
+            guard let p = try Args.point3(v[key], "axes.\(key)") else { return nil }
+            guard p.length > 1e-9 else { throw ToolError("`axes.\(key)` must not be zero") }
+            return p.normalized.simd
+        }
+        let x = try dir("x"), y = try dir("y"), z = try dir("z")
+        func square(_ a: SIMD3<Double>, to b: SIMD3<Double>, _ names: String) throws -> SIMD3<Double> {
+            let v = a - simd_dot(a, b) * b
+            guard simd_length(v) > 1e-6 else { throw ToolError("`axes`: \(names) must not be parallel") }
+            return simd_normalize(v)
+        }
+        let rotation: simd_quatd
+        switch (x, y, z) {
+        case (nil, nil, nil): throw ToolError("`axes` needs at least one of x, y, z, e.g. {\"z\": [0, -0.5, 0.87]}")
+        case (let x?, nil, nil): rotation = simd_quatd(from: SIMD3(1, 0, 0), to: x)
+        case (nil, let y?, nil): rotation = simd_quatd(from: SIMD3(0, 1, 0), to: y)
+        case (nil, nil, let z?): rotation = simd_quatd(from: SIMD3(0, 0, 1), to: z)
+        case (let x?, _, let z?):
+            let xs = try square(x, to: z, "x and z")
+            rotation = simd_quatd(simd_double3x3(columns: (xs, simd_cross(z, xs), z)))
+        case (nil, let y?, let z?):
+            let ys = try square(y, to: z, "y and z")
+            rotation = simd_quatd(simd_double3x3(columns: (simd_cross(ys, z), ys, z)))
+        case (let x?, let y?, nil):
+            let ys = try square(y, to: x, "x and y")
+            rotation = simd_quatd(simd_double3x3(columns: (x, ys, simd_cross(x, ys))))
+        }
+        let degrees = rotation.angle * 180 / .pi
+        guard abs(degrees) > 1e-6, simd_length(rotation.imag) > 1e-12 else { return nil }
+        let axis = rotation.axis
+        func r(_ v: Double, _ places: Double) -> Expr { Expr((v * places).rounded() / places) }
+        return Scale.Orientation(axis: Vec3Expr(r(axis.x, 1e6), r(axis.y, 1e6), r(axis.z, 1e6)), angle: r(degrees, 1e4))
     }
 }
 
