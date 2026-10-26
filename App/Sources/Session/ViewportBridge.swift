@@ -93,6 +93,11 @@ extension DesignSession {
         scene.handles = editingHandles()
         scene.measures = sketchMeasures() + handleMeasures(scene.handles)
         scene.edgeHighlights = edgeHighlights()
+        // A fillet's or chamfer's picked edges are the body's before it: hidden by that, not the result.
+        scene.bodiesBefore = model.meshesBefore.compactMap { ref, mesh in
+            guard let shape = model.bodyBefore(ref)?.shape else { return nil }
+            return SceneBody(id: ref.feature, mesh: mesh, version: ObjectIdentifier(shape).hashValue, pickable: false)
+        }
         applyMeasure(to: &scene)
         return scene
     }
