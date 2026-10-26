@@ -20,7 +20,8 @@ struct SketchInspector: View {
                 InspectorHeader(
                     symbol: "pencil.and.outline", title: session.editingFeature?.name ?? "Sketch",
                     subtitle: "Finish the sketch to extrude or revolve it",
-                    error: session.model.error(for: editor.sketch))
+                    error: session.model.error(for: editor.sketch),
+                    warning: session.editingFeature.flatMap { session.model.referenceWarning(for: $0) })
                 PanelSection("Drawing") { options(editor) }
                 PanelSection(selectedTitle(editor)) { selectedShapes(editor) }
             }

@@ -249,6 +249,7 @@ public actor ModelEvaluator {
 
     private func sketch(_ sketch: Sketch, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
         let plane = try resolvePlane(sketch.plane, state, ev)
+        if case .face(let face, _, _) = sketch.plane { state.references[feature.id] = [faceMatch(face, state)] }
         var curves: [UUID: [[SIMD2<Double>]]] = [:]
         var segments: [Segment2D] = []
         var errors: [UUID: String] = [:]
@@ -686,6 +687,15 @@ public actor ModelEvaluator {
                 let i = ReferenceResolver.resolve(face.signature, in: body.shape.faceInfos)
             else { return nil }
             return body.shape.facePlane(i)
+        }
+    }
+
+    /// How a sketch's face is found again (nil when it isn't; the sketch then uses its fallback plane).
+    private func faceMatch(_ face: FaceRef, _ state: State) -> ResolvedReference? {
+        guard let body = state.bodies.first(where: { $0.ref == face.body }) else { return nil }
+        let infos = body.shape.faceInfos
+        return ReferenceResolver.match(face.signature, in: infos).map {
+            ResolvedReference($0, offset: face.signature.centroid.distance(to: infos[$0.index].centroid))
         }
     }
 

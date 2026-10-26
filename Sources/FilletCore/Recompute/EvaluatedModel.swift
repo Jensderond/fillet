@@ -73,8 +73,8 @@ public struct EvaluatedModel: Sendable {
     /// i.e. exactly the edges the kernel was asked to round or bevel. Recorded before the kernel
     /// runs, so a step that failed has them too; references that no longer resolve are absent.
     public var resolvedEdges: [UUID: [EdgeInfo]] = [:]
-    /// Per fillet, chamfer, shell or lay-flat: how each of its face/edge references was found
-    /// again, in order (nil = not found).
+    /// Per fillet, chamfer, shell, hole, press pull, lay-flat or sketch on a face: how each of its
+    /// face/edge references was found again, in order (nil = not found).
     public var references: [UUID: [ResolvedReference?]] = [:]
 
     /// The pre-feature version of a body (falls back to the current one).
@@ -104,6 +104,33 @@ public struct EvaluatedModel: Sendable {
     public func error(for feature: UUID) -> String? {
         if case .failed(let message) = status[feature] { return message }
         return nil
+    }
+
+    /// Positions (in the step's own list) of the face/edge references another face/edge matched
+    /// almost as well, so a change may have moved the step onto the wrong one.
+    public func ambiguousReferences(for feature: UUID) -> [Int] {
+        (references[feature] ?? []).indices.filter { references[feature]?[$0]?.isAmbiguous == true }
+    }
+
+    /// A warning for a step that still works but whose face or edge was found again only
+    /// ambiguously, e.g. "Edge 3 matched ambiguously after a change — check it". Nil when the step
+    /// failed (its error says more) or all its references are clear.
+    public func referenceWarning(for feature: Feature) -> String? {
+        guard status[feature.id] == .ok else { return nil }
+        let ambiguous = ambiguousReferences(for: feature.id)
+        guard !ambiguous.isEmpty else { return nil }
+        let edges = switch feature.kind {
+        case .fillet, .chamfer: true
+        default: false
+        }
+        if references[feature.id]?.count == 1 {
+            return "Its \(edges ? "edge" : "face") matched ambiguously after a change — check it"
+        }
+        // Numbered as picked, like the step's own list.
+        let numbers = ambiguous.map { String($0 + 1) }
+        let one = numbers.count == 1
+        let list = one ? numbers[0] : numbers.dropLast().joined(separator: ", ") + " and " + numbers[numbers.count - 1]
+        return "\(edges ? "Edge" : "Face")\(one ? "" : "s") \(list) matched ambiguously after a change — check \(one ? "it" : "them")"
     }
 
     /// Persistent reference to a face picked in the viewport.

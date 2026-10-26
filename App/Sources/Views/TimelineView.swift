@@ -132,6 +132,7 @@ struct TimelineView: View {
                 dropTarget: dropTarget == index)
         }
         .buttonStyle(PressableStyle())
+        .overlay(alignment: .top) { warningBadge(feature, failed: failed) }
         .automationFrame("station.\(index)")
         .hoverHighlight(ownsPointerHover: true)
         // Hovering a step highlights the body it made, like Fusion's timeline.
@@ -171,6 +172,7 @@ struct TimelineView: View {
                 session.moveRollbackMarker(to: index + 1 >= doc.features.count ? nil : index + 1)
             } label: { Label("Roll back to here", systemImage: "arrow.uturn.backward.circle") }
             if let failed { Text(failed) }
+            if failed == nil, let warning = session.model.referenceWarning(for: feature) { Text(warning) }
             Divider()
             Button(role: .destructive) { session.deleteFeature(feature.id) } label: { Label("Delete", systemImage: "trash") }
         }
@@ -223,6 +225,7 @@ struct TimelineView: View {
         if index >= markerIndex { parts.append("rolled back") }
         if feature.suppressed { parts.append("suppressed") }
         if let failure { parts.append("failed: \(failure)") }
+        if failure == nil, let warning = session.model.referenceWarning(for: feature) { parts.append("warning: \(warning)") }
         return parts.joined(separator: ", ")
     }
 
@@ -230,6 +233,25 @@ struct TimelineView: View {
     private func move(_ feature: Feature, to index: Int) {
         if !session.moveFeature(feature.id, to: index) {
             session.message = .error("\(feature.name) can't move there: it uses an earlier step")
+        }
+    }
+
+    /// An amber triangle on the chip's corner, where a failure dot would be, for a step that works
+    /// but found a face or edge only ambiguously (the inspector says which). Drawn over the station
+    /// rather than in it, and not hit-tested, so the station still opens on a tap there.
+    @ViewBuilder private func warningBadge(_ feature: Feature, failed: String?) -> some View {
+        if failed == nil, session.model.referenceWarning(for: feature) != nil {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10, weight: .bold))
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(Theme.panel, Theme.warn)
+                // A ring in the panel colour, like the failure dot's, so it reads over the chip's border.
+                .background {
+                    Image(systemName: "triangle.fill").font(.system(size: 14, weight: .bold)).foregroundStyle(Theme.panel)
+                }
+                .offset(x: 19, y: -4)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
         }
     }
 

@@ -132,6 +132,8 @@ struct InspectorHeader: View {
     var subtitle: String?
     var tint: Color = Theme.filletInk
     var error: String?
+    /// Shown when there's no error: the step works, but something about it needs checking.
+    var warning: String?
     var onRename: ((String) -> Void)?
 
     @State private var text = ""
@@ -170,6 +172,20 @@ struct InspectorHeader: View {
                 .padding(Theme.Space.m)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.dangerSoft))
+                .transition(.opacity.animation(Theme.Motion.hover))
+            } else if let warning {
+                // Like the error card, in the warning amber: the step still works.
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill").accessibilityHidden(true)
+                    Text(warning).foregroundStyle(Theme.ink).fixedSize(horizontal: false, vertical: true)
+                }
+                .font(Theme.body)
+                .foregroundStyle(Theme.warn)
+                .padding(Theme.Space.m)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous).fill(Theme.warn.opacity(0.12)))
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Warning: \(warning)")
                 .transition(.opacity.animation(Theme.Motion.hover))
             }
         }
@@ -212,7 +228,7 @@ struct FeatureInspector: View {
         VStack(alignment: .leading, spacing: Theme.Space.xl) {
             InspectorHeader(
                 symbol: feature.kind.symbol, title: feature.name, subtitle: feature.kind.subtitle,
-                error: session.model.error(for: feature.id),
+                error: session.model.error(for: feature.id), warning: session.model.referenceWarning(for: feature),
                 onRename: { name in session.updateEditing { $0.name = name } })
             VStack(alignment: .leading, spacing: Theme.Space.m) { content }
         }
