@@ -23,6 +23,7 @@ struct PrintAnalysisTests {
         #expect(abs(r.grams(.petg) - 1.27) < 1e-9)
         #expect(r.isWatertight)
         #expect(r.boundaryEdgeCount == 0)
+        #expect(r.watertightIssue == nil)
         #expect(r.overhangCount == 0)  // bottom rests on the bed
         #expect(r.size == SIMD3(10, 10, 10))
         #expect(r.fitsOnBed && !r.fitsOnlyRotated)
@@ -45,12 +46,16 @@ struct PrintAnalysisTests {
         let r1 = PrintAnalysis.analyze(meshes: [open], preset: .bambuA1)
         #expect(!r1.isWatertight)
         #expect(r1.boundaryEdgeCount == 3)
+        #expect(r1.watertightIssue == "3 open edges")
 
         var flipped = TestMeshes.cube(size: 10)
         flipped.indices.swapAt(0, 1)
         let r2 = PrintAnalysis.analyze(meshes: [flipped], preset: .bambuA1)
         #expect(!r2.isWatertight)
         #expect(r2.nonManifoldEdgeCount == 3)
+        // No holes, so the message names the non-manifold edges rather than "0 open edges".
+        #expect(r2.boundaryEdgeCount == 0)
+        #expect(r2.watertightIssue == "3 non-manifold edges")
         #expect(!PrintAnalysis.analyze(meshes: [], preset: .bambuA1).isWatertight)
     }
 

@@ -679,7 +679,7 @@ extension FilletTools {
     private var export: MCPTool {
         MCPTool(
             name: "export", title: "Export",
-            description: "Writes the visible bodies to a 3MF (for Bambu Studio, one object per body), STL or STEP file, or the whole design to a .fillet file, and returns its path.",
+            description: "Writes the visible bodies to a 3MF (for Bambu Studio, one object with a part per body), STL or STEP file, or the whole design to a .fillet file, and returns its path.",
             inputSchema: Self.object(["format": Self.string("File format", enum: ["3mf", "stl", "step", "fillet"]),
                                       "path": Self.string("Where to write (default: a temporary folder)")], required: ["format"]),
             readOnly: true

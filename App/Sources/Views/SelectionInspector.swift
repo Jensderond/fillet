@@ -46,8 +46,8 @@ struct SelectionInspector: View {
                          detail: a.overhangCount == 0 ? "Prints without supports" : "\(fmt(a.overhangArea)) mm² past \(Int(session.overhangAngle))°",
                          action: a.overhangCount == 0 ? nil : ("Show", { session.showOverhangs = true }))
                 Theme.hairline.frame(height: 1)
-                CheckRow(state: a.isWatertight ? .ok : .bad, title: a.isWatertight ? "Watertight" : "Has open edges",
-                         detail: a.isWatertight ? "Safe to slice" : "\(a.boundaryEdgeCount) open edges")
+                CheckRow(state: a.isWatertight ? .ok : .bad, title: a.isWatertight ? "Watertight" : "Not watertight",
+                         detail: a.watertightIssue ?? "Safe to slice")
                 let failed = session.failedFeatures
                 if let first = failed.first {
                     Theme.hairline.frame(height: 1)

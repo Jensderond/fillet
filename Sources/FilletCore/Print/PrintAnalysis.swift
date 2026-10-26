@@ -49,6 +49,16 @@ public struct PrintAnalysis: Sendable {
 
     public var overhangCount: Int { overhangTriangles.count }
 
+    /// Why the meshes aren't watertight, e.g. "85 non-manifold edges"; nil when they are.
+    public var watertightIssue: String? {
+        guard !isWatertight else { return nil }
+        func edges(_ n: Int, _ kind: String) -> String { n == 1 ? "1 \(kind) edge" : "\(n) \(kind) edges" }
+        var issues: [String] = []
+        if boundaryEdgeCount > 0 { issues.append(edges(boundaryEdgeCount, "open")) }
+        if nonManifoldEdgeCount > 0 { issues.append(edges(nonManifoldEdgeCount, "non-manifold")) }
+        return issues.isEmpty ? "A body has no surface" : issues.joined(separator: ", ")
+    }
+
     /// Estimated filament weight in grams for a solid (100 % infill) print.
     public func grams(_ material: Material) -> Double { abs(volume) / 1000 * material.density }
 
