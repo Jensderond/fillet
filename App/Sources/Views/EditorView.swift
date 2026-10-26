@@ -570,7 +570,7 @@ struct ToolStrip: View {
                     }
                     ToolCluster {
                         ToolButton("Press Pull", "arrow.up.and.down.square", active: session.editingKind == "pressPull",
-                                   unavailable: session.unavailableReason(.pressPull)) { session.startPressPull() }
+                                   unavailable: session.unavailableReason(.pressPull), shortcut: "Q") { session.startPressPull() }
                         ToolButton("Fillet", "rectangle.roundedtop", active: session.editingKind == "fillet",
                                    unavailable: session.unavailableReason(.fillet), shortcut: "F") { session.startEdgeFeature(fillet: true) }
                         ToolButton("Chamfer", "skew", active: session.editingKind == "chamfer",
@@ -578,7 +578,7 @@ struct ToolStrip: View {
                         ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell",
                                    unavailable: session.unavailableReason(.shell)) { session.startShell() }
                         ToolButton("Hole", "smallcircle.filled.circle", active: session.editingKind == "hole",
-                                   unavailable: session.unavailableReason(.hole)) { session.startHole() }
+                                   unavailable: session.unavailableReason(.hole), shortcut: "H") { session.startHole() }
                         ToolButton("Combine", "square.on.square", active: session.editingKind == "combine",
                                    unavailable: session.unavailableReason(.combine)) { session.startCombine() }
                         ToolButton("Move", "move.3d", active: session.editingKind == "move",
@@ -594,7 +594,7 @@ struct ToolStrip: View {
                         ToolButton("Overhangs", "angle", active: session.showOverhangs, toggle: true,
                                    unavailable: session.showOverhangs ? nil : session.unavailableReason(.overhangs)) { session.showOverhangs.toggle() }
                         ToolButton("Measure", "ruler", active: session.measure != nil,
-                                   unavailable: session.measure != nil ? nil : session.measureUnavailableReason) { session.startMeasure() }
+                                   unavailable: session.measure != nil ? nil : session.measureUnavailableReason, shortcut: "I") { session.startMeasure() }
                     }
                 }
                 .padding(.vertical, 1)

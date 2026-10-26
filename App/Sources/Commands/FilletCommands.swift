@@ -33,7 +33,7 @@ struct FilletCommands: Commands {
             // ⇧⌘S is File > Duplicate in document apps, so New Sketch is ⇧⌘K (sKetch).
             Button("New Sketch") { session?.startSketch() }
                 .keyboardShortcut("k", modifiers: [.command, .shift])
-            // Bare letters for the common tools, as in Fusion: E, F, and R, C… in the Sketch menu.
+            // Bare letters for the common tools, as in Fusion: E, Q, F, H, I, and R, C, O… in the Sketch menu.
             Button("Extrude") { session?.startIfAvailable(.extrude) { session?.startExtrude() } }
                 .keyboardShortcut(bare("e"))
             Button("Revolve") { session?.startIfAvailable(.revolve) { session?.startRevolve() } }
@@ -56,6 +56,7 @@ struct FilletCommands: Commands {
             Button(session?.showOverhangs == true ? "Hide Overhangs" : "Show Overhangs") { session?.showOverhangs.toggle() }
                 .keyboardShortcut("o", modifiers: [.command, .shift])
             Button("Measure") { session?.startMeasure() }
+                .keyboardShortcut(bare("i"))
             Divider()
             Button("Import STEP…") { session?.importRequested = true }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
