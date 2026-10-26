@@ -24,16 +24,17 @@ struct BoxSelectBar: View {
     var body: some View {
         // The legend, then the prompt, fold away when the bar runs out of room (Split View, big text).
         ViewThatFits(in: .horizontal) {
-            bar(legend: true, prompt: true)
-            bar(legend: false, prompt: true)
-            bar(legend: false, prompt: false)
+            bar(legend: true, prompt: true, kindTitles: true)
+            bar(legend: false, prompt: true, kindTitles: true)
+            bar(legend: false, prompt: true, kindTitles: false)
+            bar(legend: false, prompt: false, kindTitles: false)
         }
         .onAppear { AccessibilityNotification.Announcement("Box select on. Drag across \(noun) to select them.").post() }
         .automationMarker("box-select-bar")
         .automationFrame("box-select-bar")
     }
 
-    private func bar(legend: Bool, prompt: Bool) -> some View {
+    private func bar(legend: Bool, prompt: Bool, kindTitles: Bool) -> some View {
         HStack(spacing: Theme.Space.s) {
             HStack(alignment: .center, spacing: Theme.Space.s) {
                 Image(systemName: "rectangle.dashed")
@@ -54,7 +55,7 @@ struct BoxSelectBar: View {
                 divider
                 HStack(spacing: 2) {
                     ForEach(BoxPicks.allCases, id: \.self) { kind in
-                        KindChip(kind: kind, selected: session.boxPicks == kind) { session.boxPicks = kind }
+                        KindChip(kind: kind, selected: session.boxPicks == kind, showsTitle: kindTitles) { session.boxPicks = kind }
                     }
                 }
                 .accessibilityElement(children: .contain)
@@ -116,6 +117,8 @@ private struct LegendItem: View {
 private struct KindChip: View {
     let kind: BoxPicks
     let selected: Bool
+    /// Narrow bars show the glyph alone (still 44 pt wide on touch, and named for VoiceOver).
+    var showsTitle = true
     let action: () -> Void
     @Environment(\.touchTargets) private var touch
     @Environment(\.colorScheme) private var colorScheme
@@ -133,11 +136,14 @@ private struct KindChip: View {
             HStack(spacing: 5) {
                 Image(systemName: symbol).font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(selected ? Theme.selectInk : Theme.inkSecondary)
-                Text(kind.title)
-                    .font(Theme.body.weight(selected ? .semibold : .medium))
-                    .foregroundStyle(selected ? Theme.ink : Theme.inkSecondary)
+                if showsTitle {
+                    Text(kind.title)
+                        .font(Theme.body.weight(selected ? .semibold : .medium))
+                        .foregroundStyle(selected ? Theme.ink : Theme.inkSecondary)
+                }
             }
             .padding(.horizontal, Theme.Space.s)
+            .frame(minWidth: touch ? 44 : 28)
             .frame(minHeight: touch ? 44 : 28)
             .background {
                 let plate = RoundedRectangle(cornerRadius: Theme.Radius.control, style: .continuous)

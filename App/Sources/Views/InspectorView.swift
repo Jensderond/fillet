@@ -655,10 +655,10 @@ struct TangentChainToggle: View {
     var body: some View {
         Toggle(isOn: Binding(get: { isOn }, set: onChange)) {
             HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
+                // Sized by the label's font, so it grows with Dynamic Type.
                 Image(systemName: "point.topleft.down.to.point.bottomright.curvepath")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(Theme.body.weight(.semibold))
                     .foregroundStyle(isOn ? Theme.selectInk : Theme.inkTertiary)
-                    .frame(width: 18)
                     .accessibilityHidden(true)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Tangent chain").font(Theme.body.weight(.medium)).foregroundStyle(Theme.ink)

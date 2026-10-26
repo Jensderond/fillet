@@ -345,6 +345,8 @@ struct SelectionBoxOverlay: View {
         .background(appearance.chipFill, in: Capsule())
         .overlay(Capsule().strokeBorder(appearance.chipEdge))
         .fixedSize()
+        // Grows with text size up to the app's chrome limit, so it never hides what it boxes.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
     }
 
     /// Above the box's top edge, at the corner the drag started from (away from the finger or
