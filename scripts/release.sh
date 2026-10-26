@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 # Builds the Mac release: Fillet.app (Release, arm64 only, ad-hoc signed with the hardened runtime
-# and the app's entitlements) with the fillet-mcp helper embedded in Contents/Helpers, packed as
-# build/release/Fillet-<version>.dmg with the drawing-sheet window from docs/dmg.
+# and the app's entitlements) with the fillet-mcp helper embedded in Contents/Helpers and the
+# updater in Contents/XPCServices, packed as build/release/Fillet-<version>.dmg with the
+# drawing-sheet window from docs/dmg.
+#
+# Installed copies update themselves from the newest GitHub release tagged v<version> with this
+# DMG attached (Fillet ▸ Check for Updates…), checked against the SHA-256 GitHub lists for it.
 # Needs xcodegen and uv (dmgbuild runs through uv).
 #
 # Usage: scripts/release.sh <version>      e.g. scripts/release.sh 0.2.0
@@ -13,6 +17,7 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DD="$ROOT/build/dd-release"
 APP="$DD/Build/Products/Release/Fillet.app"
 HELPER="$APP/Contents/Helpers/fillet-mcp"
+UPDATER="$APP/Contents/XPCServices/FilletUpdater.xpc"
 ENTITLEMENTS="$ROOT/App/Fillet.entitlements"
 
 cd "$ROOT"
@@ -31,6 +36,7 @@ xcodebuild -project App/Fillet.xcodeproj -scheme Fillet -configuration Release \
 
 SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 [ "$SHORT" = "$VERSION" ] || { echo "Built version is $SHORT, not $VERSION" >&2; exit 1; }
+[ -d "$UPDATER" ] || { echo "Fillet.app has no FilletUpdater.xpc" >&2; exit 1; }
 
 echo "==> Building fillet-mcp"
 swift build -c release --product fillet-mcp
@@ -43,9 +49,12 @@ cp "$BIN" "$HELPER"
 # The helper first, on its own: hardened runtime but no sandbox, so headless mode can open and
 # save .fillet files anywhere.
 codesign --force --sign - --options runtime --identifier app.fillet.fillet-mcp "$HELPER"
-# Then the app with its entitlements. No --deep: the helper keeps its own signature.
+# The updater likewise: not sandboxed, so it can replace Fillet.app.
+codesign --force --sign - --options runtime "$UPDATER"
+# Then the app with its entitlements. No --deep: the helper and the updater keep their own signatures.
 codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP"
 codesign --verify --strict "$HELPER"
+codesign --verify --strict "$UPDATER"
 codesign --verify --strict --deep "$APP"
 
 echo "==> Making the DMG"

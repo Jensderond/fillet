@@ -19,6 +19,13 @@ struct FilletCommands: Commands {
     @AppStorage(VisualStyle.defaultsKey) private var visualStyle = VisualStyle.shadedWithEdges
 
     var body: some Commands {
+        #if os(macOS)
+        CommandGroup(replacing: .appInfo) {
+            AboutButton()
+            CheckForUpdatesButton()
+        }
+        #endif
+
         CommandGroup(before: .toolbar) {
             Button("Zoom to Fit") { viewport?.fitAll() }
                 .keyboardShortcut("0", modifiers: .command)
