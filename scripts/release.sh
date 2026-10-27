@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Builds the Mac release: Fillet.app (Release, arm64 only, ad-hoc signed with the hardened runtime
-# and the app's entitlements) with the fillet-mcp helper embedded in Contents/Helpers and the
-# updater in Contents/XPCServices, packed as build/release/Fillet-<version>.dmg with the
-# drawing-sheet window from docs/dmg.
+# and the app's entitlements) with OpenCascade in Contents/Frameworks/OCCT.framework, the
+# fillet-mcp helper embedded in Contents/Helpers and the updater in Contents/XPCServices, packed as
+# build/release/Fillet-<version>.dmg with the drawing-sheet window from docs/dmg.
 #
 # Installed copies update themselves from the newest GitHub release tagged v<version> with this
 # DMG attached (Fillet ▸ Check for Updates…), checked against the SHA-256 GitHub lists for it.
@@ -18,6 +18,7 @@ DD="$ROOT/build/dd-release"
 APP="$DD/Build/Products/Release/Fillet.app"
 HELPER="$APP/Contents/Helpers/fillet-mcp"
 UPDATER="$APP/Contents/XPCServices/FilletUpdater.xpc"
+OCCT="$APP/Contents/Frameworks/OCCT.framework"
 ENTITLEMENTS="$ROOT/App/Fillet.entitlements"
 
 cd "$ROOT"
@@ -37,6 +38,7 @@ xcodebuild -project App/Fillet.xcodeproj -scheme Fillet -configuration Release \
 SHORT="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 [ "$SHORT" = "$VERSION" ] || { echo "Built version is $SHORT, not $VERSION" >&2; exit 1; }
 [ -d "$UPDATER" ] || { echo "Fillet.app has no FilletUpdater.xpc" >&2; exit 1; }
+[ -f "$OCCT/OCCT" ] || { echo "Fillet.app has no Frameworks/OCCT.framework" >&2; exit 1; }
 
 echo "==> Building fillet-mcp"
 swift build -c release --product fillet-mcp
@@ -46,13 +48,19 @@ BIN="$(swift build -c release --product fillet-mcp --show-bin-path)/fillet-mcp"
 echo "==> Embedding and signing"
 mkdir -p "$APP/Contents/Helpers"
 cp "$BIN" "$HELPER"
+# The helper links @rpath/OCCT.framework like the app; find it in Contents/Frameworks.
+install_name_tool -add_rpath @executable_path/../Frameworks "$HELPER"
+# OCCT (LGPL) first, so it can be replaced; Xcode signed it on embedding, re-sign it the same way.
+codesign --force --sign - --options runtime "$OCCT"
 # The helper first, on its own: hardened runtime but no sandbox, so headless mode can open and
 # save .fillet files anywhere.
 codesign --force --sign - --options runtime --identifier app.fillet.fillet-mcp "$HELPER"
 # The updater likewise: not sandboxed, so it can replace Fillet.app.
 codesign --force --sign - --options runtime "$UPDATER"
-# Then the app with its entitlements. No --deep: the helper and the updater keep their own signatures.
+# Then the app with its entitlements. No --deep: OCCT, the helper and the updater keep their own
+# signatures.
 codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP"
+codesign --verify --strict "$OCCT"
 codesign --verify --strict "$HELPER"
 codesign --verify --strict "$UPDATER"
 codesign --verify --strict --deep "$APP"
