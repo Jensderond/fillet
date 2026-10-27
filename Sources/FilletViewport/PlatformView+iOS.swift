@@ -3,16 +3,17 @@ import MetalKit
 import UIKit
 
 /// MTKView with the iPad gesture set:
-/// - one finger: orbit (or tool with `fingerDraws`), handles take precedence, then
-///   elements the delegate lets you drag (`viewportShouldBeginDrag`)
+/// - one finger: orbit (or tool with `fingerDraws`, or a selection box in box select mode),
+///   handles take precedence, then elements the delegate lets you drag (`viewportShouldBeginDrag`)
 /// - two fingers: pan; pinch: zoom towards the pinch centre; two-finger double tap: fit all
-/// - tap: pick (or tool with `fingerDraws`)
-/// - Apple Pencil: tool input when the delegate wants it, otherwise tap / drag / orbit
+/// - tap: pick (or tool with `fingerDraws`); a second tap on the same element: its loop
+/// - Apple Pencil: tool input when the delegate wants it, otherwise tap / drag / selection box
+///   (orbit where there is nothing to box-select)
 /// - trackpad: two-finger scroll pans, pinch zooms, pointer hover highlights
 final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
     weak var controller: ViewportController?
 
-    private enum OneFingerMode { case orbit, tool, handle, drag }
+    private enum OneFingerMode { case orbit, tool, handle, drag, box }
     private var oneFingerMode: OneFingerMode = .orbit
     private var lastPan: CGPoint = .zero
     private var lastTwoFingerPan: CGPoint = .zero
@@ -27,7 +28,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
     private var momentumTime: CFTimeInterval = 0
 
     // Pencil stroke state.
-    private enum PencilMode { case pending, tool, handle, orbit, drag }
+    private enum PencilMode { case pending, tool, handle, orbit, drag, box }
     private var pencilTouch: UITouch?
     private var pencilMode: PencilMode = .pending
     private var pencilStart: CGPoint = .zero
@@ -110,6 +111,11 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
 
     private func modifiers(_ g: UIGestureRecognizer) -> ViewportModifiers { Self.modifiers(g.modifierFlags) }
 
+    /// What the last finger-type touch came from: a trackpad or mouse pointer clicks like a Mac
+    /// (a click replaces the selection), a finger taps (adds).
+    private var lastFingerType: UITouch.TouchType = .direct
+    private func pointer(_ g: UIGestureRecognizer) -> PointerKind { lastFingerType == .indirectPointer ? .mouse : .touch }
+
     static func modifiers(_ f: UIKeyModifierFlags) -> ViewportModifiers {
         var m: ViewportModifiers = []
         if f.contains(.shift) { m.insert(.shift) }
@@ -137,6 +143,10 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
             } else if c.beginTargetDrag(at: start, pointer: .touch, modifiers: modifiers(g)) {
                 oneFingerMode = .drag
                 c.dragTarget(to: p, pointer: .touch, modifiers: modifiers(g))
+            } else if c.wantsBox(pointer: pointer(g), modifiers: modifiers(g)) {
+                oneFingerMode = .box
+                c.beginBox(at: start, pointer: pointer(g), modifiers: modifiers(g))
+                c.dragBox(to: p)
             } else {
                 if c.wantsToolInput { c.delegate?.viewportFingerMissedTool() }
                 oneFingerMode = .orbit
@@ -149,6 +159,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
             case .handle: c.dragHandle(to: p)
             case .tool: c.toolMoved(at: p, pressure: nil, pointer: .touch, modifiers: modifiers(g))
             case .drag: c.dragTarget(to: p, pointer: .touch, modifiers: modifiers(g))
+            case .box: c.dragBox(to: p)
             case .orbit: c.orbit(by: CGSize(width: p.x - lastPan.x, height: p.y - lastPan.y))
             }
             lastPan = p
@@ -157,6 +168,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
             case .handle: c.endHandleDrag()
             case .tool: c.toolEnded(at: p, pressure: nil, pointer: .touch, modifiers: modifiers(g))
             case .drag: c.endTargetDrag(at: p, pointer: .touch, modifiers: modifiers(g))
+            case .box: c.endBox(at: p)
             case .orbit: startCoasting(.orbit, velocity: g.velocity(in: self), rate: Momentum.orbitRate)
             }
         case .cancelled, .failed:
@@ -164,6 +176,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
             case .handle: c.endHandleDrag()
             case .tool: c.toolCancelled()
             case .drag: c.cancelTargetDrag()
+            case .box: c.cancelBox()
             case .orbit: c.endNavigation()
             }
         default: break
@@ -301,7 +314,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
             return
         }
         if c.wantsToolInput { c.delegate?.viewportFingerMissedTool() }
-        c.tap(at: p, pointer: .touch, modifiers: modifiers(g))
+        c.tap(at: p, pointer: pointer(g), modifiers: modifiers(g))
     }
 
     @objc private func fitAll(_ g: UITapGestureRecognizer) {
@@ -325,6 +338,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         // Any new touch catches a coasting model, like a hand on a spinning globe.
         stopCoasting()
         super.touchesBegan(touches, with: event)
+        if let finger = touches.first(where: { $0.type == .direct || $0.type == .indirectPointer }) { lastFingerType = finger.type }
         guard pencilTouch == nil, let t = touches.first(where: { $0.type == .pencil }), let c = controller else { return }
         pencilTouch = t
         let p = t.location(in: self)
@@ -357,6 +371,11 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
                 if c.beginTargetDrag(at: pencilStart, pointer: .pencil, modifiers: mods) {
                     pencilMode = .drag
                     c.dragTarget(to: p, pointer: .pencil, modifiers: mods)
+                } else if c.wantsBox(pointer: .pencil, modifiers: mods) {
+                    // Pencil selects, fingers navigate: a Pencil drag over the model draws a box.
+                    pencilMode = .box
+                    c.beginBox(at: pencilStart, pointer: .pencil, modifiers: mods)
+                    c.dragBox(to: p)
                 } else {
                     pencilMode = .orbit
                     c.beginOrbit(at: pencilStart)
@@ -366,6 +385,8 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
             }
         case .drag:
             c.dragTarget(to: t.location(in: self), pointer: .pencil, modifiers: mods)
+        case .box:
+            c.dragBox(to: t.location(in: self))
         case .orbit:
             let p = t.location(in: self)
             c.orbit(by: CGSize(width: p.x - pencilLast.x, height: p.y - pencilLast.y))
@@ -384,6 +405,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         case .pending: c.tap(at: p, pointer: .pencil, modifiers: mods)
         case .orbit: c.endNavigation()
         case .drag: c.endTargetDrag(at: p, pointer: .pencil, modifiers: mods)
+        case .box: c.endBox(at: p)
         }
         pencilTouch = nil
     }
@@ -396,6 +418,7 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         case .tool: c.toolCancelled()
         case .orbit: c.endNavigation()
         case .drag: c.cancelTargetDrag()
+        case .box: c.cancelBox()
         case .pending: break
         }
         pencilTouch = nil

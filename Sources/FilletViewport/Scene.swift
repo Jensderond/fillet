@@ -390,6 +390,11 @@ public struct ViewportScene: Sendable {
     public var measures: [MeasureAnnotation]
     /// Picked edges drawn over everything else (see `EdgeHighlight`).
     public var edgeHighlights: [EdgeHighlight] = []
+    /// The bodies as they were before the step being edited (a fillet or chamfer), by the id of
+    /// the shown body each one becomes. Never drawn: dashed highlights, which are their edges,
+    /// test depth against these (and the shown bodies they don't replace), so a picked edge behind
+    /// the part fades even where the step has rounded the material in front of it away.
+    public var bodiesBefore: [SceneBody] = []
     /// Pickable construction planes (drawn translucent, under the sketch overlay).
     public var referencePlanes: [ReferencePlane] = []
     /// Faces that can be picked, per body; nil = all. A face outside its body's set still stops

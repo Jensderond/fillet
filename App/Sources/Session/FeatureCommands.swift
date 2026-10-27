@@ -171,8 +171,8 @@ extension DesignSession {
     }
 
     /// Escape, from the keyboard on both platforms: clear Measure's picks or leave it, stop choosing a sketch plane, stop typing a
-    /// size, cancel the stroke in progress, then leave sketch mode, then cancel the feature being edited, then
-    /// clear the selection.
+    /// size, cancel the stroke in progress, then leave sketch mode, then leave box select, then cancel the feature
+    /// being edited, then clear the selection.
     func escape() {
         if measure != nil {
             escapeMeasure()
@@ -185,6 +185,8 @@ extension DesignSession {
             sketchEditor = editor
         } else if sketchEditor != nil {
             finishSketch()
+        } else if boxSelecting, !boxFilter.isEmpty {
+            boxSelecting = false
         } else if editing != nil {
             cancelEdit()
         } else {
@@ -281,7 +283,8 @@ extension DesignSession {
         let body = edges.first?.0 ?? selectedBodies.first ?? model.bodies.last?.ref
         guard let body else { message = "Create a body first"; return }
         let refs = edges.filter { $0.0 == body }.compactMap { model.edgeRef(body: $0.0, edge: $0.1) }
-        let payload = EdgeFeature(body: body, edges: refs, size: fillet ? 1 : 0.5)
+        // Tangent chain on, as in Fusion: one tap picks the whole run of smoothly joined edges.
+        let payload = EdgeFeature(body: body, edges: refs, size: fillet ? 1 : 0.5, tangentChain: true)
         selection = []
         beginNewFeature(Feature(name: nextName(fillet ? "Fillet" : "Chamfer"), fillet ? .fillet(payload) : .chamfer(payload)))
     }
@@ -401,21 +404,7 @@ extension DesignSession {
 
     // MARK: Picking while editing
 
-    func toggleEditingEdge(body: BodyRef, displayedEdge index: Int) {
-        guard let ref = model.edgeRefBefore(body: body, displayedEdge: index) else { return }
-        updateEditing { feature in
-            func toggle(_ e: inout EdgeFeature) {
-                if e.edges.isEmpty { e.body = body }
-                guard e.body == body else { return }
-                if let i = e.edges.firstIndex(of: ref) { e.edges.remove(at: i) } else { e.edges.append(ref) }
-            }
-            switch feature.kind {
-            case .fillet(var e): toggle(&e); feature.kind = .fillet(e)
-            case .chamfer(var e): toggle(&e); feature.kind = .chamfer(e)
-            default: break
-            }
-        }
-    }
+    // Edges for a fillet or chamfer: see `toggleEditingEdge` in Selecting.swift.
 
     func toggleEditingFace(body: BodyRef, displayedFace index: Int, single: Bool) {
         guard let ref = model.faceRefBefore(body: body, displayedFace: index) else { return }

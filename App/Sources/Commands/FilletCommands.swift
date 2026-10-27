@@ -65,6 +65,15 @@ struct FilletCommands: Commands {
             Button("Measure") { session?.startMeasure() }
                 .keyboardShortcut(bare("i"))
             Divider()
+            // W for window, the box's other name. Off again with W or Esc.
+            Button(session?.boxSelecting == true ? "Stop Box Select" : "Box Select") { session?.toggleBoxSelect() }
+                .keyboardShortcut(bare("w"))
+                .disabled(session?.boxSelectUnavailableReason != nil)
+            Button("Select Tangent Chain") { session?.selectTangentChain() }
+                .disabled(session?.lastSelectedEdge == nil)
+            Button("Select Loop") { session?.selectLoop() }
+                .disabled(session?.lastSelectedEdge == nil)
+            Divider()
             Button("Import STEP…") { session?.importRequested = true }
                 .keyboardShortcut("i", modifiers: [.command, .shift])
             Divider()

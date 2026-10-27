@@ -63,6 +63,8 @@ public struct ViewportPalette: Hashable, Sendable {
     public var fill: Float
     public var rim: Float
     public var specular: Float
+    /// Opacity of picked edges where the model hides them (drawn thin and finely dashed).
+    public var hiddenPickedEdgeAlpha: Float = 0.5
 
     public static let light = ViewportPalette(
         backgroundTop: ViewportColor(hex: 0xF7F8FA),
@@ -148,10 +150,20 @@ public struct ViewportPalette: Hashable, Sendable {
         shadow: ViewportColor(hex: 0x03060C, alpha: 0.55),
         skyLight: ViewportColor(hex: 0xDDE3EC),
         groundLight: ViewportColor(hex: 0x5E5C59),
-        ambient: 0.36, key: 0.62, fill: 0.18, rim: 0.26, specular: 0.10)
+        ambient: 0.36, key: 0.62, fill: 0.18, rim: 0.26, specular: 0.10,
+        // The pale body takes the blue less well than the light palette's.
+        hiddenPickedEdgeAlpha: 0.6)
 }
 
 public extension ViewportPalette {
+    /// For Increase Contrast: what's drawn faint to read as behind (picked edges hidden by the
+    /// model) comes up, still short of what's in front.
+    var increasedContrast: ViewportPalette {
+        var p = self
+        p.hiddenPickedEdgeAlpha = min(hiddenPickedEdgeAlpha + 0.25, 0.85)
+        return p
+    }
+
     /// The colour a reference plane is tinted: the axis its normal runs along (XY takes Z's blue).
     func color(for plane: ReferencePlane) -> ViewportColor {
         switch plane.normalAxis {

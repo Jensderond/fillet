@@ -202,11 +202,40 @@ points. Picking on the CPU: ray vs triangles (BVH per body) for faces,
 screen-space distance to edge polylines (tolerance 8 pt touch / 4 pt mouse).
 
 Input:
-- iPad: 1 finger drag orbit, 2 finger drag pan, pinch zoom, double‑tap
+- iPad: 1 finger drag orbit, 2 finger drag pan, pinch zoom, two-finger double‑tap
   fit; tap = pick. Apple Pencil (or a finger when "draw with finger" is on)
-  goes to the active tool.
+  goes to the active tool; with no tool, a Pencil drag draws a selection box.
 - Mac: left click pick / tool, right‑drag or option‑drag orbit, middle-drag
   or shift‑right‑drag pan, scroll / pinch zoom, two-finger trackpad scroll pan.
+  Shift‑ or ⌘‑drag draws a selection box.
+
+### Selection
+
+The conventions live in `SelectionRules` (FilletViewport), so taps, clicks and boxes agree:
+
+- **Click replaces, touch adds.** A mouse or trackpad click replaces the selection, like Fusion
+  and the Finder; Shift- or ⌘-click toggles. A finger or Pencil tap toggles: touch has no modifier
+  keys, so it keeps adding (Shapr3D's convention). A hardware keyboard's Shift/⌘ toggles on iPad
+  too. A tap or click on empty space clears (with a modifier held, nothing). While a step picks
+  (Fillet, Shell…), every tap toggles, as in a Fusion command. Selecting is never an undo step.
+- **Tangent chain.** Fillet and Chamfer have Fusion's "Tangent chain", on for new steps: a picked
+  edge brings every edge joined to it with G1 continuity (the kernel's `fk_tangent_chain`: vertex
+  → edge adjacency, curve tangents compared at shared vertices within 2°, seams stop a chain). The
+  step stores the pick as a seed plus `tangentChain: true` and grows the chain again on every
+  recompute, so a chain that gains edges upstream (a corner rounded later) is still rounded
+  whole; files without the key read as `false` and save unchanged. Turning it off turns each
+  chain into its edges, picked singly, so nothing rounded changes.
+- **Loop.** A double tap or double click on an edge picks the loop of the face beside it under
+  the pointer (a face's wire, `fk_face_loops`); the second tap replaces what the first did.
+  *Select more ▸ Tangent chain / Loop* in the inspector does the same from the last picked edge.
+- **Box select.** Left to right takes what is wholly inside (window), right to left anything it
+  touches (crossing), as in Fusion. A Pencil drag, a Shift/⌘-drag, or any one-finger/left drag
+  with *Box select* (W) on draws one. On iPad a finger box ends Box select, so one finger orbits
+  again; on the Mac it stays on (right-drag orbits). Outside a step the bar chooses edges, faces
+  or bodies; in a step the step's kind. Only what can be seen is taken, like a single pick: hidden
+  bodies and geometry behind faces are left out (edges are sampled every ~4 pt and ray-tested,
+  faces by a ray grid over the box). What the box would take lights up while dragging, with a
+  count on its tag.
 
 ### App
 

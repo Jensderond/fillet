@@ -82,6 +82,10 @@ public struct ViewportView: View {
                 ViewportLabels(controller: controller, scene: scene, appearance: appearance)
                     .allowsHitTesting(false)
             }
+            if let box = controller.selectionBox {
+                SelectionBoxOverlay(box: box, count: controller.boxPreviewCount, appearance: appearance, viewSize: controller.viewSize)
+                    .allowsHitTesting(false)
+            }
             if options.showsViewCube {
                 ViewCubeOverlay(controller: controller, appearance: appearance, visualStyle: visualStyle)
                     .padding(12)
@@ -110,7 +114,8 @@ struct ViewportRepresentable: UIViewRepresentable {
 
     func updateUIView(_ view: ViewportUIView, context: Context) {
         controller.cameraBinding = $camera
-        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance)
+        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance,
+                          increasedContrast: context.environment.colorSchemeContrast == .increased)
     }
 }
 #elseif os(macOS)
@@ -131,7 +136,8 @@ struct ViewportRepresentable: NSViewRepresentable {
 
     func updateNSView(_ view: ViewportNSView, context: Context) {
         controller.cameraBinding = $camera
-        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance)
+        controller.update(scene: scene, camera: requestedCamera, filter: filter, options: options, delegate: delegate, appearance: appearance,
+                          increasedContrast: context.environment.colorSchemeContrast == .increased)
     }
 }
 #endif
@@ -291,6 +297,81 @@ private struct ReferencePlaneLabel: View {
         .overlay(Capsule().strokeBorder(hovered ? .clear : appearance.chipEdge))
         .fixedSize()
         .animation(.easeOut(duration: 0.12), value: hovered)
+    }
+}
+
+// MARK: - Selection box
+
+/// The rectangle being dragged to select, in the selection blue. A window (dragged left to right)
+/// has a solid rim and takes what is wholly inside; a crossing box (right to left) a dashed rim,
+/// a lighter wash, and takes whatever it touches, like Fusion. A tag on the rim says which, so the
+/// convention teaches itself.
+struct SelectionBoxOverlay: View {
+    let box: SelectionBox
+    /// What the box would take now (lit in the view); on the tag, so a box that takes nothing says so.
+    let count: Int
+    let appearance: ViewportAppearance
+    let viewSize: CGSize
+
+    private var window: Bool { box.mode == .window }
+    private var blue: Color { appearance.palette.accent.color }
+
+    var body: some View {
+        let rect = box.rect
+        ZStack(alignment: .topLeading) {
+            Rectangle()
+                .fill(blue.opacity(window ? 0.10 : 0.06))
+                .overlay(Rectangle().strokeBorder(blue, style: StrokeStyle(lineWidth: 1.5, dash: window ? [] : [6, 4])))
+                .frame(width: rect.width, height: rect.height)
+                .offset(x: rect.minX, y: rect.minY)
+            anchorMarks
+            tag.position(tagCenter(rect))
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// Crop marks at the corner the drag started from, as on a drawing sheet: they pin the box
+    /// down there, so it reads which way it was dragged (and so whether it's a window or crossing).
+    private var anchorMarks: some View {
+        let s = box.start
+        let dx: CGFloat = box.end.x >= s.x ? -1 : 1, dy: CGFloat = box.end.y >= s.y ? -1 : 1
+        return Path { p in
+            // Two short ticks running on from the box's edges, a little outside the corner.
+            p.move(to: CGPoint(x: s.x + dx * 4, y: s.y)); p.addLine(to: CGPoint(x: s.x + dx * 12, y: s.y))
+            p.move(to: CGPoint(x: s.x, y: s.y + dy * 4)); p.addLine(to: CGPoint(x: s.x, y: s.y + dy * 12))
+        }
+        .stroke(blue, style: StrokeStyle(lineWidth: 1.5, lineCap: .round))
+    }
+
+    private var tag: some View {
+        HStack(spacing: 4) {
+            Image(systemName: window ? "rectangle.inset.filled" : "rectangle.dashed")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(blue)
+            Text(window ? "Inside" : "Touching")
+                .font(.caption2.weight(.semibold))
+                .foregroundStyle(appearance.chipInk)
+            Text("\(count)")
+                .font(.caption2.weight(.semibold).monospacedDigit())
+                .foregroundStyle(appearance.labelInk(highContrast: false))
+                .contentTransition(.numericText())
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 2)
+        .background(appearance.chipFill, in: Capsule())
+        .overlay(Capsule().strokeBorder(appearance.chipEdge))
+        .fixedSize()
+        // Grows with text size up to the app's chrome limit, so it never hides what it boxes.
+        .dynamicTypeSize(...DynamicTypeSize.xLarge)
+    }
+
+    /// Above the box's top edge, at the corner the drag started from (away from the finger or
+    /// pointer at the other end), kept inside the view.
+    private func tagCenter(_ rect: CGRect) -> CGPoint {
+        // Inward from the corner, clear of its crop marks.
+        let x = window ? rect.minX + 64 : rect.maxX - 64
+        let y = rect.minY > 18 ? rect.minY - 12 : rect.minY + 12
+        return CGPoint(x: min(max(x, 40), max(viewSize.width - 40, 40)), y: y)
     }
 }
 

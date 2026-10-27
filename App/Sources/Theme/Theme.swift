@@ -14,6 +14,9 @@ enum Theme {
 
     /// Text and line work.
     static let ink = Color(light: 0x1D2B45, dark: 0xE4E9F2)
+    /// A switch that's on: ink in light; in dark a slate the white knob stands out on (ink there is
+    /// near-white, so the knob vanished into the track).
+    static let switchOn = Color(light: 0x1D2B45, dark: 0x6F7E99)
     /// Secondary text: labels, subtitles, units. The quietest colour text may use.
     static let inkSecondary = Color(light: 0x5A6680, dark: 0x9AA5B8, highContrastLight: 0x48536B, highContrastDark: 0xB8C1D0)
     /// Non-text marks only (icons, ruler ticks, hatching): 3:1 against the panels, too faint for text.
@@ -150,8 +153,18 @@ enum Theme {
         /// The pointing verb: "Click" with a pointer, "Tap" on iPad.
         #if os(iOS)
         static let pick = "Tap"
+        static let doublePick = "Double-tap"
+        /// How to add to the selection rather than replace it.
+        static let addHint = "Tap more to add them, or one again to drop it."
+        /// How to draw a selection box without turning Box select on.
+        static let boxShortcut = "Apple Pencil draws a box any time."
+        static let boxEdgesHint = "Draw a box with Apple Pencil to pick many edges at once."
         #else
         static let pick = "Click"
+        static let doublePick = "Double-click"
+        static let addHint = "Shift-click to add more, or one again to drop it."
+        static let boxShortcut = "Shift- or ⌘-drag draws a box any time."
+        static let boxEdgesHint = "Shift- or ⌘-drag a box to pick many edges at once."
         #endif
     }
 }

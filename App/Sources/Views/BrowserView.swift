@@ -39,7 +39,9 @@ struct BrowserView: View {
                                     .accessibilityLabel(hidden ? "Show \(body.name)" : "Hide \(body.name)")
                                 }
                             ) {
-                                session.toggleSelection(.body(body.ref), additive: false)
+                                // A row picks its body alone, or puts it down again.
+                                let item = Selection.body(body.ref)
+                                session.selection = session.selection.contains(item) ? session.selection.filter { $0 != item } : [item]
                             }
                             .contextMenu { BodyColorMenu(session: session, bodyRef: body.ref) }
                         }

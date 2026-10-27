@@ -246,7 +246,8 @@ struct EditorContent: View {
                 // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
                 options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion,
                                          cameraAnimationDuration: cameraAnimationDuration,
-                                         contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary),
+                                         contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary,
+                                         boxFilter: session.boxFilter, boxSelects: session.boxSelecting),
                 visualStyle: $visualStyle,
                 delegate: session,
                 controller: controller)
@@ -269,6 +270,13 @@ struct EditorContent: View {
                 }
                 if session.pickMode == .sketchPlane {
                     SketchPlaneBar(session: session)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.panel(from: .top, reduceMotion: reduceMotion))
+                }
+                if showsBoxBar {
+                    BoxSelectBar(session: session)
                         .dynamicTypeSize(...Theme.TypeLimit.chrome)
                         .padding(.trailing, Self.cubeClearance)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -311,6 +319,7 @@ struct EditorContent: View {
             .padding(Theme.Space.l)
             .animation(Theme.Motion.enter, value: session.sketchEditor != nil)
             .animation(Theme.Motion.enter, value: session.choosingSketchPlane)
+            .animation(Theme.Motion.enter, value: showsBoxBar)
             .animation(Theme.Motion.enter, value: session.document.activeFeatureCount < session.document.features.count)
             .animation(Theme.Motion.enter, value: session.message)
             .animation(Theme.Motion.enter, value: agentWorking)
@@ -373,8 +382,13 @@ struct EditorContent: View {
         return hint
     }
 
+    /// Box select is on and there is something to box: the bar says what a box picks and how.
+    private var showsBoxBar: Bool { session.boxSelecting && !session.boxFilter.isEmpty }
+
     private var currentHint: (text: String, symbol: String, context: String)? {
         let pick = Theme.Copy.pick
+        // The box bar takes the hint's place and says what to do.
+        if showsBoxBar { return nil }
         if let editor = session.sketchEditor {
             // Tools are icon-only and touch has no tooltips, so the hint names the live tool.
             let title = editor.tool.title  // menu titles are Title Case; app copy is sentence case
@@ -385,7 +399,7 @@ struct EditorContent: View {
         switch session.pickMode {
         case .sketchPlane: return nil  // the plane bar says what to pick
         case .regions: return ("\(pick) the profiles to use", "hand.tap", "pick")
-        case .edges: return ("\(pick) edges to add or remove them", "hand.tap", "pick")
+        case .edges: return ("\(pick) edges to add or remove them, \(Theme.Copy.doublePick.lowercased()) for a loop", "hand.tap", "pick")
         case .faces:
             if session.editingKind == "pressPull" { return ("\(pick) faces to move, or again to drop them", "hand.tap", "pick") }
             return ("\(pick) faces to remove them", "hand.tap", "pick")
@@ -536,6 +550,13 @@ struct ToolStrip: View {
         let busy = session.isBusyEditing
         HStack(spacing: Theme.Space.s) {
             ToolButton("Browser", "sidebar.left", active: showBrowser, toggle: true) { showBrowser.toggle() }
+            // A mode, not a step: "on" in ink like Browser, beside it so it never scrolls out of
+            // reach, and usable while a step is open (when boxing edges or faces helps most).
+            ToolButton("Box select", "rectangle.dashed", active: session.boxSelecting && !session.boxFilter.isEmpty,
+                       toggle: true, unavailable: session.boxSelectUnavailableReason, shortcut: "W",
+                       detail: "drag a box to select. \(Theme.Copy.boxShortcut)") {
+                session.toggleBoxSelect()
+            }
             ScrollView(.horizontal) {
                 HStack(spacing: Theme.Space.s) {
                     ToolCluster {
@@ -709,16 +730,19 @@ struct ToolButton: View {
     var unavailable: String?
     /// Its key, shown in the tooltip: "Extrude [E]".
     var shortcut: String?
+    /// More in the tooltip, after the name: "Box select [W]: drag a box to select."
+    var detail: String?
     let action: () -> Void
     @State private var explaining = false
 
     init(_ title: String, _ symbol: String, active: Bool = false, toggle: Bool = false, unavailable: String? = nil,
-         shortcut: String? = nil, action: @escaping () -> Void) {
+         shortcut: String? = nil, detail: String? = nil, action: @escaping () -> Void) {
         self.title = title; self.symbol = symbol; self.active = active; self.isToggle = toggle
-        self.unavailable = unavailable; self.shortcut = shortcut; self.action = action
+        self.unavailable = unavailable; self.shortcut = shortcut; self.detail = detail; self.action = action
     }
 
     private var named: String { shortcut.map { "\(title) [\($0)]" } ?? title }
+    private var described: String { detail.map { "\(named): \($0)" } ?? named }
 
     var body: some View {
         Button(title) {
@@ -726,7 +750,7 @@ struct ToolButton: View {
         }
         .buttonStyle(ToolButtonStyle(title: title, symbol: symbol, active: active, isToggle: isToggle, unavailable: unavailable != nil))
         .automationFrame("tool.\(title)")
-        .help(unavailable.map { "\(named). \($0)" } ?? named)
+        .help(unavailable.map { "\(named). \($0)" } ?? described)
         .accessibilityValue(unavailable == nil ? "" : "Unavailable")
         .accessibilityHint(unavailable ?? "")
         .hoverHighlight(ownsPointerHover: true)

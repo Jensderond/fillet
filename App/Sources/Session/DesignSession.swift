@@ -72,6 +72,12 @@ final class DesignSession {
 
     var selection: [Selection] = []
     var hover: Selection?
+    /// Box select mode: one-finger and left-button drags draw a selection box instead of orbiting.
+    var boxSelecting = false
+    /// What a selection box picks outside a step.
+    var boxPicks = BoxPicks.edges
+    /// What the last tap changed, for a double tap to take back (see `Selecting.swift`).
+    @ObservationIgnored var tapUndo: TapUndo?
     var editing: FeatureEdit?
     var sketchEditor: SketchEditor?
     /// Sketch was asked for with no flat face picked: the origin planes show in the viewport
@@ -390,13 +396,4 @@ final class DesignSession {
         selection.compactMap { if case .face(let b, let i) = $0 { (b, i) } else { nil } }
     }
 
-    func toggleSelection(_ s: Selection, additive: Bool) {
-        if let i = selection.firstIndex(of: s) {
-            selection.remove(at: i)
-        } else if additive {
-            selection.append(s)
-        } else {
-            selection = [s]
-        }
-    }
 }

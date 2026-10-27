@@ -281,6 +281,54 @@ public final class Shape: @unchecked Sendable {
         }
     }
 
+    /// Default angle for ``tangentChain(from:angleTolerance:)``: 2°, loose enough for curves
+    /// approximated as B-splines (imported STEP) and tight enough that a 5° bend still stops a chain.
+    public static let tangentTolerance = 2 * Double.pi / 180
+
+    /// The edges joined to `edge` with tangent (G1) continuity, the seed included, in index order:
+    /// the run of lines and arcs around a rounded rectangle, say, but not the edges meeting it at
+    /// a corner. Seams and degenerate edges never join a chain. Just `[edge]` on a kernel failure.
+    public func tangentChain(from edge: Int, angleTolerance: Double = Shape.tangentTolerance) -> [Int] {
+        let count = edgeCount
+        guard edge >= 0, edge < count else { return [] }
+        var flags = [Bool](repeating: false, count: count)
+        let ok = flags.withUnsafeMutableBufferPointer {
+            fk_tangent_chain(handle, Int32(edge), angleTolerance, $0.baseAddress, Int32(count))
+        }
+        guard ok else { return [edge] }
+        return flags.indices.filter { flags[$0] }
+    }
+
+    /// The boundary loops of a face, outer boundary first, then the holes; each loop's edges in
+    /// index order. Empty when the face doesn't exist.
+    public func faceLoops(_ face: Int) -> [[Int]] {
+        let count = edgeCount
+        guard face >= 0, face < faceCount, count > 0 else { return [] }
+        var loopOf = [Int32](repeating: -1, count: count)
+        let ok = loopOf.withUnsafeMutableBufferPointer { fk_face_loops(handle, Int32(face), $0.baseAddress, Int32(count)) }
+        guard ok, let last = loopOf.max(), last >= 0 else { return [] }
+        return (0...Int(last)).map { loop in loopOf.indices.filter { loopOf[$0] == Int32(loop) } }
+    }
+
+    /// The faces an edge bounds, in index order: two for an ordinary edge, one for a seam.
+    public func edgeFaces(_ edge: Int) -> [Int] {
+        guard edge >= 0, edge < edgeCount else { return [] }
+        var faces = [Int32](repeating: 0, count: 4)
+        var n = faces.withUnsafeMutableBufferPointer { fk_edge_faces(handle, Int32(edge), $0.baseAddress, 4) }
+        if n > 4 {
+            faces = [Int32](repeating: 0, count: Int(n))
+            n = faces.withUnsafeMutableBufferPointer { fk_edge_faces(handle, Int32(edge), $0.baseAddress, n) }
+        }
+        guard n > 0 else { return [] }
+        return faces.prefix(Int(n)).map(Int.init)
+    }
+
+    /// The loop of `face` that runs through `edge` (all its edges, `edge` included), or nil when
+    /// the edge doesn't bound that face.
+    public func loop(of face: Int, through edge: Int) -> [Int]? {
+        faceLoops(face).first { $0.contains(edge) }
+    }
+
     private static let facePlaceholder =
         FaceInfo(surface: .other, centroid: .zero, normal: .zero, area: 0, boundsMin: .zero, boundsMax: .zero)
     private static let edgePlaceholder =

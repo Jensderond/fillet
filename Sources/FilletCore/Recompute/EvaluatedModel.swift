@@ -69,6 +69,9 @@ public struct EvaluatedModel: Sendable {
     /// Bodies as they were just before the feature passed as `before:` to
     /// `ModelEvaluator.evaluate` (the geometry a feature being edited picks from).
     public var bodiesBefore: [EvaluatedBody]?
+    /// While a fillet or chamfer is edited: display meshes of the bodies it changed, as they were
+    /// before it (the ones its picked edges belong to). Empty otherwise.
+    public var meshesBefore: [BodyRef: Mesh] = [:]
     /// Per fillet or chamfer: the edges of the body before it that its references resolved to,
     /// i.e. exactly the edges the kernel was asked to round or bevel. Recorded before the kernel
     /// runs, so a step that failed has them too; references that no longer resolve are absent.

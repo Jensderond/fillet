@@ -45,14 +45,14 @@ public final class ViewportController {
     // MARK: Sync from SwiftUI
 
     func update(scene: ViewportScene, camera: Camera, filter: PickFilter, options: ViewportOptions,
-                delegate: (any ViewportDelegate)?, appearance: ViewportAppearance) {
+                delegate: (any ViewportDelegate)?, appearance: ViewportAppearance, increasedContrast: Bool = false) {
         self.scene = scene
         self.filter = filter
         self.options = options
         self.delegate = delegate
         picker.prune(keeping: Set(scene.bodies.map(\.id)))
         renderer?.update(scene: scene)
-        renderer?.palette = appearance.palette
+        renderer?.palette = increasedContrast ? appearance.palette.increasedContrast : appearance.palette
         if lastSyncedCamera == nil {
             lastSyncedCamera = camera
             setLive(camera)
@@ -193,9 +193,138 @@ public final class ViewportController {
 
     // MARK: Picking / hover
 
-    func tap(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
+    /// A tap or click. `clickCount` comes from the system where it counts clicks (the Mac);
+    /// otherwise a second tap on the same element within `doubleTapInterval` counts as a double tap.
+    func tap(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers, clickCount: Int? = nil,
+             time: TimeInterval = ProcessInfo.processInfo.systemUptime) {
         let hit = pick(at: p, pointer: pointer, filter: filter)
-        delegate?.viewportDidTap(target: hit?.target, hit: hit, ray: ray(at: p), location: p, modifiers: modifiers)
+        var count = clickCount ?? tapCount(at: p, target: hit?.target, pointer: pointer, time: time)
+        // A double click that lands on another element than the first click is two clicks.
+        if clickCount != nil, count > 1, !Self.sameElement(lastTap?.target, hit?.target) { count = 1 }
+        lastTap = (p, hit?.target, pointer, time, count)
+        if count == 2 {
+            // The face beside the edge, for its loop: whichever one is under the pointer.
+            let face = pick(at: p, pointer: pointer, filter: .faces)?.target
+            if delegate?.viewportDidDoubleTap(target: hit?.target, face: face, location: p, modifiers: modifiers, pointer: pointer) == true {
+                return
+            }
+            // Nothing to do with a double tap there: it's a second tap.
+            lastTap?.count = 1
+        } else if count > 2 {
+            return
+        }
+        delegate?.viewportDidTap(target: hit?.target, hit: hit, ray: ray(at: p), location: p, modifiers: modifiers, pointer: pointer)
+    }
+
+    /// Longest gap between the taps of a double tap.
+    static let doubleTapInterval: TimeInterval = 0.35
+
+    @ObservationIgnored private var lastTap: (location: CGPoint, target: PickTarget?, pointer: PointerKind, time: TimeInterval, count: Int)?
+
+    /// 1 for a first tap, 2 for a second one on the same element close by and soon after, 3 for
+    /// a third (ignored, like a triple click).
+    func tapCount(at p: CGPoint, target: PickTarget?, pointer: PointerKind, time: TimeInterval) -> Int {
+        guard let last = lastTap, last.pointer == pointer, Self.sameElement(last.target, target),
+            time - last.time <= Self.doubleTapInterval
+        else { return 1 }
+        // The very same element may be a fingertip away; another one of the same body (the first
+        // tap renumbered it) only right on the same spot, so quick taps on two neighbouring
+        // edges stay two taps.
+        let distance = hypot(p.x - last.location.x, p.y - last.location.y)
+        let reach = last.target == target ? max(pointer.tolerance * 2, 12) : max(pointer.tolerance, 6)
+        return distance <= reach ? last.count + 1 : 1
+    }
+
+    /// Two taps landed on the same element: the same target, or (as the first tap may have
+    /// changed the model, renumbering its edges and faces) the same kind of element of the same
+    /// body. Taps on nothing are never the same.
+    static func sameElement(_ a: PickTarget?, _ b: PickTarget?) -> Bool {
+        guard let a, let b else { return false }
+        switch (a, b) {
+        case (.edge(let x, _), .edge(let y, _)), (.face(let x, _), .face(let y, _)), (.vertex(let x, _), .vertex(let y, _)):
+            return x == y
+        default:
+            return a == b
+        }
+    }
+
+    // MARK: Selection box
+
+    /// The selection box being dragged, drawn over the view (nil when there is none).
+    public private(set) var selectionBox: SelectionBox?
+    /// How many elements the box being dragged would take right now (shown on its tag).
+    public private(set) var boxPreviewCount = 0
+    @ObservationIgnored private var lastBoxPreview: TimeInterval = 0
+    @ObservationIgnored private var boxPreviewTask: Task<Void, Never>?
+
+    /// Whether a drag from here draws a selection box: box mode is on, the Pencil draws it, or
+    /// Shift or ⌘ is held. Never while there is nothing a box could select.
+    func wantsBox(pointer: PointerKind, modifiers: ViewportModifiers) -> Bool {
+        guard !options.boxFilter.isEmpty else { return false }
+        return options.boxSelects || pointer == .pencil || !modifiers.isDisjoint(with: [.shift, .command])
+    }
+
+    public func beginBox(at p: CGPoint, pointer: PointerKind, modifiers: ViewportModifiers) {
+        renderer?.cancelAnimation()
+        selectionBox = SelectionBox(start: p, end: p, update: SelectionRules.box(modifiers: modifiers, pointer: pointer), pointer: pointer)
+        boxPreviewCount = 0
+        setHover(nil)
+    }
+
+    /// Moves the box's free corner. What it would take lights up as it goes (worked out at most
+    /// every 80 ms, and once more when the pointer rests, so a big scene can't stall the drag).
+    public func dragBox(to p: CGPoint) {
+        selectionBox?.end = p
+        let now = ProcessInfo.processInfo.systemUptime
+        boxPreviewTask?.cancel()
+        if now - lastBoxPreview >= 0.08 {
+            updateBoxPreview()
+        } else {
+            boxPreviewTask = Task { [weak self] in
+                try? await Task.sleep(for: .milliseconds(90))
+                guard !Task.isCancelled else { return }
+                self?.updateBoxPreview()
+            }
+        }
+    }
+
+    private func boxTargets(_ box: SelectionBox) -> [PickTarget] {
+        let rect = box.rect
+        guard rect.width >= 4 || rect.height >= 4 else { return [] }
+        return picker.boxSelect(scene: scene, camera: liveCamera, rect: rect, viewSize: viewSize,
+                                filter: options.boxFilter, mode: box.mode)
+    }
+
+    private func updateBoxPreview() {
+        lastBoxPreview = ProcessInfo.processInfo.systemUptime
+        guard let box = selectionBox else { return }
+        let targets = boxTargets(box)
+        boxPreviewCount = targets.count
+        renderer?.boxPreview = targets
+        redraw()
+    }
+
+    /// Lets go of the box: what it selects goes to the delegate. A box too small to mean
+    /// anything (a slip of the finger) selects nothing.
+    public func endBox(at p: CGPoint) {
+        guard var box = selectionBox else { return }
+        box.end = p
+        clearBox()
+        let rect = box.rect
+        guard rect.width >= 4 || rect.height >= 4 else { return }
+        delegate?.viewportDidBoxSelect(boxTargets(box), box: box)
+    }
+
+    public func cancelBox() {
+        clearBox()
+    }
+
+    private func clearBox() {
+        boxPreviewTask?.cancel()
+        selectionBox = nil
+        boxPreviewCount = 0
+        renderer?.boxPreview = []
+        redraw()
     }
 
     func hover(at p: CGPoint?, pointer: PointerKind, modifiers: ViewportModifiers = []) {

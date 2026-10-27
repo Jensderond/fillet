@@ -49,8 +49,19 @@ public protocol ViewportDelegate: AnyObject {
     /// navigating. Fingers always keep navigating otherwise.
     var wantsToolInput: Bool { get }
 
-    /// A tap/click. `target` is the picked element (nil = empty space).
-    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers)
+    /// A tap/click. `target` is the picked element (nil = empty space). `pointer` says what made
+    /// it, for ``SelectionRules``: a click replaces the selection, a touch adds.
+    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers,
+                        pointer: PointerKind)
+    /// A second tap or click on the same element right after the first (which arrived as
+    /// `viewportDidTap`): Fusion's double-click to select an edge's loop. `face` is the face under
+    /// the pointer, which says which of an edge's two faces' loops is meant. Return false when a
+    /// double tap means nothing there: the second tap then arrives as an ordinary tap.
+    func viewportDidDoubleTap(target: PickTarget?, face: PickTarget?, location: CGPoint, modifiers: ViewportModifiers,
+                              pointer: PointerKind) -> Bool
+    /// A selection box was let go: `targets` is what it selects (see ``ViewportPicker/boxSelect``),
+    /// `box` how it was drawn (its mode and what it does to the selection).
+    func viewportDidBoxSelect(_ targets: [PickTarget], box: SelectionBox)
     /// The element under the pointer changed (mouse, trackpad pointer, Pencil hover).
     func viewportHoverChanged(target: PickTarget?)
     /// Pointer moved without a button/contact while a tool is active (rubber-band previews).
@@ -84,7 +95,15 @@ public protocol ViewportDelegate: AnyObject {
 
 public extension ViewportDelegate {
     var wantsToolInput: Bool { false }
-    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers) {}
+    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers,
+                        pointer: PointerKind) {}
+    /// A tap made in code (automation, demos): a touch, so it adds to the selection.
+    func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers) {
+        viewportDidTap(target: target, hit: hit, ray: ray, location: location, modifiers: modifiers, pointer: .touch)
+    }
+    func viewportDidDoubleTap(target: PickTarget?, face: PickTarget?, location: CGPoint, modifiers: ViewportModifiers,
+                              pointer: PointerKind) -> Bool { false }
+    func viewportDidBoxSelect(_ targets: [PickTarget], box: SelectionBox) {}
     func viewportHoverChanged(target: PickTarget?) {}
     func viewportToolHover(_ event: ViewportToolEvent) {}
     func viewportToolBegan(_ event: ViewportToolEvent) {}
@@ -119,10 +138,20 @@ public struct ViewportOptions: Hashable, Sendable {
     public var contentInsets: ViewportInsets
     /// What the 3D view shows, for VoiceOver ("1 body, 80 × 30 × 12 mm; 4 edges picked").
     public var accessibilitySummary: String
+    /// What a selection box picks (`.edges`, `.faces`, `.bodies`); empty: no selection boxes, so
+    /// every drag navigates as before.
+    public var boxFilter: PickFilter
+    /// Box select mode: a one-finger or left-button drag draws a selection box instead of
+    /// orbiting (two fingers, right-drag and ⌥-drag still navigate). Without it a box comes from
+    /// Apple Pencil, or a drag with Shift or ⌘ held.
+    public var boxSelects: Bool
 
     public init(fingerDraws: Bool = false, animatesCameraChanges: Bool = true, cameraAnimationDuration: Double = 0.35,
                 showsViewCube: Bool = true, showsLabels: Bool = true, appearance: ViewportAppearance? = nil,
-                contentInsets: ViewportInsets = .zero, accessibilitySummary: String = "") {
+                contentInsets: ViewportInsets = .zero, accessibilitySummary: String = "",
+                boxFilter: PickFilter = [], boxSelects: Bool = false) {
+        self.boxFilter = boxFilter
+        self.boxSelects = boxSelects
         self.fingerDraws = fingerDraws
         self.animatesCameraChanges = animatesCameraChanges
         self.cameraAnimationDuration = cameraAnimationDuration

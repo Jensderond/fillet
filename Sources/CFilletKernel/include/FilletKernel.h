@@ -209,6 +209,19 @@ bool fk_edge_info(const FKShape *shape, int32_t edgeIndex, FKEdgeInfo *out);
 /// where a face meets itself (a cylinder's or sphere's closing line). `out` has room for
 /// `count` flags, which must equal fk_edge_count; out[i] is set for edge i.
 bool fk_seam_edges(const FKShape *shape, bool *out, int32_t count);
+/// Edges joined to edge `edgeIndex` with tangent (G1) continuity, like Fusion's tangent chain:
+/// from each end the walk carries on into every edge that leaves the shared vertex in the same
+/// direction, within `angleTolerance` radians, and so on from there. Seams and degenerate edges
+/// never join a chain. `out` has room for `count` flags, which must equal fk_edge_count; out[i]
+/// is set for every edge of the chain, the seed included (a seam seed is its own chain).
+bool fk_tangent_chain(const FKShape *shape, int32_t edgeIndex, double angleTolerance, bool *out, int32_t count);
+/// The boundary loops (wires) of a face: loopOf[i] is the loop edge i belongs to on that face, 0
+/// for the outer boundary and 1, 2… for holes, or -1 when the edge doesn't bound the face.
+/// `loopOf` has room for `count` entries, which must equal fk_edge_count.
+bool fk_face_loops(const FKShape *shape, int32_t faceIndex, int32_t *loopOf, int32_t count);
+/// The faces edge `edgeIndex` bounds (two for an ordinary edge, one for a seam), in face index
+/// order. Writes up to `capacity` indices to `faces` and returns how many faces there are, or -1.
+int32_t fk_edge_faces(const FKShape *shape, int32_t edgeIndex, int32_t *faces, int32_t capacity);
 /// Plane of a planar face, origin at the face centroid, normal outward,
 /// xDir aligned with the face's longest straight edge when there is one.
 /// Returns false for non-planar faces.
