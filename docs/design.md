@@ -60,7 +60,8 @@ fillet/
     FilletViewport/          Metal renderer + camera + gestures + picking (SwiftUI view)
   Tests/                     XCTest/Swift Testing per module
   App/                       SwiftUI multiplatform app (iPadOS + macOS), XcodeGen project.yml
-  vendor/OCCT.xcframework    built by scripts/build-occt.sh (gitignored)
+  vendor/OCCT.xcframework    OCCT.framework (one dynamic library, LGPL) per platform, built by
+                             scripts/build-occt.sh with scripts/occt-patches applied (gitignored)
 ```
 
 Deployment targets: iPadOS 18, macOS 15. Swift 6 language mode, Xcode 27.

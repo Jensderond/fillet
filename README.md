@@ -12,7 +12,7 @@ export 3MF for Bambu Studio.
 Requirements: Xcode 27, CMake (`brew install cmake`), XcodeGen (`brew install xcodegen`).
 
 ```sh
-scripts/build-occt.sh          # once: builds OpenCascade for macOS, iOS and the iOS simulator (~30 min)
+scripts/build-occt.sh          # once: builds OpenCascade as OCCT.framework for macOS, iOS and the iOS simulator (~30 min)
 swift test                     # kernel, core and viewport tests
 cd App && xcodegen generate    # creates App/Fillet.xcodeproj
 open Fillet.xcodeproj          # pick the Fillet scheme, a Mac or your iPad, Run
@@ -23,6 +23,17 @@ A team picked under *Signing & Capabilities* is lost on the next `xcodegen gener
 
 `scripts/release.sh 0.2.0` builds the Mac release: `build/release/Fillet-0.2.0.dmg`, with the
 `fillet-mcp` helper inside the app (set the version in `App/project.yml` first).
+
+### OpenCascade
+
+Fillet uses [Open CASCADE Technology](https://github.com/Open-Cascade-SAS/OCCT) 8.0.1 under the
+GNU LGPL 2.1 with the Open CASCADE exception. To keep it replaceable, `scripts/build-occt.sh` links
+all of OCCT into one dynamic framework, `vendor/OCCT.xcframework` (`@rpath/OCCT.framework/OCCT`,
+arm64 only, with a dSYM per platform), which the app embeds in `Contents/Frameworks` (Mac) or
+`Frameworks` (iPad). The script resets `vendor/occt-src` to a clean `V8_0_1` tree and applies
+Fillet's changes to OCCT from [`scripts/occt-patches`](scripts/occt-patches/README.md) before
+every build. The app shows the licence texts under *Fillet ▸ Acknowledgements* (Mac) and on the
+launch screen (iPad).
 
 ### Updates (Mac)
 

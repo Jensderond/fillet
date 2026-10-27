@@ -211,13 +211,13 @@ The final bench run below gives 2 390 (runs 2 390 / 2 332 / 2 393): run-to-run n
    face: 870 to 179 000 candidates per edge/face pair in this fixture, each followed by a
    `math_PSO` global extremum search. One transversal crossing in "Join head" took 3.3 s (61 556
    candidates). Even a box edge crossing a NURBS-converted (unscaled) head gives thousands.
-   `Sources/CFilletKernel/src/OCCTPatches/IntTools_BeanFaceIntersector.cpp` is a copy of the OCCT
-   8.0.1 file with one change: past 256 candidates `LocalizeSolutions` gives up, and the
+   `scripts/occt-patches/0002-IntTools_BeanFaceIntersector-cap-localization.patch` changes one
+   thing in the OCCT 8.0.1 file: past 256 candidates `LocalizeSolutions` gives up, and the
    intersector takes its generic path (the one OCCT uses for every non-B-spline surface, and when
-   localisation fails). Compiled into CFilletKernel, it replaces the archive member at link time
-   (a static archive member is only loaded for undefined symbols). An `#error` fires when the OCCT
-   version changes, so the copy gets refreshed with the next upgrade. Every replayed boolean of the
-   fixture gives the same faces, edges and bounds; "Join head" 3.4 s → 26 ms.
+   localisation fails). `scripts/build-occt.sh` applies it to the OCCT source before building; `git apply`
+   refuses it once the file changes upstream, so it gets refreshed with the next OCCT upgrade. (Until OCCT became a dynamic framework, this was a patched copy of the file compiled
+   into CFilletKernel that replaced the static archive member at link time.) Every replayed
+   boolean of the fixture gives the same faces, edges and bounds; "Join head" 3.4 s → 26 ms.
 2. **Multi-tool combines in one boolean** (`fk_boolean_tools`, `Shape.boolean(_:_:[Shape])`). Cut
    and fuse put all tools into one `BRepAlgoAPI_Cut`/`Fuse`; common still chains, because OCCT
    would intersect with the union of the tools. `ModelEvaluator.combine` falls back to one tool at a
@@ -553,9 +553,10 @@ before and after.
    another, before it classifies anything. Profiling the cold evaluate showed that set-up at about
    20% of the evaluating thread: `BOPAlgo_BuilderSolid::PerformAreas` classifies a boolean's result
    shells to tell holes from solids (on the calling thread, while the pool idles), and `finish()`'s
-   inside-out check (`IsInvertedSolid`) does it again. `OCCTPatches/BRepClass3d_SolidExplorer.cpp`
-   is a copy of the OCCT 8.0.1 file (same linking trick and version `#error` as Round 1's patch)
-   whose `InitShape` builds the intersectors on the pool, then binds them in face order with the
+   inside-out check (`IsInvertedSolid`) does it again.
+   `scripts/occt-patches/0001-BRepClass3d_SolidExplorer-parallel-intersectors.patch` (applied by
+   `scripts/build-occt.sh` like Round 1's patch; at the time a patched copy linked over the archive
+   member) changes the OCCT 8.0.1 file so that its `InitShape` builds the intersectors on the pool, then binds them in face order with the
    original's last-wins binding and first-exception-in-order behaviour. Each intersector depends
    only on its face, so every classification is unchanged. `finish()`'s orientation check went
    from 208 to 83 ms per cold evaluate, and most combine steps on the frog body got 30–40% faster
