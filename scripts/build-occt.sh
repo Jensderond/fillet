@@ -127,8 +127,10 @@ build_slice() {
   echo "==> [$slice] link OCCT.framework"
   local fw="$WORK/$slice/OCCT.framework" bin_dir res_dir
   local -a libs
-  # Every libTK*.a goes in whole (-all_load), so the order doesn't matter.
-  while IFS= read -r lib; do libs+=("$lib"); done < <(find "$install" -name 'libTK*.a' | sort)
+  # Every libTK*.a goes in whole (-all_load), so the order doesn't matter. Except OCCT's OpenGL ES
+  # renderer, which the iOS build makes despite USE_GLES2=OFF: nothing Fillet uses depends on it,
+  # and it would need the deprecated OpenGLES framework.
+  while IFS= read -r lib; do libs+=("$lib"); done < <(find "$install" -name 'libTK*.a' ! -name 'libTKOpenGles.a' | sort)
   rm -rf "$fw" "$fw.dSYM" "$WORK/$slice/libOCCT.a"
   if [ "$slice" = macos ]; then
     # macOS frameworks are versioned: the files live in Versions/A, the top level has symlinks.
