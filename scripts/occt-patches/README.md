@@ -15,6 +15,10 @@ Background and measurements are in [docs/performance.md](../../docs/performance.
 
 ## Upgrading OCCT
 
+`build-occt.sh` throws away any edits in `vendor/occt-src` when it resets the tree, so do this
+before running it (or in a separate clone), and bump `OCCT_TAG` and `OCCT_VERSION` in the script
+and the version in `App/Sources/Acknowledgements/AcknowledgementsView.swift` along with it.
+
 1. Check out the new tag in `vendor/occt-src` and apply each patch in turn:
    `git apply --3way ../../scripts/occt-patches/0001-….patch` (run from `vendor/occt-src`).
 2. Fix any conflicts by hand, keeping the `FILLET PATCH` comments on changed lines.

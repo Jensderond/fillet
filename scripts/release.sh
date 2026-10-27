@@ -52,8 +52,8 @@ cp "$BIN" "$HELPER"
 install_name_tool -add_rpath @executable_path/../Frameworks "$HELPER"
 # OCCT (LGPL) first, so it can be replaced; Xcode signed it on embedding, re-sign it the same way.
 codesign --force --sign - --options runtime "$OCCT"
-# The helper first, on its own: hardened runtime but no sandbox, so headless mode can open and
-# save .fillet files anywhere.
+# The helper on its own: hardened runtime but no sandbox, so headless mode can open and save
+# .fillet files anywhere.
 codesign --force --sign - --options runtime --identifier app.fillet.fillet-mcp "$HELPER"
 # The updater likewise: not sandboxed, so it can replace Fillet.app.
 codesign --force --sign - --options runtime "$UPDATER"
@@ -64,6 +64,10 @@ codesign --verify --strict "$OCCT"
 codesign --verify --strict "$HELPER"
 codesign --verify --strict "$UPDATER"
 codesign --verify --strict --deep "$APP"
+# A valid signature can still be refused at load time: the hardened runtime's library validation
+# only loads OCCT.framework if it has the same Team ID as the process. The helper is signed like
+# the app, so it starting (and loading OCCT) shows the app can too.
+"$HELPER" --help > /dev/null || { echo "fillet-mcp can't load OCCT.framework (see above)" >&2; exit 1; }
 
 echo "==> Making the DMG"
 # dmgbuild lays out the window (docs/dmg/background.tiff, the icons, an Applications link) by

@@ -29,13 +29,19 @@ if [ ! -d "$SRC" ]; then
   git clone --depth 1 --branch "$OCCT_TAG" https://github.com/Open-Cascade-SAS/OCCT.git "$SRC"
 fi
 
-echo "==> reset $SRC to $OCCT_TAG and apply scripts/occt-patches"
+echo "==> reset $SRC to $OCCT_TAG and apply scripts/occt-patches (discards any edits there)"
+# The clone is shallow: a tag it doesn't have yet (after bumping OCCT_TAG) has to be fetched.
+git -C "$SRC" rev-parse --quiet --verify "refs/tags/$OCCT_TAG" > /dev/null \
+  || git -C "$SRC" fetch --quiet --depth 1 origin tag "$OCCT_TAG"
 git -C "$SRC" checkout --quiet --force "$OCCT_TAG"
 git -C "$SRC" clean --quiet -fd
 for patch in "$PATCHES"/*.patch; do
+  [ -e "$patch" ] || continue
   echo "    $(basename "$patch")"
   git -C "$SRC" apply "$patch"
 done
+# What each slice was built from, so packaging can refuse a slice left over from other patches.
+STAMP="$OCCT_TAG $(cat "$PATCHES"/*.patch 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"
 
 SLICES=("$@")
 [ ${#SLICES[@]} -eq 0 ] && SLICES=(macos ios ios-sim)
@@ -131,7 +137,7 @@ build_slice() {
   # renderer, which the iOS build makes despite USE_GLES2=OFF: nothing Fillet uses depends on it,
   # and it would need the deprecated OpenGLES framework.
   while IFS= read -r lib; do libs+=("$lib"); done < <(find "$install" -name 'libTK*.a' ! -name 'libTKOpenGles.a' | sort)
-  rm -rf "$fw" "$fw.dSYM" "$WORK/$slice/libOCCT.a"
+  rm -rf "$fw" "$fw.dSYM" "$fw.stamp" "$WORK/$slice/libOCCT.a"
   if [ "$slice" = macos ]; then
     # macOS frameworks are versioned: the files live in Versions/A, the top level has symlinks.
     bin_dir="$fw/Versions/A"; res_dir="$bin_dir/Resources"
@@ -154,21 +160,27 @@ build_slice() {
 
   echo "==> [$slice] dSYM"
   dsymutil "$bin_dir/OCCT" -o "$fw.dSYM"
+  echo "$STAMP" > "$fw.stamp"
 }
 
 mkdir -p "$WORK"
 for s in "${SLICES[@]}"; do build_slice "$s"; done
 
-# Package every slice that has been built (so slices can be rebuilt individually).
+# Package every slice that has been built (so slices can be rebuilt individually), as long as it
+# was built from the same OCCT tag and patches as this run.
 echo "==> package $OUT"
-rm -rf "$OUT"
 args=()
 for s in macos ios ios-sim; do
   fw="$WORK/$s/OCCT.framework"
   [ -d "$fw" ] || continue
+  if [ "$(cat "$fw.stamp" 2>/dev/null)" != "$STAMP" ]; then
+    echo "The $s slice was built from other OCCT sources or patches; rebuild it: scripts/build-occt.sh $s" >&2
+    exit 1
+  fi
   args+=(-framework "$fw" -debug-symbols "$fw.dSYM")
-  headers="$fw/Headers"
+  headers="${headers:-$fw/Headers}"
 done
+rm -rf "$OUT"
 xcodebuild -create-xcframework "${args[@]}" -output "$OUT"
 
 # Headers are identical across slices; expose one copy to the CFilletKernel target.
