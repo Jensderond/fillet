@@ -49,6 +49,24 @@ struct HolePresetTests {
         #expect(insert.diameter == 4 && insert.depth == 6.7)
     }
 
+    @Test func smallSizesFollowTheirSources() throws {
+        let doc = blockDocument()
+        // ISO 10642 dk (theoretical) for M2 and M2.5, plus 0.2 clearance.
+        for (size, dk) in [(ScrewSize.m2, 4.7), (.m2_5, 5.88)] {
+            let csk = try sized(HolePreset(size, .countersink), doc)
+            if case .countersink(let d, _) = csk.head {
+                #expect(abs(d - (dk + 0.2)) < 1e-9, "\(size)")
+            } else {
+                Issue.record("not a countersink")
+            }
+        }
+        // Inserts: hole diameter and depth (length + 1). M2.5 is Ø4.0 in both makers' sheets.
+        for (size, hole, depth) in [(ScrewSize.m2, 3.2, 5.0), (.m2_5, 4.0, 6.7), (.m4, 5.6, 9.1), (.m5, 6.4, 10.5), (.m6, 8.0, 13.7)] {
+            let insert = try sized(HolePreset(size, .insert), doc)
+            #expect(abs(insert.diameter - hole) < 1e-9 && abs((insert.depth ?? 0) - depth) < 1e-9, "\(size)")
+        }
+    }
+
     @Test func everyPresetEvaluates() throws {
         let doc = blockDocument()
         #expect(HolePreset.all.count == ScrewSize.allCases.count * HoleFit.allCases.count)
