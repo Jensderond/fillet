@@ -1,0 +1,98 @@
+Build a solid classifier's face intersectors in parallel
+
+Targets OCCT V8_0_1. Introduced in Fillet on 2026-10-26 (e99c150).
+
+BRepClass3d_SolidExplorer::InitShape builds an IntCurvesFace_Intersector
+(a sampled polyhedron for B-spline faces) for every face of the solid, one
+after another, before any point is classified. On the benchmark fixture that
+was about 20% of a cold evaluate: BOPAlgo_BuilderSolid classifying the result
+shells of every boolean (on the calling thread, while OCCT's pool sits idle)
+and finish()'s inside-out check.
+
+The patch builds the intersectors on OCCT's thread pool (OSD_Parallel::For)
+and binds them in face order afterwards. Each intersector depends only on its
+face, so the explorer ends up exactly as before: a face that occurs twice is
+still bound last-wins (the replaced intersector is deleted instead of leaked),
+and if a face throws, the faces before it are bound and the first exception in
+face order is rethrown. Cold evaluate about 2 200 -> 1 900 ms; finish()'s
+orientation check 208 -> 83 ms.
+
+diff --git a/src/ModelingAlgorithms/TKTopAlgo/BRepClass3d/BRepClass3d_SolidExplorer.cxx b/src/ModelingAlgorithms/TKTopAlgo/BRepClass3d/BRepClass3d_SolidExplorer.cxx
+index c92cb6e4..4a8ab1e4 100644
+--- a/src/ModelingAlgorithms/TKTopAlgo/BRepClass3d/BRepClass3d_SolidExplorer.cxx
++++ b/src/ModelingAlgorithms/TKTopAlgo/BRepClass3d/BRepClass3d_SolidExplorer.cxx
+@@ -42,6 +42,11 @@
+ #include <TopoDS_Shell.hxx>
+ #include <TopExp.hxx>
+ 
++// FILLET PATCH: for building the face intersectors in parallel (InitShape).
++#include <OSD_Parallel.hxx>
++#include <exception>
++#include <vector>
++
+ //=======================================================================
+ // function : FindAPointInTheFace
+ // purpose  : Compute a point P in the face  F. Param is a Real in
+@@ -917,12 +922,57 @@ void BRepClass3d_SolidExplorer::InitShape(const TopoDS_Shape& S)
+ 
+   myReject = true; //-- case of infinite solid (without any face)
+ 
+-  TopExp_Explorer Expl;
+-  for (Expl.Init(S, TopAbs_FACE); Expl.More(); Expl.Next())
++  // FILLET PATCH: the original builds the intersectors in this loop, one face at a time:
++  //
++  //   for (Expl.Init(S, TopAbs_FACE); Expl.More(); Expl.Next())
++  //   {
++  //     const TopoDS_Face Face = TopoDS::Face(Expl.Current());
++  //     void* ptr = (void*)(new IntCurvesFace_Intersector(Face, Precision::Confusion(), true, false));
++  //     myMapOfInter.Bind(Face, ptr);
++  //     myReject = false; //-- at least one face in the solid
++  //   }
++  //
++  // Here every face's intersector is built on the thread pool first (each depends only on its
++  // face), then they are bound in the same order. A face that occurs twice is bound twice, so the
++  // later intersector wins as before; the one it replaces is deleted instead of leaked. If a face
++  // throws, the faces before it are bound and the first exception (in face order) is rethrown,
++  // as the loop would.
++  std::vector<TopoDS_Face> aFaces;
++  for (TopExp_Explorer Expl(S, TopAbs_FACE); Expl.More(); Expl.Next())
+   {
+-    const TopoDS_Face Face = TopoDS::Face(Expl.Current());
+-    void* ptr = (void*)(new IntCurvesFace_Intersector(Face, Precision::Confusion(), true, false));
+-    myMapOfInter.Bind(Face, ptr);
++    aFaces.push_back(TopoDS::Face(Expl.Current()));
++  }
++  const int                          aNbFaces = (int)aFaces.size();
++  std::vector<IntCurvesFace_Intersector*> anInters(aNbFaces, nullptr);
++  std::vector<std::exception_ptr>    aFailures(aNbFaces);
++  OSD_Parallel::For(0, aNbFaces, [&](int i) {
++    try
++    {
++      anInters[i] = new IntCurvesFace_Intersector(aFaces[i], Precision::Confusion(), true, false);
++    }
++    catch (...)
++    {
++      aFailures[i] = std::current_exception();
++    }
++  }, aNbFaces < 2);
++  for (int i = 0; i < aNbFaces; ++i)
++  {
++    if (aFailures[i])
++    {
++      for (int j = i; j < aNbFaces; ++j)
++      {
++        delete anInters[j];
++      }
++      std::rethrow_exception(aFailures[i]);
++    }
++    if (void** aPrev = myMapOfInter.ChangeSeek(aFaces[i]))
++    {
++      if (*aPrev != anInters[i])
++      {
++        delete (IntCurvesFace_Intersector*)*aPrev;
++      }
++    }
++    myMapOfInter.Bind(aFaces[i], (void*)anInters[i]);
+     myReject = false; //-- at least one face in the solid
+   }
+ 

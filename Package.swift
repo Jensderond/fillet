@@ -10,7 +10,8 @@ let package = Package(
         .executable(name: "fillet-bench", targets: ["fillet-bench"]),
     ],
     targets: [
-        // Built by scripts/build-occt.sh (static OpenCascade, macOS + iOS + iOS simulator).
+        // Built by scripts/build-occt.sh: OpenCascade (with scripts/occt-patches) as one dynamic
+        // OCCT.framework per platform (macOS, iOS, iOS simulator), embedded in the app (LGPL 2.1).
         .binaryTarget(name: "OCCT", path: "vendor/OCCT.xcframework"),
         .target(
             name: "CFilletKernel",

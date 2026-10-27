@@ -1,0 +1,39 @@
+Cap the localised edge/face search in IntTools_BeanFaceIntersector
+
+Targets OCCT V8_0_1. Introduced in Fillet on 2026-10-25 (744bd00).
+
+Edge/face intersection with a B-spline face of degree > 2 and more than one
+span in both directions (what a non-uniform scale makes of a revolve, sphere
+or torus) first "localises" candidate (curve range, surface patch) pairs by
+box overlap. Every patch box is enlarged by one deflection estimated on the
+whole face's coarse knot grid, often several millimetres, so boxes never
+shrink and the search returns thousands to hundreds of thousands of
+candidates, each followed by a global extremum search. One transversal
+crossing took 3.3 s (61 556 candidates).
+
+The patch makes LocalizeSolutions give up once it has collected more than
+256 candidates, so ComputeLocalized takes the generic path that OCCT already
+uses for every other surface type (and when localisation fails).
+Well-behaved localisations are unchanged. Cold evaluate of the benchmark
+fixture 81 600 -> 7 815 ms.
+
+diff --git a/src/ModelingAlgorithms/TKBO/IntTools/IntTools_BeanFaceIntersector.cxx b/src/ModelingAlgorithms/TKBO/IntTools/IntTools_BeanFaceIntersector.cxx
+index cedd7477..c3c06fcb 100644
+--- a/src/ModelingAlgorithms/TKBO/IntTools/IntTools_BeanFaceIntersector.cxx
++++ b/src/ModelingAlgorithms/TKBO/IntTools/IntTools_BeanFaceIntersector.cxx
+@@ -1376,6 +1376,15 @@ bool IntTools_BeanFaceIntersector::LocalizeSolutions(
+   NCollection_List<IntTools_CurveRangeSample>&   theListCurveRange,
+   NCollection_List<IntTools_SurfaceRangeSample>& theListSurfaceRange)
+ {
++  // FILLET PATCH: past this many candidates the localisation has degenerated (see Fillet's
++  // scripts/occt-patches); returning false makes ComputeLocalized() fall back to the generic
++  // computation.
++  constexpr int kMaxLocalizedRanges = 256;
++  if (theListCurveRange.Extent() > kMaxLocalizedRanges)
++  {
++    return false;
++  }
++
+   int tIt = 0, uIt = 0, vIt = 0;
+ 
+   //
