@@ -211,13 +211,15 @@ The final bench run below gives 2 390 (runs 2 390 / 2 332 / 2 393): run-to-run n
    face: 870 to 179 000 candidates per edge/face pair in this fixture, each followed by a
    `math_PSO` global extremum search. One transversal crossing in "Join head" took 3.3 s (61 556
    candidates). Even a box edge crossing a NURBS-converted (unscaled) head gives thousands.
-   `scripts/occt-patches/0002-IntTools_BeanFaceIntersector-cap-localization.patch` changes one
-   thing in the OCCT 8.0.1 file: past 256 candidates `LocalizeSolutions` gives up, and the
-   intersector takes its generic path (the one OCCT uses for every non-B-spline surface, and when
-   localisation fails). `scripts/build-occt.sh` applies it to the OCCT source before building; `git apply`
-   refuses it once the file changes upstream, so it gets refreshed with the next OCCT upgrade. (Until OCCT became a dynamic framework, this was a patched copy of the file compiled
-   into CFilletKernel that replaced the static archive member at link time.) Every replayed
-   boolean of the fixture gives the same faces, edges and bounds; "Join head" 3.4 s → 26 ms.
+   `scripts/occt-patches/0002-IntTools_BeanFaceIntersector-cap-localization.patch` changes one thing
+   in the OCCT 8.0.1 file: past 256 candidates `LocalizeSolutions` gives up, and the intersector
+   takes its generic path (the one OCCT uses for every non-B-spline surface, and when localisation
+   fails). `scripts/build-occt.sh` applies it to the OCCT source before building; `git apply`
+   refuses it once the lines it changes (or their context) change upstream, so an OCCT upgrade
+   brings it up for review. (Until OCCT became a dynamic framework, this was a patched copy of the
+   file compiled into CFilletKernel that replaced the static archive member at link time.) Every
+   replayed boolean of the fixture gives the same faces, edges and bounds; "Join head"
+   3.4 s → 26 ms.
 2. **Multi-tool combines in one boolean** (`fk_boolean_tools`, `Shape.boolean(_:_:[Shape])`). Cut
    and fuse put all tools into one `BRepAlgoAPI_Cut`/`Fuse`; common still chains, because OCCT
    would intersect with the union of the tools. `ModelEvaluator.combine` falls back to one tool at a

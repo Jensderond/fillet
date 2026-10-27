@@ -7,11 +7,13 @@ import SwiftUI
 struct AcknowledgementsView: View {
     static let windowID = "acknowledgements"
 
-    /// Fillet's GitHub project, where the OCCT build script and patches live.
+    /// Fillet's GitHub project, where the OCCT build script and patches live, at this version's
+    /// release tag, so the links show what this copy of OCCT was built from.
     private static let project = URL(string: "https://github.com/Jensderond/fillet")!
+    private static let release = "v" + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")
     private static let occtSource = URL(string: "https://github.com/Open-Cascade-SAS/OCCT/tree/V8_0_1")!
-    private static let buildScript = project.appending(path: "blob/master/scripts/build-occt.sh")
-    private static let patches = project.appending(path: "tree/master/scripts/occt-patches")
+    private static let buildScript = project.appending(path: "blob/\(release)/scripts/build-occt.sh")
+    private static let patches = project.appending(path: "tree/\(release)/scripts/occt-patches")
 
     var body: some View {
         ScrollView {
