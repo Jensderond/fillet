@@ -86,6 +86,9 @@ struct EditorContent: View {
     @State private var showUpdating = false
     /// An agent is designing in this window (or just was).
     @State private var agentWorking = false
+    #if os(iOS)
+    @State private var showingAcknowledgements = false
+    #endif
     #if os(macOS)
     @Environment(\.controlActiveState) private var controlActiveState
     #else
@@ -146,6 +149,10 @@ struct EditorContent: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarRole(.editor)
+        // Fillet ▸ Acknowledgements in the menu bar (no title menu item: a custom title menu
+        // replaces the system's Rename, Duplicate, Move…).
+        .sheet(isPresented: $showingAcknowledgements) { AcknowledgementsSheet() }
+        .focusedSceneValue(\.showAcknowledgements, $showingAcknowledgements)
         #endif
         .toolbar { DocumentToolbar(session: session) }
         #if os(macOS)

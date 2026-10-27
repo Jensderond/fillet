@@ -9,6 +9,8 @@ extension FocusedValues {
     /// True while a text field has focus, so bare-letter tool shortcuts stay out of its way.
     /// (Sizes typed on the canvas while drawing withdraw them too: `DesignSession.isTypingDimension`.)
     @Entry var isEditingText: Bool?
+    /// Shows the focused editor's Acknowledgements sheet (iPad; the Mac opens a window).
+    @Entry var showAcknowledgements: Binding<Bool>?
 }
 
 /// Menu bar commands (Mac) and hardware-keyboard shortcuts (iPad).
@@ -16,13 +18,22 @@ struct FilletCommands: Commands {
     @FocusedValue(\.session) private var session
     @FocusedValue(\.viewport) private var viewport
     @FocusedValue(\.isEditingText) private var isEditingText
+    @FocusedValue(\.showAcknowledgements) private var showAcknowledgements
     @AppStorage(VisualStyle.defaultsKey) private var visualStyle = VisualStyle.shadedWithEdges
 
     var body: some Commands {
         #if os(macOS)
         CommandGroup(replacing: .appInfo) {
             AboutButton()
+            AcknowledgementsButton()
             CheckForUpdatesButton()
+        }
+        #else
+        // Fillet ▸ Acknowledgements in the iPad menu bar, over the focused editor. Off on the
+        // document browser, which has no editor to show it over (its launch screen has it too).
+        CommandGroup(after: .appInfo) {
+            Button("Acknowledgements") { showAcknowledgements?.wrappedValue = true }
+                .disabled(showAcknowledgements == nil)
         }
         #endif
 
