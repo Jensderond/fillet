@@ -97,6 +97,11 @@ final class LiveWorkspace: DesignWorkspace {
     func show(_ camera: Camera) {
         session?.camera = camera
     }
+
+    /// Through the session's eye toggles: the browser updates, and it isn't an undo step.
+    func setHiddenBodies(_ hidden: Set<BodyRef>) {
+        session?.hiddenBodies = hidden
+    }
 }
 
 extension DesignSession {

@@ -7,7 +7,7 @@ extension FilletTools {
     var modelingTools: [MCPTool] {
         [setParameter, deleteParameter, createSketch, addSketchShapes, extrude, revolve, primitive,
          loft, fillet, chamfer, shell, hole, pressPull, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
-         editFeature, deleteFeature, setBodyColor, export]
+         editFeature, deleteFeature, setBodyColor, setBodyVisibility, export]
     }
 
     // MARK: Parameters
@@ -702,19 +702,40 @@ extension FilletTools {
         }
     }
 
+    private var setBodyVisibility: MCPTool {
+        MCPTool(
+            name: "set_body_visibility", title: "Show or hide",
+            description: "Hides or shows bodies, like the eye in the app's browser: hidden bodies stay in the design but leave renders, the print check and exports. Not an undo step; saved with the design.",
+            inputSchema: Self.object(["bodies": Self.bodies, "visible": Self.boolean("true shows them, false hides them")],
+                                     required: ["bodies", "visible"])
+        ) { args in
+            let a = Args(args)
+            let ws = try host.requireCurrent()
+            let r = try await Resolver.load(ws, args)
+            let refs = try r.bodies(a["bodies"], key: "bodies").map(\.ref)
+            guard let visible = a["visible"]?.bool else { throw ToolError("`visible` is required (true or false)") }
+            var hidden = ws.hiddenBodies
+            if visible { hidden.subtract(refs) } else { hidden.formUnion(refs) }
+            ws.setHiddenBodies(hidden)
+            let names = { (visible: Bool) in r.model.bodies.filter { ws.hiddenBodies.contains($0.ref) != visible }.map { JSONValue.string(r.bodyLabel($0)) } }
+            return .json(["visible": .array(names(true)), "hidden": .array(names(false))])
+        }
+    }
+
     private var export: MCPTool {
         MCPTool(
             name: "export", title: "Export",
-            description: "Writes the visible bodies to a 3MF (for Bambu Studio, one object with a part per body), STL or STEP file, or the whole design to a .fillet file, and returns its path.",
+            description: "Writes the visible bodies (or just `bodies`) to a 3MF (for Bambu Studio, one object with a part per body), STL or STEP file, or the whole design to a .fillet file, and returns its path.",
             inputSchema: Self.object(["format": Self.string("File format", enum: ["3mf", "stl", "step", "fillet"]),
-                                      "path": Self.string("Where to write (default: a temporary folder)")], required: ["format"]),
+                                      "path": Self.string("Where to write (default: a temporary folder)"),
+                                      "bodies": Self.outputBodies], required: ["format"]),
             readOnly: true
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
             let model = await ws.evaluated()
             let r = Resolver(document: ws.document, model: model)
-            let bodies = model.bodies.filter { !ws.hiddenBodies.contains($0.ref) }
+            let bodies = try Self.outputBodies(a, ws, model)
             let format = try a.string("format").lowercased()
             guard !bodies.isEmpty || format == "fillet" else { throw ToolError("There are no visible bodies to export") }
             let base = (ws.document.name ?? ws.title).replacingOccurrences(of: "/", with: "-")
@@ -736,7 +757,8 @@ extension FilletTools {
                 throw ToolError("`format` must be 3mf, stl, step or fillet")
             }
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-            return .json(["path": .string(url.path), "bytes": .number(Double(size)), "bodies": .number(Double(bodies.count))])
+            return .json(["path": .string(url.path), "bytes": .number(Double(size)), "bodies": .number(Double(bodies.count)),
+                          "body_names": .array(bodies.map { .string(r.bodyLabel($0)) })])
         }
     }
 

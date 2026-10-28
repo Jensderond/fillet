@@ -240,13 +240,16 @@ struct FilletTools {
     private var checkPrint: MCPTool {
         MCPTool(
             name: "check_print", title: "Check printability",
-            description: "Print check for the visible bodies on the selected printer: fits on the bed, size, overhang area beyond the angle, watertightness (open and non-manifold edge counts), estimated PLA grams.",
-            inputSchema: Self.object(["overhang_angle": Self.number("Overhang threshold in degrees from vertical (default 45)")]),
+            description: "Print check for the visible bodies (or just `bodies`) on the selected printer: fits on the bed, size, overhang area beyond the angle, watertightness (open and non-manifold edge counts), estimated PLA grams.",
+            inputSchema: Self.object(["overhang_angle": Self.number("Overhang threshold in degrees from vertical (default 45)"),
+                                      "bodies": Self.outputBodies]),
             readOnly: true
         ) { args in
             let ws = try host.requireCurrent()
             let model = await ws.evaluated()
-            let meshes = model.bodies.filter { !ws.hiddenBodies.contains($0.ref) }.compactMap { model.meshes[$0.ref] }
+            let r = Resolver(document: ws.document, model: model)
+            let bodies = try Self.outputBodies(Args(args), ws, model)
+            let meshes = bodies.compactMap { model.meshes[$0.ref] }
             let preset = ws.document.printerPreset
             let p = PrintAnalysis.analyze(meshes: meshes, preset: preset,
                                           overhangAngleDegrees: Args(args).double("overhang_angle") ?? 45)
@@ -257,8 +260,21 @@ struct FilletTools {
                 "overhang_area_mm2": .rounded(p.overhangArea, 1), "watertight": .bool(p.isWatertight),
                 "open_edges": .number(Double(p.boundaryEdgeCount)), "non_manifold_edges": .number(Double(p.nonManifoldEdgeCount)),
                 "volume_mm3": .rounded(p.volume, 1), "pla_grams": .rounded(p.grams(.pla), 1),
+                "bodies": .array(bodies.map { .string(r.bodyLabel($0)) }),
             ])
         }
+    }
+
+    static let outputBodies: JSONValue = [
+        "type": ["string", "array"], "items": ["type": "string"],
+        "description": "Only these bodies (one name or a list), hidden or not. Default: every visible body",
+    ]
+
+    /// The bodies a print check or export works on: `bodies`, or every visible one.
+    static func outputBodies(_ a: Args, _ ws: any DesignWorkspace, _ model: EvaluatedModel) throws -> [EvaluatedBody] {
+        guard let value = a["bodies"] else { return model.bodies.filter { !ws.hiddenBodies.contains($0.ref) } }
+        let picked = Set(try Resolver(document: ws.document, model: model).bodies(value, key: "bodies").map(\.ref))
+        return model.bodies.filter { picked.contains($0.ref) }
     }
 
     // MARK: View
