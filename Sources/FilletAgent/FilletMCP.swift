@@ -78,12 +78,20 @@ public enum FilletMCP {
         {"loop_of_face": n, "loop": 0} the boundary of face n (1… its holes), and "tangent_chain": true grows what a \
         filter found into chains, like picking edges in the app.
 
-        CHECK YOUR WORK: call render_view often (it returns an image) and get_design for bounds. A step that fails, \
+        CHECK YOUR WORK: call render_view often (it returns an image) and get_design for bounds. For a close-up of one \
+        spot give render_view a `target` and `size`; to see how parts fit, a `section` cut shows them cut open \
+        (with projection "orthographic", true to scale). A step that fails, \
         or leaves a body that isn't a valid closed solid, is not added (you get the reason); fix the input and retry. \
-        A change that makes later steps fail is refused too. When a change makes a later fillet, chamfer, shell, hole, \
-        press pull or lay-flat find its edges/faces somewhere else, it is made, but the result has "warnings" naming that step: \
-        check it, and redo it if it went wrong. Big booleans and fillets on detailed bodies can take tens of seconds; \
-        if a call times out it may still have been made, so call get_design before you retry.
+        A change that makes later steps fail is refused too. Steps remember the faces/edges they were given, not the \
+        filter that picked them. When a change makes a later fillet, chamfer, shell, hole, press pull or lay-flat find \
+        its edges/faces somewhere else, it is made, but the result has "warnings" naming that step: check it, and if it \
+        went wrong, re-point it with one edit_feature call with `edges` or `faces` (a filter like {"created_by": …}, \
+        picked again on the body as it is just before that step); no need to delete and redo it. Big booleans and \
+        fillets on detailed bodies can take tens of seconds; if a call times out it may still have been made, so call \
+        get_design before you retry.
+
+        HIDING BODIES: set_body_visibility hides a body (say a model of the device a stand holds) from renders, \
+        check_print and export without changing the design; or give check_print and export `bodies` to work on just those.
 
         FILLETS AND BOOLEANS: fillet radii must be smaller than the faces they round; boolean tools must overlap \
         their targets. Fillet seams one join at a time (join a part, fillet {"created_by": that join}, then join the \
@@ -141,6 +149,7 @@ struct FilletTools {
         "type": ["string", "array"], "items": ["type": "string"],
         "description": "One body name or a list of them",
     ]
+    static let before = string("A step name: list the body as it is just before that step (what edit_feature's edges/faces pick from for it)")
     static let name = string("Name for the new step (and the body it creates), e.g. \"Hat brim\"")
     static let allowFailures = boolean("Apply even if other steps start failing (default false: such a change is refused)")
     static let filter: JSONValue = [
@@ -197,13 +206,14 @@ struct FilletTools {
         MCPTool(
             name: "list_faces", title: "List faces",
             description: "Faces of a body with index, surface type, centre, outward normal, area and bounds. Optionally filtered.",
-            inputSchema: Self.object(["body": Self.body, "filter": Self.filter, "limit": Self.integer("Max faces to return (default 60)")],
+            inputSchema: Self.object(["body": Self.body, "filter": Self.filter, "limit": Self.integer("Max faces to return (default 60)"),
+                                      "before": Self.before],
                                      required: ["body"]),
             readOnly: true
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = try await Resolver.load(ws, args)
+            let r = try await Resolver.load(ws, args, beforeStep: a.optionalString("before"))
             let b = try r.body(try a.string("body"))
             let infos = b.shape.faceInfos
             let indices = try a["filter"].map { try r.filter($0, .faces, on: b).faces(infos) } ?? Array(infos.indices)
@@ -218,13 +228,14 @@ struct FilletTools {
         MCPTool(
             name: "list_edges", title: "List edges",
             description: "Edges of a body with index, curve type, start/mid/end points, length, direction (lines) and radius (circles). Seams (where a round face closes on itself) are marked; they can't be filleted. Optionally filtered.",
-            inputSchema: Self.object(["body": Self.body, "filter": Self.filter, "limit": Self.integer("Max edges to return (default 80)")],
+            inputSchema: Self.object(["body": Self.body, "filter": Self.filter, "limit": Self.integer("Max edges to return (default 80)"),
+                                      "before": Self.before],
                                      required: ["body"]),
             readOnly: true
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = try await Resolver.load(ws, args)
+            let r = try await Resolver.load(ws, args, beforeStep: a.optionalString("before"))
             let b = try r.body(try a.string("body"))
             let infos = b.shape.edgeInfos
             let seams = b.shape.seamEdges
