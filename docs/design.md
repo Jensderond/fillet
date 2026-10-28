@@ -260,9 +260,26 @@ A face seen through a plane wins the tap; curved faces still hide what is
 behind them. A bar over the viewport names what to pick and has XY / XZ / YZ
 buttons (for planes hidden in the part or seen edge-on, and for VoiceOver) and
 Cancel (Esc). Camera animates to look at the chosen plane; sketch toolbar (line, rectangle, circle, arc, polygon, slot,
-spline, construction toggle, finish). Shapes snap to the grid
-(configurable) and to existing points (endpoint/center/midpoint). After
-drawing, the inspector shows the shape's dimensions for exact entry.
+spline, construction toggle, finish). After drawing, the inspector shows the
+shape's dimensions for exact entry.
+
+Snapping, shared by every drawing tool and by dragging shapes with Select
+(FilletCore `SnapTargets` → `SnapContext.resolve`, drawn by the viewport as
+`SketchOverlay.guides` / `markers`): in priority order, points (endpoints,
+centres, sketch points and crossings of curves), midpoints and quadrants,
+horizontal/vertical alignment with any vertex, then the extension of a
+straight edge past its ends, then the grid. Where two guides cross near the
+pointer it snaps to the crossing (level with one vertex, under another). The
+radius is the pointer's pick tolerance on screen (finger 10 pt, Pencil 6 pt,
+mouse 5 pt, × 1.5; guides catch within ¾ of that), so it feels the same at
+every zoom. A snap holds until the pointer is 1.5 radii away or a better kind,
+or one a quarter radius closer, takes over, so it doesn't flicker. Guides are
+thin dashed orange lines with a small ring on the vertex they come from; the
+snapped point gets a marker by kind (square endpoint, triangle midpoint, ×
+crossing, diamond quadrant, ring centre). They are feedback only: never picked,
+saved or undone, and gone when the gesture ends. `SnapTargets` is built once per
+sketch change (points sorted by x and y, so a pointer event only looks near
+it). `FILLET_SCENARIO=snapping` and the `FilletUITests` scheme exercise it on iPad.
 
 ## Milestones
 
