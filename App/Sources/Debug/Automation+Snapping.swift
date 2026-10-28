@@ -165,6 +165,80 @@ extension DebugAutomation {
         session.viewportToolCancelled()
         session.sketchEditor?.engine.setTool(.select)
         check(session.makeScene().sketch?.guides.isEmpty == true, "snapping: no guides with Select")
+
+        await vertexDragScenario(session, shapes: shapes)
+    }
+
+    /// Select: the base's end at (40, 0), which the upright starts from, picked and dragged on its
+    /// own. Tapping it selects the point; dragging it snaps level with the base's start, takes the
+    /// upright's start along, and is one undo step. Dropped on the base's start, it stays a line.
+    /// Snapshot: `snap-vertex-drag`.
+    private static func vertexDragScenario(_ session: DesignSession, shapes: () -> [SketchShape]) async {
+        session.camera.distance = 160
+        session.camera.target = Vec3(25, 10, 0)
+        await settle(session)
+        guard shapes().count >= 2, let editor = session.sketchEditor, editor.tool == .select else {
+            check(false, "vertex drag: the base, the upright and Select"); return
+        }
+        let base = shapes()[0].id, upright = shapes()[1].id
+        session.sketchEditor?.selectedShapes = []
+        func line(_ id: UUID) -> SketchShapeKind? { shapes().first { $0.id == id }?.kind }
+
+        // The end lights alone, and a tap selects it with its line.
+        let hit = pick(session, at: Vec3(40, 0, 0))
+        guard case .sketchPoint(let shape, let index)? = hit?.target, [base, upright].contains(shape) else {
+            check(false, "vertex drag: the base's end picks as a point (\(String(describing: hit?.target)))"); return
+        }
+        session.viewportHoverChanged(target: hit?.target)
+        check(session.hover == .sketchPoint(sketch: editor.sketch, shape: shape, index: index), "vertex drag: hovering the end lights the point")
+        session.viewportDidTap(target: hit?.target, hit: hit, ray: Ray(origin: .zero, direction: .unitZ), location: .zero,
+                               modifiers: [], pointer: .touch)
+        check(session.sketchEditor?.selectedVertex?.shape == shape && session.sketchEditor?.selectedShapes == [shape],
+              "vertex drag: a tap selects the end and its line")
+        check(session.makeScene().sketch?.points.contains { $0.shapeID == shape && $0.index == index && $0.style == .selected } == true,
+              "vertex drag: the selected end is drawn selected")
+        session.viewportHoverChanged(target: nil)
+
+        // Dragged a few points above (52, 0): level with the base's start, on the grid.
+        let undoBefore = session.undoManager?.undoActionName
+        guard let start = screenPoint(session, SIMD2(40, 0), nudge: .zero),
+            session.viewportShouldBeginDrag(target: .sketchPoint(shape: shape, index: index), event: touchEvent(session, start))
+        else { check(false, "vertex drag: pressing the end starts a drag"); return }
+        guard let end = screenPoint(session, SIMD2(52, 0), nudge: CGSize(width: 2, height: -4)) else { return }
+        for i in 1...12 {
+            let t = CGFloat(i) / 12
+            session.viewportDragMoved(touchEvent(session, CGPoint(x: start.x + (end.x - start.x) * t, y: start.y + (end.y - start.y) * t)))
+        }
+        check(session.sketchEditor?.moveSnap?.snap == .horizontal, "vertex drag: the end lines up level (\(String(describing: session.sketchEditor?.moveSnap?.snap)))")
+        await settle(session)
+        await snap(session, "snap-vertex-drag")
+        session.viewportDragEnded(touchEvent(session, end))
+        await settle(session)
+        check(line(base) == .line(a: Point2Expr(0, 0), b: Point2Expr(52, 0)), "vertex drag: only the base's end moved (\(String(describing: line(base))))")
+        check(line(upright) == .line(a: Point2Expr(52, 0), b: Point2Expr(40, 30)), "vertex drag: the upright stays joined (\(String(describing: line(upright))))")
+        check(session.undoManager?.undoActionName == "Move Point", "vertex drag: one undo step (\(session.undoManager?.undoActionName ?? "none"))")
+        session.undoManager?.undo()
+        await settle(session)
+        check(line(base) == .line(a: Point2Expr(0, 0), b: Point2Expr(40, 0)) && line(upright) == .line(a: Point2Expr(40, 0), b: Point2Expr(40, 30)),
+              "vertex drag: undo puts both ends back")
+        check(session.undoManager?.undoActionName == undoBefore, "vertex drag: undo leaves the steps before it")
+
+        // Onto the base's own start (where the origin snaps): the end stops short, the base stays a line.
+        guard let from = screenPoint(session, SIMD2(40, 0), nudge: .zero), let onto = screenPoint(session, SIMD2(0, 0), nudge: .zero),
+            session.viewportShouldBeginDrag(target: .sketchPoint(shape: shape, index: index), event: touchEvent(session, from))
+        else { check(false, "vertex drag: a second drag"); return }
+        for i in 1...12 {
+            let t = CGFloat(i) / 12
+            session.viewportDragMoved(touchEvent(session, CGPoint(x: from.x + (onto.x - from.x) * t, y: from.y + (onto.y - from.y) * t)))
+        }
+        session.viewportDragEnded(touchEvent(session, onto))
+        await settle(session)
+        if case .line(let a, let b)? = line(base), let pa = try? a.evaluate(using: .empty), let pb = try? b.evaluate(using: .empty) {
+            check(simd_distance(pa, pb) > 1e-6, "vertex drag: the base keeps a length (\(pa) → \(pb))")
+        }
+        check(session.model.error(for: editor.sketch) == nil, "vertex drag: the sketch still evaluates")
+        session.undoManager?.undo()
+        await settle(session)
     }
 
     // MARK: Touch input
