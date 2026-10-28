@@ -263,6 +263,15 @@ Cancel (Esc). Camera animates to look at the chosen plane; sketch toolbar (line,
 spline, construction toggle, finish). After drawing, the inspector shows the
 shape's dimensions for exact entry.
 
+With Select, dragging a shape (or its midpoint or centre) moves every selected
+shape. Dragging a vertex (a line's start or end, a polyline's or spline's
+point; FilletCore `SketchVertex`) moves only that point, and the ends of other
+shapes joined to it go along, so a chain of lines stays closed. A tap on a
+vertex selects just it (drawn as a selected point, its line selected for the
+inspector); a tap on its line then selects the whole line. A dragged end lines
+up with its line's other end (a level or upright line) but never lands on it:
+a line can't shrink to nothing. Each drag is one undo step ("Move Point").
+
 Snapping, shared by every drawing tool and by dragging shapes with Select
 (FilletCore `SnapTargets` → `SnapContext.resolve`, drawn by the viewport as
 `SketchOverlay.guides` / `markers`): in priority order, points (endpoints,
