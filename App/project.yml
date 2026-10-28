@@ -97,6 +97,22 @@ targets:
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
 
+  # Touch tests on iPad: real finger drags through UIKit into the document window (snapping guides).
+  FilletUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: Fillet
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.fillet.FilletUITests
+        TEST_TARGET_NAME: Fillet
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: true
+        CODE_SIGN_IDENTITY: "-"
+
   # The Mac updater's installer (App/Updater): an XPC service inside Fillet.app, not sandboxed,
   # so it can swap a new Fillet.app in for the running one. Only Fillet can connect to it.
   FilletUpdater:
@@ -123,3 +139,23 @@ targets:
         CODE_SIGN_STYLE: Automatic
         CODE_SIGN_IDENTITY: "-"
         ENABLE_HARDENED_RUNTIME: true
+
+# Declared, since a shared scheme stops Xcode from making one per target: Fillet builds and runs the
+# app (scripts/release.sh uses it), FilletUITests runs the iPad touch tests.
+schemes:
+  Fillet:
+    build:
+      targets:
+        Fillet: all
+    run:
+      config: Debug
+    archive:
+      config: Release
+  FilletUITests:
+    build:
+      targets:
+        Fillet: all
+        FilletUITests: [test]
+    test:
+      config: Debug
+      targets: [FilletUITests]
