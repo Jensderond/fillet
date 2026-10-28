@@ -42,6 +42,8 @@ public struct ViewportPalette: Hashable, Sendable {
     public var sketchPreview: ViewportColor
     public var sketchPoint: ViewportColor
     public var sketchPointRing: ViewportColor
+    /// Snap guides and markers: thin, dashed and orange (active), apart from the geometry.
+    public var sketchGuide: ViewportColor
     public var sketchGridMinor: ViewportColor
     public var sketchGridMajor: ViewportColor
     /// Closed sketch regions: a quiet neutral wash, so blue keeps meaning "picked".
@@ -94,6 +96,7 @@ public struct ViewportPalette: Hashable, Sendable {
         sketchPreview: ViewportColor(hex: 0x1D2B45, alpha: 0.55),
         sketchPoint: ViewportColor(hex: 0x14181F),
         sketchPointRing: ViewportColor(hex: 0xFFFFFF),
+        sketchGuide: ViewportColor(hex: 0xE8590C, alpha: 0.85),
         // The icon's graph-paper ruling, so blue only means "picked".
         sketchGridMinor: ViewportColor(hex: 0x4F8FB0, alpha: 0.10),
         sketchGridMajor: ViewportColor(hex: 0x4F8FB0, alpha: 0.22),
@@ -139,6 +142,7 @@ public struct ViewportPalette: Hashable, Sendable {
         sketchPreview: ViewportColor(hex: 0xE4E9F2, alpha: 0.6),
         sketchPoint: ViewportColor(hex: 0xF2F4F7),
         sketchPointRing: ViewportColor(hex: 0x16181C),
+        sketchGuide: ViewportColor(hex: 0xFF8A3D, alpha: 0.9),
         sketchGridMinor: ViewportColor(hex: 0x8FB6D8, alpha: 0.10),
         sketchGridMajor: ViewportColor(hex: 0x8FB6D8, alpha: 0.22),
         // The light paper's cream at 8 %: chalk on the blueprint, not a blue slab.

@@ -275,6 +275,7 @@ struct PointOut {
     float4 ring;
     float radius;
     float ringWidth;
+    uint shape;
 };
 
 vertex PointOut point_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
@@ -282,11 +283,13 @@ vertex PointOut point_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
                              constant FrameUniforms& U [[buffer(1)]],
                              constant PointDraw& D [[buffer(2)]]) {
     PointInst p = pts[iid];
-    PointStyle s = D.styles[min(p.state, 4u)];
+    // The low byte picks the style, the next the marker shape (0 = round).
+    PointStyle s = D.styles[min(p.state & 0xffu, 4u)];
     float4 c = U.viewProj * float4(float3(p.p), 1.0);
     float r = s.size * 0.5 * U.viewport.z;
     float2 corner = float2((vid & 1u) != 0u ? 1.0 : -1.0, vid >= 2u ? 1.0 : -1.0);
-    float2 px = corner * (r + 1.5);
+    // Shaped markers reach past their radius (a triangle's apex), so they get a larger quad.
+    float2 px = corner * ((p.state >> 8) != 0u ? r * 1.25 + 1.5 : r + 1.5);
     PointOut o;
     o.position = c;
     o.position.xy += px / (U.viewport.xy * 0.5) * c.w;
@@ -296,11 +299,27 @@ vertex PointOut point_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     o.ring = s.ring;
     o.radius = r;
     o.ringWidth = s.ringWidth * U.viewport.z;
+    o.shape = p.state >> 8;
     return o;
 }
 
 fragment float4 point_fragment(PointOut in [[stage_in]]) {
+    // Distance from the centre in the shape's own metric: its outline is where d == radius.
+    float2 q = abs(in.uv);
     float d = length(in.uv);
+    if (in.shape == 1u) d = max(q.x, q.y) * 1.12;                        // square
+    else if (in.shape == 2u) {                                           // triangle, point up
+        float2 t = float2(q.x, in.uv.y);
+        d = max(t.x * 0.866 + t.y * 0.5, -t.y) * 1.6;  // sides clear of the cursor dot inside
+    }
+    else if (in.shape == 3u) {                                           // cross (×)
+        float arm = abs(q.x - q.y) * 0.7071;
+        float reach = max(q.x, q.y) * 1.25;
+        float a = saturate(in.ringWidth * 0.5 + 0.5 - arm) * saturate(in.radius + 0.5 - reach);
+        if (a <= 0.0) discard_fragment();
+        return float4(in.ring.rgb, in.ring.a * a);
+    }
+    else if (in.shape == 4u) d = q.x + q.y;                           // diamond
     float a = saturate(in.radius + 0.5 - d);
     if (a <= 0.0) discard_fragment();
     float inner = saturate(in.radius - in.ringWidth + 0.5 - d);

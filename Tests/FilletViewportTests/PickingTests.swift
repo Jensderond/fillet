@@ -115,6 +115,11 @@ struct PickingTests {
         #expect(simd_distance(region.sketchPoint ?? .zero, [10, 10]) < 1e-6)
         #expect(pick([10, 10], .sketch) == nil)
         #expect(pick([30, 10], .all) == nil)
+        // Snap guides and markers are feedback, never picked.
+        scene.sketch?.guides = [SketchGuide(from: [20, 20], to: [50, 20])]
+        scene.sketch?.markers = [SketchSnapMarker(position: [40, 20], shape: .triangle), SketchSnapMarker(position: [20, 20], shape: .circle, anchor: true)]
+        #expect(pick([35, 20], .all) == nil)
+        #expect(pick([40, 20], .all) == nil)
     }
 
     @Test func handlePickAndAxisParameter() throws {

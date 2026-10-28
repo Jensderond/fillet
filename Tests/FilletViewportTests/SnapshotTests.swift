@@ -155,6 +155,24 @@ func nonBackgroundFraction(_ image: CGImage) -> Double {
     return Double(differing) / Double(max(total, 1))
 }
 
+/// Fraction of (sampled) pixels that differ between two same-sized images.
+func differingFraction(_ a: CGImage, _ b: CGImage) -> Double {
+    func pixels(_ image: CGImage) -> [UInt8] {
+        var data = [UInt8](repeating: 0, count: image.width * image.height * 4)
+        let ctx = CGContext(data: &data, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: image.width * 4,
+                            space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
+        return data
+    }
+    let pa = pixels(a), pb = pixels(b)
+    var differing = 0, total = 0
+    for i in stride(from: 0, to: min(pa.count, pb.count), by: 8) {
+        if abs(Int(pa[i]) - Int(pb[i])) + abs(Int(pa[i + 1]) - Int(pb[i + 1])) + abs(Int(pa[i + 2]) - Int(pb[i + 2])) > 30 { differing += 1 }
+        total += 1
+    }
+    return Double(differing) / Double(max(total, 1))
+}
+
 @MainActor
 @Suite("Snapshots", .serialized)
 struct SnapshotTests {
@@ -194,6 +212,28 @@ struct SnapshotTests {
         cam.target = Vec3(0, 0, 8)
         let img = try render(scene, camera: cam, name: "viewport-sketch-light")
         #expect(nonBackgroundFraction(img) > 0.1)
+    }
+
+    /// Guides and every marker shape, light and dark: they draw (and the shader takes the shapes).
+    @Test func snapGuidesAndMarkers() throws {
+        var scene = SampleScenes.sketch()
+        var cam = Camera(yaw: 0, pitch: .pi / 2 - 0.35)
+        cam.fit(bounds: scene.modelBounds!, aspect: 800 / 560, margin: 0.95)
+        cam.target = Vec3(0, 0, 8)
+        let plain = try render(scene, camera: cam, name: "viewport-snap-none")
+        scene.sketch?.guides = [SketchGuide(from: [32, 20], to: [-30, 20]), SketchGuide(from: [5, -20], to: [5, 32])]
+        scene.sketch?.markers = [
+            SketchSnapMarker(position: [32, 20], shape: .circle, anchor: true),
+            SketchSnapMarker(position: [5, 20], shape: .square),
+            SketchSnapMarker(position: [18.5, -20], shape: .triangle),
+            SketchSnapMarker(position: [-30, 22], shape: .triangle),  // around the cursor dot
+            SketchSnapMarker(position: [-20, 0], shape: .cross),
+            SketchSnapMarker(position: [18.5, 7], shape: .diamond),
+            SketchSnapMarker(position: [18.5, 0], shape: .circle),
+        ]
+        let guided = try render(scene, camera: cam, name: "viewport-snap-light")
+        _ = try render(scene, camera: cam, name: "viewport-snap-dark", appearance: .dark)
+        #expect(differingFraction(plain, guided) > 0.001)
     }
 
     @Test func extrudePreview() throws {

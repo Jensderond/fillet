@@ -181,6 +181,8 @@ public final class ViewportRenderer: NSObject {
     private var sketchSegs: MTLBuffer?, sketchSegCount = 0
     private var sketchCurveStates: MTLBuffer?, sketchCurveCount = 0
     private var sketchPoints: MTLBuffer?, sketchPointCount = 0
+    private var guideSegs: MTLBuffer?, guideSegCount = 0
+    private var snapMarkers: MTLBuffer?, snapMarkerCount = 0
     private var regionVerts: MTLBuffer?, regionVertCount = 0
     private var plateSegs: MTLBuffer?, plateSegCount = 0
     private var plateStates: MTLBuffer?
@@ -373,6 +375,7 @@ public final class ViewportRenderer: NSObject {
         // Sketch.
         sketchSegs = nil; sketchSegCount = 0; sketchCurveStates = nil; sketchCurveCount = 0
         sketchPoints = nil; sketchPointCount = 0; regionVerts = nil; regionVertCount = 0
+        guideSegs = nil; guideSegCount = 0; snapMarkers = nil; snapMarkerCount = 0
         if let s = scene.sketch {
             let plane = s.plane
             func w(_ p: SIMD2<Double>) -> SIMD3<Float> { plane.point(p).float }
@@ -410,6 +413,14 @@ public final class ViewportRenderer: NSObject {
                 for p in r.triangles { let q = w(p); rv.append(GPURegionVertex(x: q.x, y: q.y, z: q.z, state: st)) }
             }
             regionVerts = makeBuffer(rv); regionVertCount = rv.count
+            // Snap guides (one style) and markers: style 0 = anchor, 1 = snapped point; shape in the next byte.
+            let guides = GPUBody.segments(s.guides.map { [w($0.from), w($0.to)] })
+            guideSegs = makeBuffer(guides); guideSegCount = guides.count
+            let markers = s.markers.map { m -> GPUPointInst in
+                let q = w(m.position)
+                return GPUPointInst(x: q.x, y: q.y, z: q.z, state: (m.anchor ? 0 : 1) | m.shape.rawValue << 8)
+            }
+            snapMarkers = makeBuffer(markers); snapMarkerCount = markers.count
         }
         // Plate outline and origin marker.
         var plateLines: [[SIMD3<Float>]] = []
@@ -1008,6 +1019,18 @@ public final class ViewportRenderer: NSObject {
             enc.setVertexBytes(&d, length: MemoryLayout<RegionDraw>.stride, index: 2)
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: regionVertCount)
         }
+        // Guides under the curves, so the geometry stays on top.
+        if guideSegCount > 0, let gb = guideSegs {
+            enc.setRenderPipelineState(pLine)
+            enc.setDepthStencilState(dsAlways)
+            var d = LineDraw(LineStyle(pal.sketchGuide, width: 1.0, dashed: true))
+            d.dashPeriod = U.viewport.w * U.viewport.z * 7
+            enc.setVertexBuffer(gb, offset: 0, index: 0)
+            enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
+            enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+            enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: guideSegCount)
+        }
         if sketchSegCount > 0, let sb = sketchSegs {
             enc.setRenderPipelineState(pLine)
             enc.setDepthStencilState(dsAlways)
@@ -1038,6 +1061,18 @@ public final class ViewportRenderer: NSObject {
             enc.setVertexBuffer(pb, offset: 0, index: 0)
             enc.setVertexBytes(&d, length: MemoryLayout<PointDraw>.stride, index: 2)
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: sketchPointCount)
+        }
+        // Markers on top of everything: hollow, so the cursor dot shows inside the snapped point's marker.
+        if snapMarkerCount > 0, let mb = snapMarkers {
+            enc.setRenderPipelineState(pPoint)
+            enc.setDepthStencilState(dsAlways)
+            var d = PointDraw()
+            let clear = pal.sketchGuide.withAlpha(0)
+            d.s0 = PointStyle(color: clear, ring: pal.sketchGuide, size: 9, ringWidth: 1.25)
+            d.s1 = PointStyle(color: clear, ring: pal.sketchGuide, size: 22, ringWidth: 2)
+            enc.setVertexBuffer(mb, offset: 0, index: 0)
+            enc.setVertexBytes(&d, length: MemoryLayout<PointDraw>.stride, index: 2)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: snapMarkerCount)
         }
     }
 

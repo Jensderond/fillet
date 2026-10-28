@@ -143,6 +143,39 @@ public struct SketchGrid: Hashable, Sendable {
     }
 }
 
+/// A dashed snap guide in sketch-plane coordinates (mm). Temporary feedback: never picked or saved.
+public struct SketchGuide: Hashable, Sendable {
+    public var from: SIMD2<Double>
+    public var to: SIMD2<Double>
+
+    public init(from: SIMD2<Double>, to: SIMD2<Double>) { self.from = from; self.to = to }
+}
+
+/// A marker on the point the pointer snapped to, shaped by what it is, or a small ring on a vertex
+/// a guide comes from. Temporary feedback: never picked or saved.
+public struct SketchSnapMarker: Hashable, Sendable {
+    public enum Shape: UInt32, Hashable, Sendable {
+        /// Endpoint or sketch point.
+        case square = 1
+        /// Midpoint.
+        case triangle
+        /// Intersection.
+        case cross
+        /// Circle quadrant.
+        case diamond
+        /// Centre, and the anchor of a guide.
+        case circle = 0
+    }
+    public var position: SIMD2<Double>
+    public var shape: Shape
+    /// A vertex a guide comes from (small and quiet), not the snapped point.
+    public var anchor: Bool
+
+    public init(position: SIMD2<Double>, shape: Shape, anchor: Bool = false) {
+        self.position = position; self.shape = shape; self.anchor = anchor
+    }
+}
+
 /// The active sketch drawn on top of the model.
 public struct SketchOverlay: Hashable, Sendable {
     public var plane: Plane
@@ -150,6 +183,9 @@ public struct SketchOverlay: Hashable, Sendable {
     public var points: [SketchPoint]
     public var regions: [SketchRegion]
     public var grid: SketchGrid?
+    /// Snap guides and markers for the pointer, drawn over the sketch.
+    public var guides: [SketchGuide] = []
+    public var markers: [SketchSnapMarker] = []
 
     public init(plane: Plane, curves: [SketchCurve] = [], points: [SketchPoint] = [], regions: [SketchRegion] = [],
                 grid: SketchGrid? = SketchGrid()) {
