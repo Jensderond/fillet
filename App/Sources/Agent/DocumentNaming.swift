@@ -18,11 +18,12 @@ extension DesignSession {
 
 /// Gives a window's document file the name an agent chose for the design (`rename_design`).
 ///
-/// The window's document keeps tracking its file: on the Mac `NSDocument` moves it, on iPad a
-/// coordinated move tells the open `UIDocument` (a file presenter) where it went. An unsaved Mac
-/// window takes the name as its display name, which its Save panel proposes. A file that can't be
-/// renamed (another app's folder, a name that's taken) keeps its name and the agent is told why;
-/// the name is in the design either way.
+/// The window's document keeps tracking its file: on the Mac `NSDocument` moves it; on iPad the
+/// document browser renames it as Files does (the title menu's Rename isn't public API), falling
+/// back to a coordinated move in Fillet's own folders, and the open `UIDocument` (a file
+/// presenter) follows. An unsaved Mac window takes the name as its display name, which its Save
+/// panel proposes. A file that can't be renamed keeps its name and the agent is told why; the
+/// name is in the design either way.
 @MainActor
 enum DocumentNaming {
     static func name(_ session: DesignSession, _ name: String) async -> FileNaming {
@@ -52,9 +53,17 @@ enum DocumentNaming {
         guard let document = document(in: window) else { return .kept("Fillet couldn't find this window's document.") }
         let old = document.fileURL
         if old.deletingPathExtension().lastPathComponent == name { return .renamed(old.lastPathComponent) }
-        let target = old.deletingLastPathComponent().appendingPathComponent(name).appendingPathExtension(old.pathExtension)
-        if let problem = await Task.detached(operation: { coordinatedMove(old, to: target) }).value {
-            return .kept("\(problem) The user can rename it from the title menu (Rename).")
+        let target: URL
+        switch await browserRename(old, to: name) {
+        case .success(let url):
+            target = url
+        case .failure(let browserError):
+            // Fillet's own folders can also be renamed directly.
+            let sibling = old.deletingLastPathComponent().appendingPathComponent(name).appendingPathExtension(old.pathExtension)
+            if let problem = await Task.detached(operation: { coordinatedMove(old, to: sibling) }).value {
+                return .kept("\(browserError.localizedDescription) \(problem) The user can rename it from the title menu (Rename).")
+            }
+            target = sibling
         }
         // The document hears of the move as a file presenter; wait for it to follow.
         for _ in 0..<40 where document.fileURL == old {
@@ -76,6 +85,21 @@ enum DocumentNaming {
             if let presented = vc.presentedViewController { queue.append(presented) }
         }
         return nil
+    }
+
+    /// Renames the file as the document browser (and Files) does, through its file provider, so it
+    /// works wherever the user could rename it, their own iCloud Drive folders too.
+    private static func browserRename(_ url: URL, to name: String) async -> Result<URL, Error> {
+        let browser = UIDocumentBrowserViewController(forOpening: [.filletDocument])
+        return await withCheckedContinuation { continuation in
+            browser.renameDocument(at: url, proposedName: name) { renamed, error in
+                if let renamed {
+                    continuation.resume(returning: .success(renamed))
+                } else {
+                    continuation.resume(returning: .failure(error ?? CocoaError(.fileWriteUnknown)))
+                }
+            }
+        }
     }
 
     /// Moves the file with file coordination, so the open document (a file presenter) follows it.
