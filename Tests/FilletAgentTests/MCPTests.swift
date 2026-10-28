@@ -79,6 +79,7 @@ final class SharedWorkspace: DesignWorkspace {
     }
     func redo() async -> String? { await inner.redo() }
     func show(_ camera: Camera) {}
+    func nameFile(_ name: String) async -> FileNaming { await inner.nameFile(name) }
 }
 
 @MainActor
@@ -432,6 +433,54 @@ struct ModelingToolTests {
     @Test func mergePatch() {
         let doc: JSONValue = ["a": 1, "b": ["c": 2, "d": 3]]
         #expect(doc.merging(patch: ["b": ["c": .null, "e": 4], "f": 5]) == ["a": 1, "b": ["d": 3, "e": 4], "f": 5])
+    }
+}
+
+@Suite("Naming designs")
+@MainActor
+struct NamingTests {
+    @Test func untitledDesignsAskForANameUntilRenamed() async throws {
+        let c = Client()
+        let created = try await c.ok("primitive", ["kind": "box", "dimensions": [10, 10, 10]])
+        #expect(created["design"]?["name_this_design"]?.string?.contains("rename_design") == true)
+        #expect(try await c.ok("get_design")["name_this_design"] != nil)
+
+        let renamed = try await c.ok("rename_design", ["name": "  Cable clip.fillet "])
+        #expect(c.workspace.document.name == "Cable clip")
+        #expect(renamed["design"]?.string == "Cable clip")
+        #expect(renamed["file"]?.string?.isEmpty == false)
+        #expect(try await c.ok("get_design")["name_this_design"] == nil)
+        let next = try await c.ok("primitive", ["kind": "sphere", "dimensions": ["diameter": 8], "at": [30, 0, 4]])
+        #expect(next["design"]?["name_this_design"] == nil)
+
+        try await c.ok("undo")
+        let undone = try await c.ok("undo", ["expect": "Rename Design"])
+        #expect(c.workspace.document.name == nil)
+        #expect(undone["effect"]?.array?.first?.string?.contains("“Cable clip” → none") == true)
+    }
+
+    @Test func namesAreCleanedUpForFiles() async throws {
+        #expect(try FilletTools.designName("iPad/Pro: stand") == "iPad-Pro- stand")
+        #expect(throws: ToolError.self) { try FilletTools.designName("   ") }
+        #expect(throws: ToolError.self) { try FilletTools.designName(".fillet") }
+        #expect(throws: ToolError.self) { try FilletTools.designName(String(repeating: "x", count: 81)) }
+    }
+
+    @Test func aNamedNewDesignIsntNagged() async throws {
+        let c = Client()
+        let r = try await c.ok("new_design", ["name": "Hook", "replace_current": true])
+        #expect(c.workspace.document.name == "Hook")
+        #expect(r["name_this_design"] == nil)
+        #expect(r["file"] != nil)
+    }
+
+    @Test func headlessFilesKeepTheirPath() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("naming-\(UUID().uuidString).fillet")
+        defer { try? FileManager.default.removeItem(at: url) }
+        let ws = try HeadlessWorkspace(fileURL: url)
+        #expect(!ws.isUntitled)
+        guard case .kept = await ws.nameFile("Stand") else { Issue.record("expected the file to keep its path"); return }
+        #expect(await HeadlessWorkspace().nameFile("Stand") == .unsaved)
     }
 }
 
