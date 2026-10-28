@@ -397,13 +397,15 @@ public final class ViewportRenderer: NSObject {
             let segs = GPUBody.segments(polylines)
             sketchSegs = makeBuffer(segs); sketchSegCount = segs.count
             sketchCurveStates = makeBuffer(states); sketchCurveCount = states.count
+            // Plain points first: where lines join, each has a dot there, and the hovered or
+            // selected one must not hide under its neighbour's.
             let pts = s.points.map { p -> GPUPointInst in
                 let q = w(p.position)
                 var st = p.style
                 if scene.selection.contains(.sketchPoint(shape: p.shapeID, index: p.index)) { st = .selected }
                 else if hover == .sketchPoint(shape: p.shapeID, index: p.index), st == .normal { st = .hover }
                 return GPUPointInst(x: q.x, y: q.y, z: q.z, state: UInt32(st.rawValue))
-            }
+            }.enumerated().sorted { ($0.element.state, $0.offset) < ($1.element.state, $1.offset) }.map(\.element)
             sketchPoints = makeBuffer(pts); sketchPointCount = pts.count
             var rv: [GPURegionVertex] = []
             for r in s.regions {
