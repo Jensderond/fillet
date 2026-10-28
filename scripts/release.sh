@@ -46,6 +46,17 @@ BIN="$(swift build -c release --product fillet-mcp --show-bin-path)/fillet-mcp"
 [ "$(lipo -archs "$BIN")" = "arm64" ] || { echo "fillet-mcp is not arm64 only" >&2; exit 1; }
 
 echo "==> Embedding and signing"
+# Ad-hoc signatures have no Team ID, and the hardened runtime's library validation only loads
+# libraries with the process's Team ID, so it would refuse OCCT.framework. The app and the helper
+# turn library validation off, which also lets a user swap in their own OCCT build (LGPL). Only
+# here: the entitlements file is shared with the iPad app.
+APP_ENTITLEMENTS="$DD/Fillet-release.entitlements"
+HELPER_ENTITLEMENTS="$DD/fillet-mcp.entitlements"
+cp "$ENTITLEMENTS" "$APP_ENTITLEMENTS"
+plutil -create xml1 "$HELPER_ENTITLEMENTS"
+for f in "$APP_ENTITLEMENTS" "$HELPER_ENTITLEMENTS"; do
+  /usr/libexec/PlistBuddy -c "Add :com.apple.security.cs.disable-library-validation bool true" "$f"
+done
 mkdir -p "$APP/Contents/Helpers"
 cp "$BIN" "$HELPER"
 # The helper links @rpath/OCCT.framework like the app; find it in Contents/Frameworks.
@@ -54,19 +65,19 @@ install_name_tool -add_rpath @executable_path/../Frameworks "$HELPER"
 codesign --force --sign - --options runtime "$OCCT"
 # The helper on its own: hardened runtime but no sandbox, so headless mode can open and save
 # .fillet files anywhere.
-codesign --force --sign - --options runtime --identifier app.fillet.fillet-mcp "$HELPER"
+codesign --force --sign - --options runtime --entitlements "$HELPER_ENTITLEMENTS" \
+  --identifier app.fillet.fillet-mcp "$HELPER"
 # The updater likewise: not sandboxed, so it can replace Fillet.app.
 codesign --force --sign - --options runtime "$UPDATER"
 # Then the app with its entitlements. No --deep: OCCT, the helper and the updater keep their own
 # signatures.
-codesign --force --sign - --options runtime --entitlements "$ENTITLEMENTS" "$APP"
+codesign --force --sign - --options runtime --entitlements "$APP_ENTITLEMENTS" "$APP"
 codesign --verify --strict "$OCCT"
 codesign --verify --strict "$HELPER"
 codesign --verify --strict "$UPDATER"
 codesign --verify --strict --deep "$APP"
-# A valid signature can still be refused at load time: the hardened runtime's library validation
-# only loads OCCT.framework if it has the same Team ID as the process. The helper is signed like
-# the app, so it starting (and loading OCCT) shows the app can too.
+# A valid signature can still be refused at load time (library validation, see above). The helper
+# is signed like the app, so it starting (and loading OCCT) shows the app can too.
 "$HELPER" --help > /dev/null || { echo "fillet-mcp can't load OCCT.framework (see above)" >&2; exit 1; }
 
 echo "==> Making the DMG"
