@@ -181,18 +181,29 @@ extension DesignSession {
         // The revolve axis chosen from the sketch's lines shows as picked.
         var axisLine: UUID?
         if case .revolve(let r) = editingFeature?.kind, case .sketchLine(let id) = r.axis { axisLine = id }
+        let ev = model.parameters.evaluator
+        // Where the selected vertex is: the dots of every line joined there show it.
+        let selectedVertex = editor?.selectedVertex.flatMap { v -> SIMD2<Double>? in
+            guard let shape = evaluated.source.shape(v.shape), shape.vertices.indices.contains(v.index) else { return nil }
+            return try? shape.vertices[v.index].evaluate(using: ev)
+        }
         for shape in evaluated.source.shapes {
             var style: SketchCurveStyle = shape.construction ? .construction : .normal
             // Selected construction stays dashed: a shape just drawn is selected, and solid blue hid
             // that "Draw construction lines" had made it construction.
-            if editor?.selectedShapes.contains(shape.id) == true || shape.id == axisLine { style = shape.construction ? .selectedConstruction : .selected }
+            // A line whose end is selected is only tinted, so the end reads as what's picked.
+            if editor?.selectedVertex?.shape == shape.id, !shape.construction { style = .hover }
+            else if editor?.selectedShapes.contains(shape.id) == true || shape.id == axisLine { style = shape.construction ? .selectedConstruction : .selected }
             else if hover == .sketchShape(sketch: sketchID, shape: shape.id) { style = .hover }
             for line in evaluated.curves[shape.id] ?? [] {
                 overlay.curves.append(SketchCurve(shapeID: shape.id, points: line, style: style))
             }
             if editor != nil {
-                for (i, p) in shape.snapPoints(using: model.parameters.evaluator).enumerated() where p.kind != .quadrant {
-                    overlay.points.append(SketchPoint(shapeID: shape.id, index: i, position: p.position))
+                for (i, p) in shape.snapPoints(using: ev).enumerated() where p.kind != .quadrant {
+                    let isSelected = selectedVertex.map { (($0 - p.position) * ($0 - p.position)).sum() < 1e-14 } == true
+                        && [.endpoint, .point].contains(p.kind)
+                    let style: SketchPointStyle = isSelected ? .selected : .normal
+                    overlay.points.append(SketchPoint(shapeID: shape.id, index: i, position: p.position, style: style))
                 }
             }
         }
@@ -360,10 +371,23 @@ extension DesignSession: ViewportDelegate {
         case .sketch:
             guard let id = sketchEditor?.sketch else { return }
             switch target {
+            case .sketchPoint(let shape, let point) where sketchVertex(shape: shape, point: point) != nil:
+                // A line's end selects just that point (and its line, for the inspector); tapped again, neither.
+                let vertex = sketchVertex(shape: shape, point: point)
+                if sketchEditor?.selectedVertex == vertex {
+                    sketchEditor?.selectedShapes.remove(shape)
+                } else {
+                    sketchEditor?.selectedShapes.insert(shape)
+                    sketchEditor?.selectedVertex = vertex
+                }
             case .sketchShape(let shape), .sketchPoint(let shape, _):
                 guard model.sketches[id]?.source.shape(shape) != nil else { return }
                 if sketchEditor?.selectedShapes.contains(shape) == true {
-                    sketchEditor?.selectedShapes.remove(shape)
+                    if sketchEditor?.selectedVertex?.shape == shape {
+                        sketchEditor?.selectedVertex = nil  // from its end to the whole line
+                    } else {
+                        sketchEditor?.selectedShapes.remove(shape)
+                    }
                 } else {
                     sketchEditor?.selectedShapes.insert(shape)
                 }
@@ -412,6 +436,9 @@ extension DesignSession: ViewportDelegate {
         let sketchID = sketchEditor?.sketch ?? { if case .regions(let s) = pickMode { s } else { nil } }()
         switch target {
         case .region(let i): hover = sketchID.map { .region(sketch: $0, index: i) }
+        // A line's end lights alone: dragging it moves only that end. Other points move the whole shape.
+        case .sketchPoint(let shape, let point) where sketchVertex(shape: shape, point: point) != nil:
+            hover = sketchID.map { .sketchPoint(sketch: $0, shape: shape, index: point) }
         case .sketchShape(let shape), .sketchPoint(let shape, _): hover = sketchID.map { .sketchShape(sketch: $0, shape: shape) }
         case .some(let t): hover = Selection(t)
         case nil: hover = nil
@@ -456,7 +483,8 @@ extension DesignSession: ViewportDelegate {
         }
     }
 
-    /// Select tool: a press on a shape that starts to move drags the selection (see `beginSketchMove`).
+    /// Select tool: a press on a shape that starts to move drags the selection, a press on a line's
+    /// end drags that end (see `beginSketchMove`).
     func viewportShouldBeginDrag(target: PickTarget, event: ViewportToolEvent) -> Bool {
         guard pickMode == .sketch, sketchEditor?.tool == .select, let (press, _) = sketchInput(event) else { return false }
         let adding = !event.modifiers.isDisjoint(with: [.shift, .command])
@@ -504,6 +532,12 @@ extension DesignSession: ViewportDelegate {
     }
 
     // MARK: Helpers
+
+    /// The vertex a picked point of the open sketch is (a line's end, not its midpoint).
+    func sketchVertex(shape: UUID, point: Int) -> SketchVertex? {
+        guard let editor = sketchEditor, case .sketch(let sketch)? = document.feature(editor.sketch)?.kind else { return nil }
+        return sketch.vertex(shape: shape, point: point, using: model.parameters.evaluator)
+    }
 
     /// Projects a tool event onto the open sketch's plane, with snapping context.
     private func sketchInput(_ event: ViewportToolEvent) -> (SIMD2<Double>, SnapContext)? {
@@ -555,6 +589,7 @@ extension Selection {
         case .body(let b): .body(b.feature)
         case .region(_, let i): .region(i)
         case .sketchShape(_, let s): .sketchShape(s)
+        case .sketchPoint(_, let s, let i): .sketchPoint(shape: s, index: i)
         case .originPlane(let p): .referencePlane(p.rawValue)
         }
     }

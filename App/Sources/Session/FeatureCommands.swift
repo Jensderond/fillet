@@ -121,15 +121,26 @@ extension DesignSession {
 
     /// A press on a shape with Select that starts to drag. An unselected shape becomes the
     /// selection (or joins it with `adding`), then every selected shape moves with the pointer.
+    /// A press on a vertex (a line's start or end) drags only that point, and the ends of other
+    /// shapes joined to it; it becomes the selected vertex.
     func beginSketchMove(grabbing shape: UUID, point: Int?, at press: SIMD2<Double>, adding: Bool) -> Bool {
         guard var editor = sketchEditor, editor.tool == .select, editing?.feature == editor.sketch,
             case .sketch(let sketch) = document.feature(editor.sketch)?.kind, sketch.shape(shape) != nil
         else { return false }
+        let ev = model.parameters.evaluator
         if !editor.selectedShapes.contains(shape) {
             editor.selectedShapes = adding ? editor.selectedShapes.union([shape]) : [shape]
         }
-        editor.move = SketchMove(original: sketch, shapes: editor.selectedShapes, grabbed: shape, point: point,
-                                 press: press, using: model.parameters.evaluator)
+        if let point, let vertex = sketch.vertex(shape: shape, point: point, using: ev),
+            let drag = SketchMove(original: sketch, vertex: vertex, press: press, using: ev)
+        {
+            editor.selectedVertex = vertex
+            editor.move = drag
+        } else {
+            editor.selectedVertex = nil
+            editor.move = SketchMove(original: sketch, shapes: editor.selectedShapes, grabbed: shape, point: point,
+                                     press: press, using: ev)
+        }
         sketchEditor = editor
         return true
     }
@@ -138,6 +149,8 @@ extension DesignSession {
     func dragSketchMove(to p: SIMD2<Double>, context: SnapContext) {
         guard let move = sketchEditor?.move else { return }
         let snapped = move.resolve(to: p, context: context, previous: sketchEditor?.moveSnap?.target)
+        // A line can't shrink to nothing: its end waits where it was until the pointer moves on.
+        guard !move.collapses(by: snapped.offset, using: model.parameters.evaluator) else { return }
         sketchEditor?.moveSnap = snapped.resolution
         let moved = move.moved(by: snapped.offset, using: model.parameters.evaluator)
         updateEditing { $0.kind = .sketch(moved) }
@@ -146,15 +159,19 @@ extension DesignSession {
     /// Drops the shapes: the whole drag becomes one undo step.
     func endSketchMove(at p: SIMD2<Double>, context: SnapContext) {
         guard let move = sketchEditor?.move else { return }
-        let offset = move.resolve(to: p, context: context, previous: sketchEditor?.moveSnap?.target).offset
+        var offset = move.resolve(to: p, context: context, previous: sketchEditor?.moveSnap?.target).offset
+        // Dropped on its line's other end: the end stays where the drag last showed it.
+        if move.collapses(by: offset, using: model.parameters.evaluator) {
+            offset = sketchEditor?.moveSnap.map { $0.point - move.anchor } ?? .zero
+        }
         sketchEditor?.move = nil
         sketchEditor?.moveSnap = nil
         // Back to where the drag began without an undo step, then the move as one step.
         updateEditing { $0.kind = .sketch(move.original) }
-        guard offset != .zero else { return }
+        guard offset != .zero, !move.collapses(by: offset, using: model.parameters.evaluator) else { return }
         let moved = move.moved(by: offset, using: model.parameters.evaluator)
         let name = move.shapes.count == 1 ? move.original.shapes.first { move.shapes.contains($0.id) }?.kind.typeName.capitalized : nil
-        updateSketch("Move \(name ?? "Shapes")") { $0 = moved }
+        updateSketch(move.vertices.isEmpty ? "Move \(name ?? "Shapes")" : "Move Point") { $0 = moved }
     }
 
     func cancelSketchMove() {

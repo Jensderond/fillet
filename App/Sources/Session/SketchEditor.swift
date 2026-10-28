@@ -3,7 +3,7 @@ import FilletKernel
 import Foundation
 
 /// State of sketch mode: which sketch is open, the active drawing tool and
-/// the shape selected for dimension editing.
+/// the shapes (or the vertex) selected for dimension editing.
 struct SketchEditor {
     var sketch: UUID
     var engine = SketchToolEngine(tool: .line) {
@@ -19,12 +19,16 @@ struct SketchEditor {
             }
         }
     }
-    var selectedShapes: Set<UUID> = []
+    var selectedShapes: Set<UUID> = [] {
+        didSet { if let v = selectedVertex, !selectedShapes.contains(v.shape) { selectedVertex = nil } }
+    }
+    /// A line end (or polyline/spline vertex) picked on its own; its shape is selected too.
+    var selectedVertex: SketchVertex?
     /// Grid spacing in mm used for snapping (0 = off).
     var gridSize: Double = 1
     /// The drawing tool Apple Pencil's double tap returns to from Select.
     var lastDrawingTool: SketchTool = .line
-    /// Shapes being dragged with the Select tool.
+    /// Shapes, or a vertex, being dragged with the Select tool.
     var move: SketchMove?
     /// What the dragged shapes snapped to, for guides and to hold the snap (see `SnapContext.resolve`).
     var moveSnap: SnapResolution?

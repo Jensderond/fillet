@@ -11,6 +11,8 @@ enum Selection: Hashable {
     case edge(BodyRef, Int)
     case region(sketch: UUID, index: Int)
     case sketchShape(sketch: UUID, shape: UUID)
+    /// A shape's vertex (a line's start or end), as the overlay numbers its points (`.sketchPoint`).
+    case sketchPoint(sketch: UUID, shape: UUID, index: Int)
     /// An origin plane (only ever hovered, while choosing where to sketch).
     case originPlane(StandardPlane)
 }

@@ -138,11 +138,16 @@ struct PointField: View {
     let label: String
     let value: Point2Expr
     let evaluator: Evaluator
+    /// The point picked in the viewport: its label gets the selected dot's colour.
+    var marked = false
     let onChange: (Point2Expr) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: Theme.Space.s) {
-            Text(label).font(Theme.caption.weight(.semibold)).foregroundStyle(Theme.inkSecondary)
+            HStack(spacing: Theme.Space.xs) {
+                if marked { Image(systemName: "circle.fill").imageScale(.small).foregroundStyle(Theme.select) }
+                Text(label).font(Theme.caption.weight(.semibold)).foregroundStyle(marked ? Theme.selectInk : Theme.inkSecondary)
+            }
             ExprField(label: "X", value: value.x, evaluator: evaluator) { onChange(Point2Expr($0, value.y)) }
             ExprField(label: "Y", value: value.y, evaluator: evaluator) { onChange(Point2Expr(value.x, $0)) }
         }

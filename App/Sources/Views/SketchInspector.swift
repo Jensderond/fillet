@@ -29,9 +29,9 @@ struct SketchInspector: View {
     }
 
     #if os(iOS)
-    static let drawingHint = "Draw with Apple Pencil. Turn on finger drawing in the toolbar to draw with a finger. Use the Select tool and tap a shape to type exact dimensions."
+    static let drawingHint = "Draw with Apple Pencil, or turn on finger drawing in the toolbar. With Select, tap a shape to type its dimensions, or drag an end point to reshape it."
     #else
-    static let drawingHint = "Click points to draw. Use the Select tool and click a shape to type exact dimensions."
+    static let drawingHint = "Click points to draw. With Select, click a shape to type its dimensions, or drag an end point to reshape it."
     #endif
 
     /// One selected shape titles itself ("Circle"); otherwise the section needs a name.
@@ -89,9 +89,10 @@ struct SketchInspector: View {
         if shapes.isEmpty {
             Hint(Self.drawingHint, symbol: "pencil.tip")
         } else if shapes.count == 1, let shape = shapes.first {
-            ShapeDimensions(shape: shape, evaluator: ev) { updated in
+            let vertex = editor.selectedVertex?.shape == shape.id ? editor.selectedVertex?.index : nil
+            ShapeDimensions(shape: shape, evaluator: ev, selectedVertex: vertex) { updated in
                 session.updateSketch("Edit \(updated.kind.typeName.capitalized)") { sketch in
-                    if let i = sketch.shapes.firstIndex(where: { $0.id == updated.id }) { sketch.shapes[i] = updated }
+                    sketch = sketch.replacing(updated, using: ev)
                 }
             }
         } else {
@@ -124,7 +125,15 @@ struct SketchInspector: View {
 struct ShapeDimensions: View {
     let shape: SketchShape
     let evaluator: Evaluator
+    /// The vertex picked on its own (`SketchShape.vertices`), named in the title and marked on its field.
+    var selectedVertex: Int? = nil
     let onChange: (SketchShape) -> Void
+
+    /// "Start", "End" or "Point 3", as the fields name them.
+    private func vertexName(_ i: Int) -> String {
+        if case .line = shape.kind { return i == 0 ? "Start" : "End" }
+        return "Point \(i + 1)"
+    }
 
     private func update(_ kind: SketchShapeKind) {
         var s = shape
@@ -136,6 +145,11 @@ struct ShapeDimensions: View {
         VStack(alignment: .leading, spacing: Theme.Space.m) {
             HStack {
                 Text(shape.kind.typeName.capitalized).font(Theme.sectionTitle).foregroundStyle(Theme.ink)
+                if let selectedVertex {
+                    Label(vertexName(selectedVertex), systemImage: "circle.fill")
+                        .font(Theme.caption.weight(.semibold)).foregroundStyle(Theme.selectInk)
+                        .labelStyle(.titleAndIcon).imageScale(.small)
+                }
                 if shape.construction {
                     Text("Construction").font(Theme.caption.weight(.medium)).foregroundStyle(Theme.inkSecondary)
                         .padding(.horizontal, Theme.Space.s).padding(.vertical, 2)
@@ -144,8 +158,8 @@ struct ShapeDimensions: View {
             }
             switch shape.kind {
             case .line(let a, let b):
-                PointField(label: "Start", value: a, evaluator: evaluator) { update(.line(a: $0, b: b)) }
-                PointField(label: "End", value: b, evaluator: evaluator) { update(.line(a: a, b: $0)) }
+                PointField(label: "Start", value: a, evaluator: evaluator, marked: selectedVertex == 0) { update(.line(a: $0, b: b)) }
+                PointField(label: "End", value: b, evaluator: evaluator, marked: selectedVertex == 1) { update(.line(a: a, b: $0)) }
                 if let pa = try? a.evaluate(using: evaluator), let pb = try? b.evaluate(using: evaluator) {
                     let d = pb - pa
                     Text("Length \(ExprField.format((d.x * d.x + d.y * d.y).squareRoot())) mm, angle \(ExprField.format(atan2(d.y, d.x) * 180 / .pi))°")
