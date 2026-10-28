@@ -269,6 +269,8 @@ struct FilletTools {
         "pitch": number("Degrees of elevation, overrides the view's (0 = level, 90 = from above)"),
         "focus": bodies,
         "zoom": number("1 = fit (default); 2 = twice as close"),
+        "target": vec3("[x, y, z] to centre the view on (a close-up of one spot: give `size` too)"),
+        "size": number("mm the view spans around the target (the shorter side of the image); default: fit the bodies"),
     ]
 
     private var renderView: MCPTool {
@@ -284,9 +286,18 @@ struct FilletTools {
         props["style"] = Self.string("Visual style (default shaded_edges)", enum: ["shaded_edges", "shaded", "xray", "wireframe", "hidden_line"])
         props["show_user"] = Self.boolean("Also turn the user's live view to this camera")
         props["presentation"] = Self.boolean("Product-shot look: smooth shading without edges, no bed or grid, warm studio backdrop")
+        props["projection"] = Self.string("perspective (default) or orthographic: no foreshortening, sizes compare across the image",
+                                          enum: ["perspective", "orthographic"])
+        props["section"] = [
+            "type": "object",
+            "description": "Section cut: removes everything on the side `normal` points to, so the inside shows (cut-open insides in red). {\"origin\": [x,y,z] (default: the view's centre), \"normal\": [x,y,z] or \"+x\", \"-y\"…}. Without view, yaw or pitch, the camera looks straight at the cut.",
+            "properties": ["origin": Self.vec3("A point on the cutting plane"),
+                           "normal": ["description": "[x, y, z] or \"+x\", \"-x\", \"+y\"…: the side cut away"]],
+            "required": ["normal"],
+        ]
         return MCPTool(
             name: "render_view", title: "Render view",
-            description: "Renders the design to a PNG image you can look at, like a screenshot of the viewport (bed included). Use it after changes to check the shape.",
+            description: "Renders the design to a PNG image you can look at, like a screenshot of the viewport (bed included). Use it after changes to check the shape. For a close-up of one spot give `target` and `size`; to see how parts fit inside, a `section` cut (orthographic shows it true to scale); `hide` leaves bodies out.",
             inputSchema: Self.object(props), readOnly: true
         ) { args in
             let a = Args(args)
@@ -307,21 +318,36 @@ struct FilletTools {
             options.presentation = a.bool("presentation", default: false)
             let width = min(max(try a.int("width", default: 900), 64), 2048)
             let height = min(max(try a.int("height", default: 700), 64), 2048)
-            let scene = DesignRendering.scene(document: ws.document, model: model, options: options)
+            var scene = DesignRendering.scene(document: ws.document, model: model, options: options)
+            let normal = try a["section"].map { try Self.sectionNormal($0["normal"]) }
             let camera = try Self.camera(a, r, scene: scene, sketch: options.sketch.flatMap { model.sketches[$0] },
-                                         aspect: Double(width) / Double(height))
+                                         aspect: Double(width) / Double(height), facing: normal)
+            var notes: [String] = []
+            if let section = a["section"], let normal {
+                let origin = try Args.point3(section["origin"], "section.origin") ?? camera.target
+                scene.section = SectionPlane(origin: origin, normal: normal)
+                notes.append("section through [\(Self.mm(origin.x)), \(Self.mm(origin.y)), \(Self.mm(origin.z))] cutting away the \(Self.side(normal)) side; red is cut-open inside")
+            }
+            if camera.projection == .orthographic { notes.append("orthographic") }
             let png = try DesignRendering.png(scene: scene, camera: camera, size: CGSize(width: width, height: height),
                                               palette: options.presentation ? DesignRendering.presentationPalette : nil)
-            if a.bool("show_user", default: false) { ws.show(camera) }
+            if a.bool("show_user", default: false) {
+                // The app has no projection switch: the user's view keeps its own.
+                var live = camera
+                live.projection = ws.camera.projection
+                ws.show(live)
+            }
             let visible = model.bodies.filter { !options.hidden.contains($0.ref) }.count
-            return ToolResult([.image(png), .text("\(visible) visible bodies; view yaw \(Int((camera.yaw * 180 / .pi).rounded()))°, pitch \(Int((camera.pitch * 180 / .pi).rounded()))°")])
+            let span = 2 * camera.halfHeight(atDepth: camera.distance) * min(Double(width) / Double(height), 1)
+            return ToolResult([.image(png), .text("\(visible) visible bodies; view yaw \(Int((camera.yaw * 180 / .pi).rounded()))°, pitch \(Int((camera.pitch * 180 / .pi).rounded()))°, centred on [\(Self.mm(camera.target.x)), \(Self.mm(camera.target.y)), \(Self.mm(camera.target.z))], about \(Self.mm(span)) mm across there"
+                + notes.map { "; \($0)" }.joined())])
         }
     }
 
     private var setView: MCPTool {
         MCPTool(
             name: "set_view", title: "Show view",
-            description: "Turns the user's view of the design (in the app) to a standard view or angle, framed on the given bodies. Use it to show the user what you are working on.",
+            description: "Turns the user's view of the design (in the app) to a standard view or angle, framed on the given bodies or on a `target` across `size` mm. Use it to show the user what you are working on.",
             inputSchema: Self.object(Self.viewProperties), readOnly: true
         ) { args in
             let ws = try host.requireCurrent()
@@ -330,7 +356,9 @@ struct FilletTools {
             var options = DesignRendering.Options()
             options.hidden = ws.hiddenBodies
             let scene = DesignRendering.scene(document: ws.document, model: model, options: options)
-            ws.show(try Self.camera(Args(args), r, scene: scene, sketch: nil, aspect: ws.viewAspect))
+            var camera = try Self.camera(Args(args), r, scene: scene, sketch: nil, aspect: ws.viewAspect)
+            camera.projection = ws.camera.projection
+            ws.show(camera)
             return .text("View updated")
         }
     }
@@ -346,11 +374,22 @@ struct FilletTools {
         }
     }
 
-    /// The camera for a view request, framed on the focus bodies (or everything visible).
-    static func camera(_ a: Args, _ r: Resolver, scene: ViewportScene, sketch: EvaluatedSketch?, aspect: Double) throws -> Camera {
+    /// The camera for a view request, framed on the focus bodies (or everything visible), or on
+    /// `target` across `size`. Without a view or angles, a `facing` camera looks against that direction.
+    static func camera(_ a: Args, _ r: Resolver, scene: ViewportScene, sketch: EvaluatedSketch?, aspect: Double,
+                       facing: Vec3? = nil) throws -> Camera {
         let viewName = a.optionalString("view") ?? "iso"
         guard let view = Camera.StandardView(rawValue: viewName) else { throw ToolError("Unknown view '\(viewName)'") }
         var camera = Camera().viewing(view)
+        if let n = facing, a["view"] == nil, a["yaw"] == nil, a["pitch"] == nil {
+            camera.pitch = asin(max(-1, min(1, n.z)))
+            camera.yaw = abs(n.z) > 0.999 ? 0 : atan2(n.x, -n.y)
+        }
+        switch a.optionalString("projection") {
+        case nil, "perspective": break
+        case "orthographic": camera.projection = .orthographic
+        case let other?: throw ToolError("Unknown projection '\(other)': use perspective or orthographic")
+        }
         if let yaw = a.double("yaw") { camera.yaw = yaw * .pi / 180 }
         if let pitch = a.double("pitch") { camera.pitch = max(-90, min(90, pitch)) * .pi / 180 }
         var bounds: Bounds3?
@@ -369,8 +408,45 @@ struct FilletTools {
             }
         }
         if let bounds = bounds ?? scene.fitBounds { camera.fit(bounds: bounds, aspect: aspect, margin: 1.15) }
+        if let target = try Args.point3(a["target"], "target") { camera.target = target }
+        if let size = a.double("size") {
+            guard size > 0 else { throw ToolError("`size` must be more than 0 mm") }
+            // The shorter side of the image spans `size` at the target.
+            camera.distance = size / 2 / min(aspect, 1) / tan(camera.fovDegrees * .pi / 360)
+        }
         if let zoom = a.double("zoom"), zoom > 0 { camera.distance /= zoom }
         return camera
+    }
+
+    /// A section's normal: [x, y, z] or an axis like "+x" / "-z".
+    static func sectionNormal(_ v: JSONValue?) throws -> Vec3 {
+        if let s = v?.string?.lowercased() {
+            let sign: Double = s.hasPrefix("-") ? -1 : 1
+            switch s.trimmingCharacters(in: CharacterSet(charactersIn: "+-")) {
+            case "x": return Vec3(sign, 0, 0)
+            case "y": return Vec3(0, sign, 0)
+            case "z": return Vec3(0, 0, sign)
+            default: break
+            }
+        }
+        guard let n = try? Args.point3(v, "section.normal"), n.length > 1e-9 else {
+            throw ToolError("`section.normal` must be [x, y, z] (not zero) or one of +x, -x, +y, -y, +z, -z")
+        }
+        return n.normalized
+    }
+
+    /// "+x", "-z", or the direction for a tilted normal.
+    static func side(_ n: Vec3) -> String {
+        for (axis, v) in [("x", n.x), ("y", n.y), ("z", n.z)] where abs(abs(v) - 1) < 1e-6 { return (v > 0 ? "+" : "-") + axis }
+        return "[\(Self.round(n.x, 3)), \(Self.round(n.y, 3)), \(Self.round(n.z, 3))]"
+    }
+
+    static func mm(_ v: Double) -> String { round(v, 1) }
+
+    private static func round(_ v: Double, _ places: Int) -> String {
+        let p = pow(10, Double(places))
+        let r = (v * p).rounded() / p
+        return r == r.rounded() ? String(Int(r)) : String(r)
     }
 
     // MARK: Documents

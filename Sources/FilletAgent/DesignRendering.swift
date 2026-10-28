@@ -21,6 +21,8 @@ public enum DesignRendering {
         public var showBed = true
         /// Product-shot look: no edges, bed or grid; a warm studio backdrop with a soft shadow.
         public var presentation = false
+        /// Cuts the bodies open to show their inside.
+        public var section: SectionPlane?
 
         public init() {}
     }
@@ -55,6 +57,7 @@ public enum DesignRendering {
         // The ground grid stays on for the contact shadow; the presentation palette hides its lines.
         scene.showsGroundGrid = true
         scene.ellipticalShadows = options.presentation
+        scene.section = options.section
         return scene
     }
 
