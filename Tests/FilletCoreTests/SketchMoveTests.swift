@@ -131,4 +131,118 @@ struct SketchMoveTests {
         #expect(moved.shapes[1].kind == .rectangle(anchor: .corner, position: Point2Expr(8, 8), width: 2, height: 2, angle: 0))
         #expect(moved.shapes[2] == c)
     }
+
+    // MARK: Vertices
+
+    @Test func pickedEndsAreVerticesButMidpointsAndCentresAreNot() {
+        let line = SketchShape(.line(a: Point2Expr(0, 0), b: Point2Expr(10, 0)))
+        let circle = SketchShape(.circle(center: Point2Expr(30, 0), diameter: 4))
+        let spline = SketchShape(.spline(points: [Point2Expr(0, 10), Point2Expr(5, 12), Point2Expr(10, 10)]))
+        let sketch = Sketch(shapes: [line, circle, spline])
+        // A line's snap points: start, end, midpoint.
+        #expect(sketch.vertex(shape: line.id, point: 0, using: ev) == SketchVertex(shape: line.id, index: 0))
+        #expect(sketch.vertex(shape: line.id, point: 1, using: ev) == SketchVertex(shape: line.id, index: 1))
+        #expect(sketch.vertex(shape: line.id, point: 2, using: ev) == nil)
+        #expect(sketch.vertex(shape: circle.id, point: 0, using: ev) == nil)
+        // A spline's interior point is one.
+        let interior = spline.snapPoints(using: ev).firstIndex { $0.kind == .point }
+        #expect(interior.flatMap { sketch.vertex(shape: spline.id, point: $0, using: ev) } == SketchVertex(shape: spline.id, index: 1))
+    }
+
+    @Test func draggingAnEndMovesOnlyThatEnd() throws {
+        let line = SketchShape(.line(a: Point2Expr(0, 0), b: Point2Expr(10, 0)))
+        let other = SketchShape(.point(Point2Expr(20, 20)))
+        let sketch = Sketch(shapes: [line, other])
+        let drag = try #require(SketchMove(original: sketch, vertex: SketchVertex(shape: line.id, index: 1),
+                                           press: SIMD2(9.8, 0.1), using: ev))
+        #expect(drag.anchor == SIMD2(10, 0))
+        #expect(drag.shapes == [line.id])
+        let ctx = SnapContext(targets: sketch.snapTargets(using: ev), tolerance: 0.5, gridSize: 1)
+        // Onto the other shape's point: the end lands on it, the start stays.
+        let onto = drag.resolve(to: SIMD2(19.6, 20.3), context: ctx)
+        #expect(onto.resolution.snap == .point(.point))
+        let moved = drag.moved(by: onto.offset, using: ev)
+        #expect(moved.shapes[0].kind == .line(a: Point2Expr(0, 0), b: Point2Expr(20, 20)))
+        #expect(moved.shapes[1] == other)
+    }
+
+    @Test func aDraggedEndLinesUpWithItsOtherEndButNeverLandsOnIt() throws {
+        let line = SketchShape(.line(a: Point2Expr(0, 0), b: Point2Expr(10, 5)))
+        let sketch = Sketch(shapes: [line])
+        let drag = try #require(SketchMove(original: sketch, vertex: SketchVertex(shape: line.id, index: 1),
+                                           press: SIMD2(10, 5), using: ev))
+        let ctx = SnapContext(targets: sketch.snapTargets(using: ev), tolerance: 0.5, gridSize: 0)
+        // Nearly level with the start: a horizontal guide from it makes the line level.
+        let level = drag.resolve(to: SIMD2(12.34, 0.2), context: ctx)
+        #expect(level.resolution.snap == .horizontal)
+        #expect(level.resolution.guides.first?.from == SIMD2(0, 0))
+        #expect(drag.moved(by: level.offset, using: ev).shapes[0].kind == .line(a: Point2Expr(0, 0), b: Point2Expr(12.34, 0)))
+        // Right by the start: lined up both ways, which is the start itself, so the drag refuses it.
+        let onto = drag.resolve(to: SIMD2(0.1, 0.1), context: ctx)
+        #expect(onto.resolution.snap != .point(.endpoint))
+        #expect(drag.collapses(by: onto.offset, using: ev))
+        #expect(!drag.collapses(by: level.offset, using: ev))
+    }
+
+    @Test func joinedEndsMoveTogether() throws {
+        // An open triangle of lines drawn end to end, and a line that only passes nearby.
+        let ab = SketchShape(.line(a: Point2Expr(0, 0), b: Point2Expr(10, 0)))
+        let bc = SketchShape(.line(a: Point2Expr(10, 0), b: Point2Expr(5, 8)))
+        let ca = SketchShape(.line(a: Point2Expr(5, 8), b: Point2Expr(0, 0)))
+        let apart = SketchShape(.line(a: Point2Expr(10, 0.5), b: Point2Expr(20, 0.5)))
+        let sketch = Sketch(shapes: [ab, bc, ca, apart])
+        let drag = try #require(SketchMove(original: sketch, vertex: SketchVertex(shape: ab.id, index: 1),
+                                           press: SIMD2(10, 0), using: ev))
+        #expect(drag.shapes == [ab.id, bc.id])
+        #expect(Set(drag.vertices) == [SketchVertex(shape: ab.id, index: 1), SketchVertex(shape: bc.id, index: 0)])
+        let moved = drag.moved(by: SIMD2(2, -1), using: ev)
+        #expect(moved.shapes[0].kind == .line(a: Point2Expr(0, 0), b: Point2Expr(12, -1)))
+        #expect(moved.shapes[1].kind == .line(a: Point2Expr(12, -1), b: Point2Expr(5, 8)))
+        #expect(moved.shapes[2] == ca)
+        #expect(moved.shapes[3] == apart)
+        // Both other corners guide.
+        #expect(Set(drag.fixedVertices.map { [$0.x, $0.y] }) == [[0, 0], [5, 8]])
+    }
+
+    @Test func polylineAndSplineVerticesMoveAlone() throws {
+        let poly = SketchShape(.polyline(vertices: [PolylineVertex(0, 0), PolylineVertex(10, 0, bulge: 2), PolylineVertex(10, 10)],
+                                         closed: true))
+        let spline = SketchShape(.spline(points: [Point2Expr(0, 20), Point2Expr(5, 22), Point2Expr(10, 20)]))
+        let sketch = Sketch(shapes: [poly, spline])
+        let corner = try #require(SketchMove(original: sketch, vertex: SketchVertex(shape: poly.id, index: 1), press: SIMD2(10, 0), using: ev))
+        #expect(corner.moved(by: SIMD2(1, 1), using: ev).shapes[0].kind
+            == .polyline(vertices: [PolylineVertex(0, 0), PolylineVertex(11, 1, bulge: 2), PolylineVertex(10, 10)], closed: true))
+        // Closed: the last vertex neighbours the first.
+        let last = try #require(SketchMove(original: sketch, vertex: SketchVertex(shape: poly.id, index: 2), press: SIMD2(10, 10), using: ev))
+        #expect(last.collapses(by: SIMD2(-10, -10), using: ev))
+        let mid = try #require(SketchMove(original: sketch, vertex: SketchVertex(shape: spline.id, index: 1), press: SIMD2(5, 22), using: ev))
+        #expect(mid.moved(by: SIMD2(0, 3), using: ev).shapes[1].kind == .spline(points: [Point2Expr(0, 20), Point2Expr(5, 25), Point2Expr(10, 20)]))
+    }
+
+    @Test func parametricEndsKeepTheirParameters() throws {
+        let ev = Evaluator(values: ["w": Quantity(40, .length)])
+        let line = SketchShape(.line(a: Point2Expr(0, 0), b: Point2Expr("w", 0)))
+        let drag = try #require(SketchMove(original: Sketch(shapes: [line]), vertex: SketchVertex(shape: line.id, index: 1),
+                                           press: SIMD2(40, 0), using: ev))
+        #expect(drag.anchor == SIMD2(40, 0))
+        #expect(drag.moved(by: SIMD2(5, 0), using: ev).shapes[0].kind == .line(a: Point2Expr(0, 0), b: Point2Expr("w + 5", 0)))
+    }
+
+    @Test func typingAnEndKeepsJoinedEndsJoined() {
+        let ab = SketchShape(.line(a: Point2Expr(0, 0), b: Point2Expr(10, 0)))
+        let bc = SketchShape(.line(a: Point2Expr(10, 0), b: Point2Expr(5, 8)))
+        let circle = SketchShape(.circle(center: Point2Expr(10, 0), diameter: 2))
+        let sketch = Sketch(shapes: [ab, bc, circle])
+        var typed = ab
+        typed.kind = .line(a: Point2Expr(0, 0), b: Point2Expr("w", 0))
+        let ev = Evaluator(values: ["w": Quantity(12, .length)])
+        let edited = sketch.replacing(typed, using: ev)
+        #expect(edited.shapes[0] == typed)
+        #expect(edited.shapes[1].kind == .line(a: Point2Expr("w", 0), b: Point2Expr(5, 8)))
+        #expect(edited.shapes[2] == circle)  // a centre isn't a vertex
+        // A shape whose vertices didn't change leaves the rest alone.
+        var renamed = bc
+        renamed.construction = true
+        #expect(sketch.replacing(renamed, using: ev).shapes[0] == ab)
+    }
 }
