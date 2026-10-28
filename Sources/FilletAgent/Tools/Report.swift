@@ -145,6 +145,7 @@ enum Report {
             "bodies": .array(model.bodies.map { Describe.body($0, r, detail: detail) }),
         ]
         if let i = doc.rollbackIndex { out["rollback_marker"] = .string("only the first \(i) steps are active") }
+        if let nudge = untitledNudge(ws) { out["name_this_design"] = .string(nudge) }
         return .object(out)
     }
 
@@ -162,7 +163,14 @@ enum Report {
         }
         if !failed.isEmpty { out["failed_steps"] = .array(failed) }
         if !warnings.isEmpty { out["warnings"] = .array(warnings.map { .string($0) }) }
+        if let nudge = untitledNudge(ws) { out["name_this_design"] = .string(nudge) }
         return .object(out)
+    }
+
+    /// Until the design has a name: ask for one, so the user doesn't find their part as “Untitled 19”.
+    static func untitledNudge(_ ws: any DesignWorkspace) -> String? {
+        guard ws.isUntitled else { return nil }
+        return "This design is still called “\(ws.title)”. Call rename_design with a short name for what you're making (e.g. \"iPad stand\")."
     }
 
     /// What a modeling tool returns: the step it made, the bodies it made or changed, and the body names now.

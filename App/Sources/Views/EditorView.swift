@@ -23,9 +23,7 @@ struct EditorView: View {
             let s = DesignSession(document: document.model)
             s.undoManager = undoManager
             s.onDocumentChange = { [$document] model in $document.wrappedValue.model = model }
-            if document.model.name == nil, let name = fileURL?.deletingPathExtension().lastPathComponent {
-                s.documentName = name
-            }
+            s.fileURL = fileURL
             session = s
             AgentHub.shared.register(s)
             #if DEBUG
@@ -34,6 +32,9 @@ struct EditorView: View {
         }
         .onDisappear { if let session { AgentHub.shared.unregister(session) } }
         .onChange(of: document.model) { _, model in session?.externalUpdate(model) }
+        // Renamed (by the user, or an agent's rename_design): the title and exports follow the file.
+        .onChange(of: fileURL) { _, url in session?.fileURL = url }
+        .background(WindowAnchor { session?.hostWindow = $0 })
         .onChange(of: undoManager) { _, manager in session?.undoManager = manager }
     }
 }
@@ -145,7 +146,7 @@ struct EditorContent: View {
         #if os(macOS)
         .frame(minWidth: 900, minHeight: 600)
         #endif
-        .navigationTitle(session.documentName ?? fileURL?.deletingPathExtension().lastPathComponent ?? "Untitled")
+        .navigationTitle(session.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         .toolbarRole(.editor)

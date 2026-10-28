@@ -100,7 +100,10 @@ enum History {
         }
         if out.isEmpty, old.features.map(\.id) != new.features.map(\.id) { out.append("Reordered steps") }
         if old.rollbackIndex != new.rollbackIndex { out.append("Moved the rollback marker") }
-        if out.isEmpty, old != new { out.append("Changed design settings (name, printer or units)") }
+        if old.name != new.name {
+            out.append("Design name: \(old.name.map { "“\($0)”" } ?? "none") → \(new.name.map { "“\($0)”" } ?? "none") (the file keeps its current name)")
+        }
+        if out.isEmpty, old != new { out.append("Changed design settings (printer or units)") }
         return out
     }
 }

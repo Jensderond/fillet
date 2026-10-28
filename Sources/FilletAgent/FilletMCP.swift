@@ -34,6 +34,10 @@ public enum FilletMCP {
         Connected to: \(host.hostDescription). In the app, the user watches every change land in their window, \
         and each tool call that changes the design is one step they can undo.
 
+        NAME THE DESIGN: as soon as you know what you're making, call rename_design with a short name ("iPad stand", \
+        "Cable clip"), or pass `name` to new_design. Otherwise the user finds your work as “Untitled 19”. Rename it \
+        when the part turns into something else.
+
         COORDINATES: millimetres and degrees. Z is up; the printer bed is the XY plane at z = 0, centred on the origin \
         (the default bed is 180×180 mm). Model parts standing on the bed (z ≥ 0). Front view looks along +Y.
 
@@ -105,7 +109,7 @@ struct FilletTools {
 
     var all: [MCPTool] {
         [getDesign, getFeature, listFaces, listEdges, measure, checkPrint, renderView, setView,
-         newDesign, listDesigns, selectDesign]
+         newDesign, renameDesign, listDesigns, selectDesign]
             + historyTools + modelingTools
     }
 
@@ -380,7 +384,7 @@ struct FilletTools {
             name: "new_design", title: "New design",
             description: "Starts a new, empty design. On the Mac this opens a new window; on iPad (or headless) it clears the current design, which needs replace_current: true when it has steps (the user can still undo it).",
             inputSchema: Self.object([
-                "name": Self.string("Design name"),
+                "name": Self.string("What you're making, e.g. \"iPad stand\" (the window and file get this name)"),
                 "printer": Self.string("Printer preset id", enum: PrinterPreset.all.map(\.id)),
                 "replace_current": Self.boolean("Clear the current design instead of opening a new one"),
             ])
@@ -399,7 +403,7 @@ struct FilletTools {
                 target = current
             }
             var doc = Document()
-            doc.name = a.optionalString("name")
+            doc.name = try a.optionalString("name").map(Self.designName)
             if let printer = a.optionalString("printer") {
                 guard PrinterPreset.preset(id: printer) != nil else { throw ToolError("Unknown printer '\(printer)'") }
                 doc.printer = printer
@@ -407,9 +411,44 @@ struct FilletTools {
                 doc.printer = target.document.printer
             }
             if doc != target.document { _ = await target.commit(doc, action: "New Design") }
-            return .json(["design": .string(target.title), "id": .string(target.id.uuidString),
-                          "printer": .string(doc.printerPreset.name), "bed": .vec(doc.printerPreset.bedSize, 0)])
+            var file: FileNaming?
+            if let name = doc.name { file = await target.nameFile(name) }
+            var out: [String: JSONValue] = [
+                "design": .string(target.title), "id": .string(target.id.uuidString),
+                "printer": .string(doc.printerPreset.name), "bed": .vec(doc.printerPreset.bedSize, 0),
+            ]
+            if let file { out["file"] = .string(file.description) }
+            if let nudge = Report.untitledNudge(target) { out["name_this_design"] = .string(nudge) }
+            return .json(.object(out))
         }
+    }
+
+    private var renameDesign: MCPTool {
+        MCPTool(
+            name: "rename_design", title: "Rename design",
+            description: """
+                Names the design after what you're making ("iPad stand", "Cable clip"), so the user finds it by that name \
+                instead of “Untitled 19”. Call it as soon as you know what you're building, and again if that changes. \
+                In the app the window and its file get the name (where Fillet may rename the file); one undoable step.
+                """,
+            inputSchema: Self.object(["name": Self.string("A short name for the part, without a file extension")], required: ["name"])
+        ) { args in
+            let ws = try host.requireCurrent()
+            let name = try Self.designName(try Args(args).string("name"))
+            let (model, _) = try await Change.apply(ws, action: "Rename Design") { $0.name = name }
+            let file = await ws.nameFile(name)
+            return .json(["design": .string(ws.title), "file": .string(file.description), "summary": Report.brief(ws, model)])
+        }
+    }
+
+    /// A name that works as a file name too: trimmed, without “.fillet” or path separators.
+    static func designName(_ input: String) throws -> String {
+        var name = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.lowercased().hasSuffix(".fillet") { name = String(name.dropLast(7)).trimmingCharacters(in: .whitespaces) }
+        name = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        guard !name.isEmpty, !name.hasPrefix(".") else { throw ToolError("`name` must be a short name like \"iPad stand\"") }
+        guard name.count <= 80 else { throw ToolError("`name` is too long: keep it under 80 characters") }
+        return name
     }
 
     private var listDesigns: MCPTool {

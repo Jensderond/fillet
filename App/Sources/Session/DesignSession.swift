@@ -111,8 +111,10 @@ final class DesignSession {
     @ObservationIgnored var revealSketchAfterRecompute = false
     var showOverhangs = false
     var overhangAngle = 45.0
-    /// Window title when the document has no explicit name.
-    var documentName: String?
+    /// The document's file (nil until it has one: an unsaved Mac window).
+    var fileURL: URL?
+    /// The window this session's editor is in, to reach its document (see `DocumentNaming`).
+    @ObservationIgnored weak var hostWindow: PlatformWindow?
     /// Set by the menu command; the editor presents the file importer.
     var importRequested = false
     /// Shown as a banner over the viewport (export finished, a step failed…).

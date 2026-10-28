@@ -19,7 +19,7 @@ final class LiveWorkspace: DesignWorkspace {
         }
     }
 
-    var title: String { session.map { $0.document.name ?? $0.documentName ?? "Untitled" } ?? "Closed" }
+    var title: String { session?.title ?? "Closed" }
     var document: Document { session?.document ?? Document() }
     var hiddenBodies: Set<BodyRef> { session?.hiddenBodies ?? [] }
     var camera: Camera { session?.camera ?? Camera() }
@@ -96,6 +96,11 @@ final class LiveWorkspace: DesignWorkspace {
 
     func show(_ camera: Camera) {
         session?.camera = camera
+    }
+
+    func nameFile(_ name: String) async -> FileNaming {
+        guard let session else { return .kept("this design's window was closed") }
+        return await DocumentNaming.name(session, name)
     }
 }
 

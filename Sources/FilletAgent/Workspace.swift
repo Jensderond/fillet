@@ -37,6 +37,28 @@ public protocol DesignWorkspace: AnyObject {
     func redo() async -> String?
     /// Moves the view (live: animates the user's camera).
     func show(_ camera: Camera)
+    /// Gives the design's file the name the document now has, where the host can: live, the
+    /// window's document file is renamed (an unsaved Mac window takes it as its name instead).
+    func nameFile(_ name: String) async -> FileNaming
+}
+
+/// What naming a design did to its file.
+public enum FileNaming: Sendable, Equatable {
+    /// The file was renamed; its new file name.
+    case renamed(String)
+    /// Not saved yet: the window shows the name and saving proposes it.
+    case unsaved
+    /// The file keeps its name, and why.
+    case kept(String)
+
+    /// For the agent.
+    var description: String {
+        switch self {
+        case .renamed(let file): "The file is now “\(file)”."
+        case .unsaved: "It isn't saved to a file yet; the name is shown for it and proposed when it's saved."
+        case .kept(let reason): "The file keeps its name: \(reason)"
+        }
+    }
 }
 
 /// One change in a design's undo history.
@@ -70,6 +92,13 @@ public protocol WorkspaceHost: AnyObject {
 
 extension DesignWorkspace {
     func preview(_ candidate: Document) async -> EvaluatedModel { await preview(candidate, before: nil) }
+
+    /// Nobody has named the design yet: it goes by a default title like “Untitled 19”.
+    var isUntitled: Bool {
+        guard document.name == nil else { return false }
+        let t = (title as NSString).deletingPathExtension
+        return t == "Untitled" || t.hasPrefix("Untitled ")
+    }
 }
 
 extension WorkspaceHost {
@@ -157,6 +186,12 @@ public final class HeadlessWorkspace: DesignWorkspace {
     }
 
     public func show(_ camera: Camera) { self.camera = camera }
+
+    /// The file is the one the agent opened or saved to; naming the design doesn't move it.
+    public func nameFile(_ name: String) async -> FileNaming {
+        guard let fileURL else { return .unsaved }
+        return .kept("headless designs stay at the path they were opened from (\(fileURL.lastPathComponent)); save_design writes a copy elsewhere.")
+    }
 
     /// Replaces the design wholesale (open another file), without undo.
     public func load(_ doc: Document, fileURL: URL?) {

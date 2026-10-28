@@ -48,7 +48,7 @@ extension DesignSession {
     /// Visible bodies, the ones that get exported.
     var exportBodies: [EvaluatedBody] { model.bodies.filter { !hiddenBodies.contains($0.ref) } }
 
-    var exportName: String { documentName ?? "Fillet Design" }
+    var exportName: String { documentName ?? document.name ?? "Fillet Design" }
 
     /// Builds the export off the main thread (fine tessellation can take a moment).
     func exportData(_ format: ExportFormat) async throws -> Data {

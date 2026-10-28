@@ -47,7 +47,7 @@ enum DemoDirector {
         ran = true
         start = Date()
         beat("launch")
-        session.documentName = "Pen holder"
+        session.fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("Pen holder.fillet")  // the title
         // The splash plays over the editor (1.6 s); let it finish and the bed settle.
         await pause(2.6)
         beat("editor")
