@@ -42,10 +42,19 @@ public struct SketchMove: Hashable, Sendable {
     /// The snapped offset for the pointer at `raw`, and what the anchor snapped to. The moving
     /// shapes' own points are left out of `context`: a shape can't snap to itself.
     public func offset(to raw: SIMD2<Double>, context: SnapContext) -> (offset: SIMD2<Double>, snap: SketchSnap) {
+        let r = resolve(to: raw, context: context)
+        return (r.offset, r.resolution.snap)
+    }
+
+    /// The snapped offset with the full snap, guides included. `previous` is the last event's
+    /// target, held while the pointer stays near it.
+    public func resolve(to raw: SIMD2<Double>, context: SnapContext, previous: SnapTarget? = nil)
+        -> (offset: SIMD2<Double>, resolution: SnapResolution)
+    {
         var others = context
-        others.points.removeAll { shapes.contains($0.shape) }
-        let snapped = others.snap(anchor + raw - press)
-        return (snapped.point - anchor, snapped.snap)
+        others.targets = context.targets.excluding(shapes)
+        let resolution = others.resolve(anchor + raw - press, previous: previous)
+        return (resolution.point - anchor, resolution)
     }
 
     /// The original sketch with the moving shapes translated by `offset`.

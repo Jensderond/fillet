@@ -78,55 +78,6 @@ public struct DimensionField: Hashable, Sendable {
     }
 }
 
-/// What the cursor snapped to, for on-screen feedback.
-public enum SketchSnap: Hashable, Sendable {
-    case grid
-    case point(SnapKind)
-    /// Horizontal/vertical alignment with the previous point.
-    case horizontal, vertical
-    case none
-}
-
-/// Snap targets and tolerance for one input event.
-public struct SnapContext: Sendable {
-    public var points: [SnapPoint]
-    /// Snap radius in millimetres (derived from the on-screen size).
-    public var tolerance: Double
-    public var gridSize: Double
-    /// The sketch being edited, for tools that pick its curves (Offset).
-    public var sketch: Sketch?
-    public var evaluator: Evaluator = .empty
-    public init(points: [SnapPoint], tolerance: Double, gridSize: Double) {
-        self.points = points; self.tolerance = tolerance; self.gridSize = gridSize
-    }
-
-    /// Snaps `raw` to the nearest snap point within the tolerance (endpoints, centres and
-    /// points before midpoints and quadrants), otherwise to the grid (or to 0.01 mm with the
-    /// grid off). `extra` adds candidates; `gridStep` overrides the grid step (half steps for
-    /// centre-based sizes).
-    public func snap(_ raw: SIMD2<Double>, extra: [(SIMD2<Double>, SnapKind)] = [], gridStep: Double? = nil)
-        -> (point: SIMD2<Double>, snap: SketchSnap)
-    {
-        func distance(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double {
-            let d = a - b
-            return (d.x * d.x + d.y * d.y).squareRoot()
-        }
-        let candidates = points.map { ($0.position, $0.kind) } + extra
-        let rank: [SnapKind: Int] = [.endpoint: 0, .center: 0, .point: 0, .midpoint: 1, .quadrant: 1]
-        if let best = candidates
-            .filter({ distance($0.0, raw) <= tolerance })
-            .min(by: { (rank[$0.1] ?? 2, distance($0.0, raw)) < (rank[$1.1] ?? 2, distance($1.0, raw)) })
-        {
-            return (best.0, .point(best.1))
-        }
-        if gridSize > 0 {
-            let step = gridStep ?? gridSize
-            return ((raw / step).rounded(.toNearestOrAwayFromZero) * step, .grid)
-        }
-        return ((raw * 100).rounded(.toNearestOrAwayFromZero) / 100, .none)
-    }
-}
-
 /// Turns presses, drags and taps on the sketch plane into sketch shapes.
 ///
 /// Every gesture is press → drag* → release. A release far from its press
@@ -146,6 +97,11 @@ public struct SketchToolEngine: Sendable {
     /// while the cursor moves; the cursor still picks the free sizes and the direction.
     public private(set) var locks: [Int: Double] = [:]
     public private(set) var snap: SketchSnap = .none
+    /// Dashed guides and markers for the current snap (empty when nothing lines up).
+    public private(set) var guides: [SnapGuide] = []
+    public private(set) var markers: [SnapMarker] = []
+    /// The last snap, held while the pointer stays near it (see `SnapContext.resolve`).
+    private var snapTarget: SnapTarget?
     /// Start of the current line chain (to detect closing it).
     private var chainStart: SIMD2<Double>?
     private var pressPoint: SIMD2<Double>?
@@ -163,6 +119,7 @@ public struct SketchToolEngine: Sendable {
 
     /// Drops the shape in progress.
     public mutating func cancel() {
+        clearGuides()
         points = []
         locks = [:]
         chainStart = nil
@@ -201,7 +158,7 @@ public struct SketchToolEngine: Sendable {
         grid = context.gridSize
         if let sketch = context.sketch { offset.resolve(in: sketch, using: context.evaluator) }
         var others = context
-        others.points.removeAll { offset.shapes.contains($0.shape) }
+        others.targets = context.targets.excluding(Set(offset.shapes))
         let snapped = others.snap(raw)
         let onPoint: Bool
         if case .point = snapped.snap { onPoint = true } else { onPoint = false }
@@ -273,6 +230,8 @@ public struct SketchToolEngine: Sendable {
         let p = track(raw, context)
         pressPoint = nil
         offset.pressed = nil
+        // Guides belong to the gesture: a finger lifted has no hover to keep them up to date.
+        clearGuides()
         return place(p, tolerance: context.tolerance)
     }
 
@@ -605,31 +564,33 @@ public struct SketchToolEngine: Sendable {
         freeCursor = free
         let p = constrained(free)
         cursor = p
+        // Typed sizes moved the point off what it snapped to: the guides no longer apply.
+        if !p.isClose(to: free) { guides = []; markers = [] }
         return p
     }
 
     private mutating func snapped(_ raw: SIMD2<Double>, _ context: SnapContext) -> SIMD2<Double> {
         grid = context.gridSize
-        // 1. Existing geometry (and the chain start, to close a loop), 2. the grid.
+        // The shape in progress snaps like existing geometry (and the chain start closes a loop).
         var extra: [(SIMD2<Double>, SnapKind)] = chainStart.map { [($0, .endpoint)] } ?? []
         extra += points.map { ($0, SnapKind.endpoint) }
+        // Lining a rectangle's corner up with its first point only makes it flat.
+        let anchors = [.rectangle, .centerRectangle].contains(tool) ? [] : extra.map(\.0)
         // Centre-based sizes (centre rectangle, circle, polygon) need half steps for whole-step sizes.
         let sizing = points.count == 1 && [.centerRectangle, .circle, .polygon].contains(tool)
-        let snapped = context.snap(raw, extra: extra, gridStep: sizing ? context.gridSize / 2 : nil)
-        var p = snapped.point
-        snap = snapped.snap
-        if case .point = snap { return p }
-        // 3. Horizontal / vertical with the previous point.
-        if let last = points.last {
-            if abs(raw.y - last.y) <= context.tolerance {
-                p.y = last.y
-                snap = .horizontal
-            } else if abs(raw.x - last.x) <= context.tolerance {
-                p.x = last.x
-                snap = .vertical
-            }
-        }
-        return p
+        let resolved = context.resolve(raw, extra: extra, anchors: anchors, gridStep: sizing ? context.gridSize / 2 : nil,
+                                       previous: snapTarget)
+        snap = resolved.snap
+        snapTarget = resolved.target
+        guides = resolved.guides
+        markers = resolved.markers
+        return resolved.point
+    }
+
+    private mutating func clearGuides() {
+        guides = []
+        markers = []
+        snapTarget = nil
     }
 
     private func distance(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double {

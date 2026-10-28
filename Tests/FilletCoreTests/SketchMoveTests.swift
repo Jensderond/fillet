@@ -103,9 +103,15 @@ struct SketchMoveTests {
         #expect(near.snap == .point(.point))
         #expect(near.offset == SIMD2(10, 0))
         // Barely moved: its own (old) points don't hold it in place; grid off rounds to 0.01 mm.
-        let small = move.offset(to: SIMD2(10.234, 0.111), context: ctx)
+        // (Its old end at x = 10 would line up vertically; the fixed point at y = 0 is out of reach.)
+        let small = move.offset(to: SIMD2(10.234, 2.111), context: ctx)
         #expect(small.snap == .none)
-        #expect(abs(small.offset.x - 0.23) < 1e-9 && abs(small.offset.y - 0.11) < 1e-9)
+        #expect(abs(small.offset.x - 0.23) < 1e-9 && abs(small.offset.y - 2.11) < 1e-9)
+        // Level with the fixed point: lines up with it horizontally.
+        let level = move.resolve(to: SIMD2(10.234, 0.111), context: ctx)
+        #expect(level.resolution.snap == .horizontal)
+        #expect(level.offset.y == 0)
+        #expect(level.resolution.guides == [SnapGuide(kind: .horizontal, from: SIMD2(20, 0), to: SIMD2(10.23, 0))])
         // Only the moving shapes move.
         let moved = move.moved(by: near.offset, using: ev)
         #expect(moved.shapes[0] == fixed)

@@ -6,6 +6,8 @@ public enum SnapKind: String, Hashable, Sendable, CaseIterable {
     case endpoint, midpoint, center, quadrant
     /// A sketch point shape or an interior spline point.
     case point
+    /// Where curves of two different shapes cross.
+    case intersection
 }
 
 /// A point the sketch UI can snap to.
@@ -13,11 +15,14 @@ public struct SnapPoint: Hashable, Sendable {
     public var position: SIMD2<Double>
     public var kind: SnapKind
     public var shape: UUID
+    /// The second shape of an intersection.
+    public var other: UUID?
 
-    public init(position: SIMD2<Double>, kind: SnapKind, shape: UUID) {
+    public init(position: SIMD2<Double>, kind: SnapKind, shape: UUID, other: UUID? = nil) {
         self.position = position
         self.kind = kind
         self.shape = shape
+        self.other = other
     }
 }
 
