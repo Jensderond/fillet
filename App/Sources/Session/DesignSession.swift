@@ -153,6 +153,8 @@ final class DesignSession {
     @ObservationIgnored private let evaluator = ModelEvaluator()
     @ObservationIgnored private var recomputeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingRecompute = false
+    /// The document before a gesture's live changes (see `performLive`).
+    @ObservationIgnored private var liveChangeStart: Document?
 
     init(document: Document) {
         self.document = document
@@ -172,6 +174,25 @@ final class DesignSession {
         guard after != before else { return }
         setDocument(after)
         registerUndo(from: before, to: after, actionName: actionName)
+    }
+
+    /// Applies a change while a gesture runs (the rollback marker following the finger): shown
+    /// and recomputed right away, but undoable only once `endLiveChange` makes the whole gesture
+    /// one step.
+    func performLive(_ change: (inout Document) -> Void) {
+        if liveChangeStart == nil { liveChangeStart = document }
+        var changed = document
+        change(&changed)
+        guard changed != document else { return }
+        setDocument(changed)
+    }
+
+    /// Ends a gesture's live changes as one undoable step (nothing if it ended where it began).
+    func endLiveChange(_ actionName: String) {
+        guard let before = liveChangeStart else { return }
+        liveChangeStart = nil
+        guard document != before else { return }
+        registerUndo(from: before, to: document, actionName: actionName)
     }
 
     /// Replaces the document when the file changed underneath (e.g. revert).

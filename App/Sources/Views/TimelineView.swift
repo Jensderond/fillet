@@ -6,24 +6,27 @@ import SwiftUI
 /// Every feature is a station at an even interval with a numbered tick. Tap a
 /// station to change it; later steps replay. Drag stations to reorder (refused
 /// when a step would land before something it uses). The orange caliper is the
-/// rollback marker: it follows the finger along the ruler, snapping to stations;
-/// steps past it are hatched like a section view.
+/// rollback marker: it follows the finger along the ruler, snapping to stations, and
+/// the model follows it once it rests on one; steps past it are hatched like a section view.
 struct TimelineView: View {
     @Bindable var session: DesignSession
     @State private var renaming: UUID?
     @State private var newName = ""
     @State private var dropTarget: Int?
     /// Where the caliper is while it's being dragged (a station boundary), nil otherwise.
-    @State private var markerDrag: Int?
+    @GestureState private var markerDrag: Int?
     @State private var visibleWidth: CGFloat = 0
+    /// The part of the ruler in view, to keep the marker there.
+    @State private var visibleRect: CGRect = .zero
     /// The station under the pointer: its ruler number shows (names already say the order).
     @State private var hoveredStation: Int?
-    @Namespace private var markerSpace
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.touchTargets) private var touch
 
     /// Station pitch on the ruler; grows with the station labels under Dynamic Type.
     @ScaledMetric(relativeTo: .caption) private var stationWidth: CGFloat = 70
+    /// The ruler's inset in the scroll view.
+    private let rulerInset: CGFloat = 4
 
     private var doc: Document { session.document }
     private var markerIndex: Int { doc.activeFeatureCount }
@@ -42,18 +45,23 @@ struct TimelineView: View {
                                 emptyState
                             }
                             ForEach(Array(doc.features.enumerated()), id: \.element.id) { index, feature in
-                                if index == markerIndex { marker }
+                                if index == markerIndex { markerSlot }
                                 station(feature, index: index)
                                     .id(feature.id)
                             }
-                            if markerIndex >= doc.features.count, !doc.features.isEmpty { marker }
+                            if markerIndex >= doc.features.count, !doc.features.isEmpty { markerSlot }
                             Color.clear.frame(width: 48, height: 60)
                                 .dropDestination(for: String.self) { items, _ in drop(items, at: doc.features.count) }
+                        }
+                        // Over the stations, so its grip wins over theirs (a tap, a press-and-hold to
+                        // reorder), and outside the stack, so it stays one view while the model follows it.
+                        .overlay(alignment: .leading) {
+                            if !doc.features.isEmpty { caliper }
                         }
                         .coordinateSpace(.named("ruler"))
                         .animation(reduceMotion ? nil : Theme.Motion.move, value: markerIndex)
                     }
-                    .padding(.horizontal, 4)
+                    .padding(.horizontal, rulerInset)
                     // Room above the chips for their corner marks (a pattern's check, a failure dot),
                     // which the scroll view would clip; the view reaches up by as much, so nothing moves.
                     .padding(.top, Theme.Space.xs)
@@ -62,6 +70,17 @@ struct TimelineView: View {
                 // A long design opens on its latest steps, where the work continues.
                 .defaultScrollAnchor(.trailing, for: .initialOffset)
                 .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { visibleWidth = $0 }
+                .onScrollGeometryChange(for: CGRect.self) { $0.visibleRect } action: { _, rect in visibleRect = rect }
+                // Dragging the caliper moves it, not the ruler.
+                .scrollDisabled(markerDrag != nil)
+                // The playback buttons (and undo) bring the marker back into view when it leaves it,
+                // with a step to spare on either side. A drag already has it under the finger.
+                .onChange(of: markerIndex) { _, index in
+                    guard markerDrag == nil else { return }
+                    let x = rulerInset + CGFloat(index) * stationWidth
+                    guard x < visibleRect.minX + stationWidth || x > visibleRect.maxX - stationWidth else { return }
+                    withAnimation(reduceMotion ? nil : Theme.Motion.move) { proxy.scrollTo("marker", anchor: .center) }
+                }
                 .onChange(of: doc.features.count) { _, _ in
                     withAnimation(Theme.Motion.enter) { proxy.scrollTo("marker", anchor: .trailing) }
                 }
@@ -198,32 +217,53 @@ struct TimelineView: View {
         }
     }
 
-    /// The rollback caliper. It follows the finger or pointer 1:1 along the ruler, snaps
-    /// to the station boundaries with a selection tick, and settles there on release.
-    private var marker: some View {
+    /// The rollback caliper. It follows the finger or pointer 1:1 along the ruler and snaps to the
+    /// station boundaries with a selection tick. Resting on a station shows the model there (the
+    /// drag is one undo step); it settles where it's let go.
+    private var caliper: some View {
         let count = doc.features.count
-        // Zero layout width keeps the ruler graduations aligned with the stations; while
-        // dragging, the caliper is drawn offset rather than moved in the stack.
+        // Zero layout width, so the caliper centres on its station boundary.
         return Color.clear
             .frame(width: 0, height: 64)
             .overlay {
                 RollbackCaliper(hitWidth: touch ? 44 : 28)
-                    .offset(x: CGFloat((markerDrag ?? markerIndex) - markerIndex) * stationWidth)
                     .highPriorityGesture(
-                        DragGesture(minimumDistance: 2, coordinateSpace: .named("ruler"))
-                            .onChanged { value in
-                                markerDrag = min(max(Int((value.location.x / stationWidth).rounded()), 0), count)
+                        // No minimum distance: the caliper takes the touch as it lands, before the
+                        // ruler can start scrolling under it.
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named("ruler"))
+                            .updating($markerDrag) { value, drag, _ in
+                                drag = min(max(Int((value.location.x / stationWidth).rounded()), 0), count)
                             }
-                            .onEnded { _ in
-                                guard let target = markerDrag else { return }
-                                markerDrag = nil
-                                if target != markerIndex { session.moveRollbackMarker(to: target >= count ? nil : target) }
+                            .onEnded { value in
+                                let target = min(max(Int((value.location.x / stationWidth).rounded()), 0), count)
+                                session.endRollbackDrag(at: target >= count ? nil : target)
                             })
-                    .sensoryFeedback(.selection, trigger: markerDrag) { _, new in new != nil }
+                    .sensoryFeedback(.selection, trigger: markerDrag) { old, new in old != nil && new != nil }
             }
-            .matchedGeometryEffect(id: "marker", in: markerSpace)
-            .id("marker")
+            .offset(x: CGFloat(markerDrag ?? markerIndex) * stationWidth)
+            // Once the caliper rests on a station for a moment, the model follows it there.
+            .task(id: markerDrag) {
+                guard let target = markerDrag else {
+                    // Let go or cancelled: whatever the drag showed becomes one undo step.
+                    session.endLiveChange("Move Rollback Marker")
+                    return
+                }
+                guard target != markerIndex else { return }
+                try? await Task.sleep(for: .milliseconds(150))
+                guard !Task.isCancelled else { return }
+                session.dragRollbackMarker(to: target >= count ? nil : target)
+            }
             .help("Rollback marker. Drag it along the ruler to see the model at an earlier step.")
+            .accessibilityHidden(true)
+    }
+
+    /// Where the marker sits among the stations, for scrolling to it and for VoiceOver, which
+    /// reads it in order; the caliper itself is drawn over the ruler.
+    private var markerSlot: some View {
+        let count = doc.features.count
+        return Color.clear
+            .frame(width: 0, height: 64)
+            .id("marker")
             .accessibilityElement()
             .accessibilityLabel("Rollback marker")
             .accessibilityValue(markerIndex >= count ? "after the last step, \(count) of \(count)" : "after step \(markerIndex) of \(count)")

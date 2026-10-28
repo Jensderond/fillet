@@ -503,6 +503,20 @@ extension DesignSession {
         perform("Move Rollback Marker") { doc in doc.moveRollbackMarker(to: index) }
     }
 
+    /// Moves the marker while it's dragged, so the model shows that step before the finger lifts.
+    /// `endRollbackDrag` makes the drag one undo step.
+    func dragRollbackMarker(to index: Int?) {
+        // A tap on the caliper, or a drag back to where it began, leaves an open edit alone.
+        guard (index ?? document.features.count) != document.activeFeatureCount else { return }
+        commitEdit()
+        performLive { doc in doc.moveRollbackMarker(to: index) }
+    }
+
+    func endRollbackDrag(at index: Int?) {
+        dragRollbackMarker(to: index)
+        endLiveChange("Move Rollback Marker")
+    }
+
     func moveFeature(_ id: UUID, to index: Int) -> Bool {
         guard document.canMoveFeature(id, to: index) else { return false }
         perform("Reorder") { doc in try? doc.moveFeature(id, to: index) }
