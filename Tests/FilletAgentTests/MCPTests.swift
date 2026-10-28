@@ -62,7 +62,7 @@ final class SharedWorkspace: DesignWorkspace {
     var id: UUID { inner.id }
     var title: String { inner.title }
     var document: Document { inner.document }
-    var hiddenBodies: Set<BodyRef> { [] }
+    var hiddenBodies: Set<BodyRef> { inner.hiddenBodies }
     var camera: Camera { inner.camera }
     var viewAspect: Double { inner.viewAspect }
     func evaluated() async -> EvaluatedModel { await inner.evaluated() }
@@ -78,6 +78,7 @@ final class SharedWorkspace: DesignWorkspace {
         return action
     }
     func redo() async -> String? { await inner.redo() }
+    func setHiddenBodies(_ hidden: Set<BodyRef>) { inner.setHiddenBodies(hidden) }
     func show(_ camera: Camera) {}
     func nameFile(_ name: String) async -> FileNaming { await inner.nameFile(name) }
 }

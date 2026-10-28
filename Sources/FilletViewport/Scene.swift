@@ -222,6 +222,18 @@ public struct OverhangStyle: Hashable, Sendable {
     }
 }
 
+/// A section cut: everything on the side `normal` points to is cut away, so the inside shows.
+/// Where the cut opens a body, its inside is drawn in `color` (mixed `color.a` into the body's colour).
+public struct SectionPlane: Hashable, Sendable {
+    public var origin: Vec3
+    public var normal: Vec3
+    public var color: ViewportColor
+
+    public init(origin: Vec3, normal: Vec3, color: ViewportColor = ViewportColor(hex: 0xD9483B, alpha: 0.7)) {
+        self.origin = origin; self.normal = normal; self.color = color
+    }
+}
+
 /// A draggable arrow handle (e.g. extrude distance). The arrow tip sits at
 /// `origin + direction * value`; dragging reports a new `value`.
 public struct Handle: Hashable, Sendable, Identifiable {
@@ -441,6 +453,8 @@ public struct ViewportScene: Sendable {
     public var visualStyle: VisualStyle = .shadedWithEdges
     /// Contact shadows as soft ellipses instead of rounded boxes (organic, product-shot renders).
     public var ellipticalShadows = false
+    /// Cuts the bodies open (renders for agents); their edges and silhouettes are cut too.
+    public var section: SectionPlane?
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
                 plate: BuildPlate? = nil, selection: Set<PickTarget> = [], hover: PickTarget? = nil,

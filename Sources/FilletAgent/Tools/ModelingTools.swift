@@ -7,7 +7,7 @@ extension FilletTools {
     var modelingTools: [MCPTool] {
         [setParameter, deleteParameter, createSketch, addSketchShapes, extrude, revolve, primitive,
          loft, fillet, chamfer, shell, hole, pressPull, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
-         editFeature, deleteFeature, setBodyColor, export]
+         editFeature, deleteFeature, setBodyColor, setBodyVisibility, export]
     }
 
     // MARK: Parameters
@@ -364,11 +364,15 @@ extension FilletTools {
         do {
             return try await add(ws, fillet ? .fillet(e) : .chamfer(e), base: fillet ? "Fillet" : "Chamfer", a)
         } catch let error as ToolError {
-            // Find out which edges are the trouble and what size would work.
-            guard error.message.contains(" failed: "), let value = try? r.model.parameters.evaluator.length(size), value > 0 else { throw error }
-            let d = await BlendDiagnosis.run(shape: b.shape, edges: indices, size: value, fillet: fillet)
-            throw ToolError(error.message + " " + d.message(size: value, fillet: fillet))
+            throw await Self.diagnosed(error, shape: b.shape, edges: indices, size: size, fillet: fillet, r)
         }
+    }
+
+    /// A failed fillet or chamfer's error with which edges are the trouble and what size would work.
+    static func diagnosed(_ error: ToolError, shape: Shape, edges: [Int], size: Expr, fillet: Bool, _ r: Resolver) async -> ToolError {
+        guard error.message.contains(" failed: "), let value = try? r.model.parameters.evaluator.length(size), value > 0 else { return error }
+        let d = await BlendDiagnosis.run(shape: shape, edges: edges, size: value, fillet: fillet)
+        return ToolError(error.message + " " + d.message(size: value, fillet: fillet))
     }
 
     private var shell: MCPTool {
@@ -629,18 +633,30 @@ extension FilletTools {
             description: """
                 Changes an existing step with a JSON merge patch against its definition from get_feature, e.g. \
                 {"kind": {"distance": "25"}} or {"name": "Hat", "suppressed": true}. Arrays (like sketch shapes) are replaced \
-                whole. To use different faces or edges, delete the step and add a new one.
+                whole. To point a step at different edges or faces (after a change moved them, or to round other ones), \
+                give `edges` (fillet, chamfer; a move's or pattern's axis edge) or `faces` (shell, press pull, hole, lay \
+                flat; the face a sketch, primitive or mirror sits on), picked as the tool that makes the step picks them: \
+                indices, "all" or a filter, including {"created_by": …} and {"chain_of": …}. They are picked on the bodies \
+                as they are just before the step (list_edges/list_faces with `before` show them).
                 """,
             inputSchema: Self.object(["feature": Self.string("Step name or id"),
                                       "changes": ["type": "object", "description": "Merge patch for the step's JSON"],
-                                      "allow_failures": Self.allowFailures], required: ["feature", "changes"])
+                                      "edges": Self.selection, "faces": Self.selection,
+                                      "body": Self.string("Body the edges or faces are on (default: the step's)"),
+                                      "allow_failures": Self.allowFailures], required: ["feature"])
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
-            let r = try await Resolver.load(ws, args)
+            let r = try await Resolver.load(ws)
             let old = try r.feature(try a.string("feature"))
-            guard let changes = a["changes"], changes.object != nil else { throw ToolError("`changes` must be an object") }
-            var patched = try JSONValue(encoding: old).merging(patch: changes)
+            guard a["changes"] != nil || a["edges"] != nil || a["faces"] != nil else {
+                throw ToolError("Give `changes`, `edges` or `faces`")
+            }
+            var patched = try JSONValue(encoding: old)
+            if let changes = a["changes"] {
+                guard changes.object != nil else { throw ToolError("`changes` must be an object") }
+                patched = patched.merging(patch: changes)
+            }
             if var o = patched.object, var kind = o["kind"]?.object, kind["type"] == "sketch", let shapes = kind["shapes"] {
                 kind["shapes"] = try ShapeInput.normalized(shapes)
                 o["kind"] = .object(kind)
@@ -651,11 +667,144 @@ extension FilletTools {
                 throw ToolError("The patched step isn't valid: \(Self.decodingMessage(error))")
             }
             f.id = old.id
+            var extra: [String: JSONValue] = [:]
+            var blend: (shape: Shape, edges: [Int], size: Expr, fillet: Bool, r: Resolver)?
+            if a["edges"] != nil || a["faces"] != nil {
+                let pre = try await Resolver.load(ws, args, before: old)
+                let picked = try Self.repoint(&f, edges: a["edges"], faces: a["faces"], body: a.optionalString("body"), pre)
+                extra["picked"] = .string(picked.text)
+                switch f.kind {
+                case .fillet(let e): blend = (picked.body.shape, picked.indices, e.size, true, pre)
+                case .chamfer(let e): blend = (picked.body.shape, picked.indices, e.size, false, pre)
+                default: break
+                }
+            }
             let allow = a.bool("allow_failures", default: false)
-            let (model, warnings) = try await Change.apply(ws, action: "Edit \(f.name)", newFeature: allow || f.suppressed ? nil : f.id,
-                                               allowFailures: allow) { try $0.updateFeature(f) }
-            return Report.added(ws, model, warnings: warnings, feature: f.id, extra: Self.sketchInfo(f, model))
+            do {
+                let (model, warnings) = try await Change.apply(ws, action: "Edit \(f.name)", newFeature: allow || f.suppressed ? nil : f.id,
+                                                   allowFailures: allow) { try $0.updateFeature(f) }
+                return Report.added(ws, model, warnings: warnings, feature: f.id, extra: extra.merging(Self.sketchInfo(f, model)) { a, _ in a })
+            } catch let error as ToolError {
+                guard let blend else { throw error }
+                throw await Self.diagnosed(error, shape: blend.shape, edges: blend.edges, size: blend.size, fillet: blend.fillet, blend.r)
+            }
         }
+    }
+
+    /// Points `f` at the edges or faces `edges` / `faces` pick on `body` (default: the one the step
+    /// works on), resolved by `r` on the bodies just before the step, the way the tool that makes
+    /// such a step picks them. Returns the body, the picked indices and a summary like "3 edges of “Base”".
+    static func repoint(_ f: inout Feature, edges: JSONValue?, faces: JSONValue?, body: String?, _ r: Resolver)
+        throws -> (body: EvaluatedBody, indices: [Int], text: String)
+    {
+        if edges != nil, faces != nil { throw ToolError("Give `edges` or `faces`, not both") }
+        let kind = f.kind
+        let takesEdges: Bool
+        let current: BodyRef?
+        switch kind {
+        case .fillet(let e), .chamfer(let e): (takesEdges, current) = (true, e.body)
+        case .move(let m):
+            if case .edge(let e) = m.rotationAxis { current = e.body } else { current = nil }
+            takesEdges = true
+        case .pattern(let p):
+            switch p.layout {
+            case .linear(.edge(let e), _, _), .circular(.edge(let e), _, _): current = e.body
+            default: current = nil
+            }
+            takesEdges = true
+        case .shell(let s): (takesEdges, current) = (false, s.body)
+        case .pressPull(let p): (takesEdges, current) = (false, p.body)
+        case .layFlat(let l): (takesEdges, current) = (false, l.body)
+        case .hole(let h): (takesEdges, current) = (false, h.face?.body)
+        case .sketch(let s): (takesEdges, current) = (false, s.plane.referencedBodies.first)
+        case .primitive(let p): (takesEdges, current) = (false, p.plane.referencedBodies.first)
+        case .mirror(let m): (takesEdges, current) = (false, m.plane.referencedBodies.first)
+        default:
+            throw ToolError("“\(f.name)” is a \(kind.typeName) step; it has no edges or faces to pick")
+        }
+        guard let value = takesEdges ? edges : faces else {
+            throw ToolError("“\(f.name)” is a \(kind.typeName) step: give `\(takesEdges ? "edges" : "faces")`, not `\(takesEdges ? "faces" : "edges")`")
+        }
+        let b: EvaluatedBody
+        if let body {
+            b = try r.body(body)
+        } else if let current {
+            guard let found = r.model.body(current) else {
+                throw ToolError("The body “\(f.name)” works on isn't there before it; give `body`. Bodies: \(r.bodyList)")
+            }
+            b = found
+        } else {
+            throw ToolError("“\(f.name)” isn't on a body yet: give `body` with `\(takesEdges ? "edges" : "faces")`")
+        }
+        let label = r.bodyLabel(b)
+        let one: JSONValue = ["body": .string(b.ref.feature.uuidString), takesEdges ? "edge" : "face": value]
+        func refs<Ref>(_ indices: [Int], _ ref: (Int) -> Ref?) -> [Ref] { indices.compactMap(ref) }
+        let indices: [Int]
+        switch kind {
+        case .fillet(var e), .chamfer(var e):
+            indices = try r.edges(of: b, value, key: "edges", forRounding: true)
+            e.body = b.ref
+            e.edges = refs(indices) { r.model.edgeRef(body: b.ref, edge: $0) }
+            if case .fillet = kind { f.kind = .fillet(e) } else { f.kind = .chamfer(e) }
+        case .move(var m):
+            m.rotationAxis = try r.axis(one, key: "edges")
+            f.kind = .move(m)
+            indices = []
+        case .pattern(var p):
+            let axis = try r.axis(one, key: "edges")
+            p.layout = switch p.layout {
+            case .linear(_, let count, let spacing): .linear(direction: axis, count: count, spacing: spacing)
+            case .circular(_, let count, let angle): .circular(axis: axis, count: count, angle: angle)
+            }
+            f.kind = .pattern(p)
+            indices = []
+        case .shell(var s):
+            indices = try r.faces(of: b, value, key: "faces")
+            s.body = b.ref
+            s.removeFaces = refs(indices) { r.model.faceRef(body: b.ref, face: $0) }
+            f.kind = .shell(s)
+        case .pressPull(var p):
+            indices = try r.faces(of: b, value, key: "faces")
+            p.body = b.ref
+            p.faces = refs(indices) { r.model.faceRef(body: b.ref, face: $0) }
+            guard !p.faces.isEmpty else { throw ToolError("`faces` matched no faces of “\(label)”") }
+            f.kind = .pressPull(p)
+        case .layFlat(var l):
+            let (_, i, ref) = try r.faceRef(one, key: "faces")
+            (l.body, l.face, indices) = (b.ref, ref, [i])
+            f.kind = .layFlat(l)
+        case .hole(var h):
+            let (_, i, ref, _) = try r.flatFace(one, key: "faces")
+            (h.face, indices) = (ref, [i])
+            f.kind = .hole(h)
+        case .sketch(var s):
+            s.plane = try r.plane(one, offset: nil, key: "faces", anchor: Self.anchor(s.plane))
+            f.kind = .sketch(s)
+            indices = []
+        case .primitive(var p):
+            p.plane = try r.plane(one, offset: nil, key: "faces", anchor: Self.anchor(p.plane))
+            f.kind = .primitive(p)
+            indices = []
+        case .mirror(var m):
+            m.plane = try r.plane(one, offset: nil, key: "faces", anchor: Self.anchor(m.plane))
+            f.kind = .mirror(m)
+            indices = []
+        default:
+            indices = []
+        }
+        let text: String
+        if indices.count > 1 {
+            text = "\(indices.count) \(takesEdges ? "edges" : "faces") of “\(label)”"
+        } else {
+            text = "\(takesEdges ? "an edge" : "a face") of “\(label)”"
+        }
+        return (b, indices, text)
+    }
+
+    /// How a placement on a face lays out its coordinates: kept when re-pointed, so a sketch keeps its u, v.
+    static func anchor(_ plane: SketchPlaneRef) -> FaceAnchor {
+        if case .face(_, _, let anchor) = plane { return anchor }
+        return .world
     }
 
     private var deleteFeature: MCPTool {
@@ -702,19 +851,40 @@ extension FilletTools {
         }
     }
 
+    private var setBodyVisibility: MCPTool {
+        MCPTool(
+            name: "set_body_visibility", title: "Show or hide",
+            description: "Hides or shows bodies, like the eye in the app's browser: hidden bodies stay in the design but leave renders, the print check and exports. Not an undo step; saved with the design.",
+            inputSchema: Self.object(["bodies": Self.bodies, "visible": Self.boolean("true shows them, false hides them")],
+                                     required: ["bodies", "visible"])
+        ) { args in
+            let a = Args(args)
+            let ws = try host.requireCurrent()
+            let r = try await Resolver.load(ws, args)
+            let refs = try r.bodies(a["bodies"], key: "bodies").map(\.ref)
+            guard let visible = a["visible"]?.bool else { throw ToolError("`visible` is required (true or false)") }
+            var hidden = ws.hiddenBodies
+            if visible { hidden.subtract(refs) } else { hidden.formUnion(refs) }
+            ws.setHiddenBodies(hidden)
+            let names = { (visible: Bool) in r.model.bodies.filter { ws.hiddenBodies.contains($0.ref) != visible }.map { JSONValue.string(r.bodyLabel($0)) } }
+            return .json(["visible": .array(names(true)), "hidden": .array(names(false))])
+        }
+    }
+
     private var export: MCPTool {
         MCPTool(
             name: "export", title: "Export",
-            description: "Writes the visible bodies to a 3MF (for Bambu Studio, one object with a part per body), STL or STEP file, or the whole design to a .fillet file, and returns its path.",
+            description: "Writes the visible bodies (or just `bodies`) to a 3MF (for Bambu Studio, one object with a part per body), STL or STEP file, or the whole design to a .fillet file, and returns its path.",
             inputSchema: Self.object(["format": Self.string("File format", enum: ["3mf", "stl", "step", "fillet"]),
-                                      "path": Self.string("Where to write (default: a temporary folder)")], required: ["format"]),
+                                      "path": Self.string("Where to write (default: a temporary folder)"),
+                                      "bodies": Self.outputBodies], required: ["format"]),
             readOnly: true
         ) { args in
             let a = Args(args)
             let ws = try host.requireCurrent()
             let model = await ws.evaluated()
             let r = Resolver(document: ws.document, model: model)
-            let bodies = model.bodies.filter { !ws.hiddenBodies.contains($0.ref) }
+            let bodies = try Self.outputBodies(a, ws, model)
             let format = try a.string("format").lowercased()
             guard !bodies.isEmpty || format == "fillet" else { throw ToolError("There are no visible bodies to export") }
             let base = (ws.document.name ?? ws.title).replacingOccurrences(of: "/", with: "-")
@@ -736,7 +906,8 @@ extension FilletTools {
                 throw ToolError("`format` must be 3mf, stl, step or fillet")
             }
             let size = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
-            return .json(["path": .string(url.path), "bytes": .number(Double(size)), "bodies": .number(Double(bodies.count))])
+            return .json(["path": .string(url.path), "bytes": .number(Double(size)), "bodies": .number(Double(bodies.count)),
+                          "body_names": .array(bodies.map { .string(r.bodyLabel($0)) })])
         }
     }
 

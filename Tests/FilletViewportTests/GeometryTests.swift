@@ -135,7 +135,7 @@ struct MeshTests {
         #expect(MemoryLayout<LineStyle>.stride == 32)
         #expect(MemoryLayout<LineDraw>.stride == 64 + 6 * 32 + 16)
         #expect(MemoryLayout<MeshDraw>.stride == 112)
-        #expect(MemoryLayout<FrameUniforms>.stride == 3 * 64 + 15 * 16)
+        #expect(MemoryLayout<FrameUniforms>.stride == 3 * 64 + 17 * 16)
         #expect(MemoryLayout<GridDraw>.stride == 12 * 16)
         #expect(MemoryLayout<PointDraw>.stride == 5 * 48)
         #expect(MemoryLayout<HullDraw>.stride == 32)

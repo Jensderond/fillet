@@ -95,7 +95,7 @@ enum Change {
             if merged > 0 { problems.append("\(merged + 1) of its \(noun)s now find the same \(noun)") }
             guard !problems.isEmpty else { return nil }
             return "“\(f.name)” may now work on different \(noun)s: " + problems.joined(separator: "; ")
-                + ". Check it with render_view; to pick them again, delete it and add it anew (e.g. with {\"created_by\": …})."
+                + ". Check it with render_view; to pick them again, edit_feature it with `\(noun)s` (a filter, e.g. {\"created_by\": …})."
         }
     }
 

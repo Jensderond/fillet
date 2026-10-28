@@ -71,11 +71,15 @@ AI agents can design in Fillet through its [MCP](https://modelcontextprotocol.io
 watch: every step lands in the open window and undoes like your own. The tools cover the whole
 modelling workflow (sketch, extrude, revolve, loft, primitives, fillet, booleans, move/scale/mirror,
 parameters, colours, print check, export) and `render_view` returns an image so the agent can look
-at its work (`presentation: true` for a product-shot look). A step that fails or breaks later steps
+at its work (`presentation: true` for a product-shot look; `target` and `size` for a close-up,
+`projection: "orthographic"`, and a `section` cut that shows how parts fit inside). Agents can hide
+bodies like the eye in the browser (`set_body_visibility`), or give `check_print` and `export` a
+`bodies` list. A step that fails or breaks later steps
 is refused with the kernel's reason instead of being added, and so is one that leaves a body that
 isn't a valid closed solid (a failed cut also says whether cutting the other way round works). A change that still works but makes a
 later fillet, chamfer, shell or lay-flat find its edges or faces somewhere else comes back with a
-warning naming that step. A fillet or chamfer that fails says which edges can't take the size and
+warning naming that step; `edit_feature` with `edges` or `faces` points it at the right ones again,
+picked on the body as it is just before that step. A fillet or chamfer that fails says which edges can't take the size and
 the largest size the others take. `undo` and `redo` say exactly what they took back (a new step, an
 edit, a parameter…), take an optional `expect: "Edit Hat"` guard, and never undo one of your own
 changes in the app unless the agent names it. `scale_bodies` can scale along turned axes (the

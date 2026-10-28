@@ -115,18 +115,31 @@ struct Resolver {
 
     /// A resolver for the workspace's current design that can also answer the `created_by`
     /// filters found anywhere in `args` (they need the bodies around that step, evaluated here;
-    /// the steps are cached, so that costs no kernel work).
+    /// the steps are cached, so that costs no kernel work). With `before`, its bodies are those
+    /// just before that step: what the step picks its faces and edges from.
     @MainActor
-    static func load(_ ws: any DesignWorkspace, _ args: JSONValue? = nil) async throws -> Resolver {
-        let model = await ws.evaluated()
+    static func load(_ ws: any DesignWorkspace, _ args: JSONValue? = nil, before step: Feature? = nil) async throws -> Resolver {
         let doc = ws.document
+        var model = await ws.evaluated()
+        if let step {
+            // A suppressed step still has bodies before it.
+            var candidate = doc
+            if let i = candidate.index(of: step.id) { candidate.features[i].suppressed = false }
+            guard let before = await ws.preview(candidate, before: step.id).bodiesBefore else {
+                throw ToolError("“\(step.name)” is after the rollback marker; move the marker past it first")
+            }
+            model.bodies = before
+        }
         var r = Resolver(document: doc, model: model)
+        let active = doc.activeFeatures
         for name in args.map(createdByNames) ?? [] {
             let f = try r.feature(name)
             guard r.steps[f.id] == nil else { continue }
-            let active = doc.activeFeatures
             guard let i = active.firstIndex(where: { $0.id == f.id }) else {
                 throw ToolError("`created_by`: “\(f.name)” is suppressed or after the rollback marker, so it made nothing")
+            }
+            if let step, let j = doc.index(of: step.id), let k = doc.index(of: f.id), k >= j {
+                throw ToolError("`created_by`: “\(f.name)” \(k == j ? "is the step being changed" : "comes after “\(step.name)”"), so what it made isn't there yet")
             }
             if case .failed(let reason) = model.status[f.id] {
                 throw ToolError("`created_by`: “\(f.name)” failed (\(reason)), so it made nothing")
@@ -136,6 +149,14 @@ struct Resolver {
             r.steps[f.id] = StepBodies(before: before, after: after)
         }
         return r
+    }
+
+    /// ``load(_:_:before:)`` before the step named `name`, if any.
+    @MainActor
+    static func load(_ ws: any DesignWorkspace, _ args: JSONValue?, beforeStep name: String?) async throws -> Resolver {
+        guard let name else { return try await load(ws, args) }
+        let step = try Resolver(document: ws.document, model: EvaluatedModel(parameters: ws.document.parameterTable)).feature(name)
+        return try await load(ws, args, before: step)
     }
 
     /// Every `"created_by"` string in a tool's arguments.
@@ -385,8 +406,8 @@ struct Resolver {
         return (b, i, ref)
     }
 
-    /// A plane: "xy" / "xz" / "yz" (with `offset`), or a flat face `{"body", "face"}`.
-    func plane(_ value: JSONValue?, offset: Expr?, key: String = "plane") throws -> SketchPlaneRef {
+    /// A plane: "xy" / "xz" / "yz" (with `offset`), or a flat face `{"body", "face"}` laid out by `anchor`.
+    func plane(_ value: JSONValue?, offset: Expr?, key: String = "plane", anchor: FaceAnchor = .world) throws -> SketchPlaneRef {
         guard let value else { return .standard(.xy, offset: offset ?? 0) }
         if let s = value.string {
             guard let p = StandardPlane(rawValue: s.lowercased()) else {
@@ -394,11 +415,17 @@ struct Resolver {
             }
             return .standard(p, offset: offset ?? 0)
         }
+        let (_, _, ref, plane) = try flatFace(value, key: key, anchor: anchor)
+        return .face(ref, fallback: plane, anchor: anchor)
+    }
+
+    /// A single flat face given as `{"body": …, "face": index or filter}`, with its plane.
+    func flatFace(_ value: JSONValue?, key: String, anchor: FaceAnchor = .world) throws -> (EvaluatedBody, Int, FaceRef, Plane) {
         let (b, i, ref) = try faceRef(value, key: key)
-        guard let plane = b.shape.facePlane(i, anchor: .world) else {
+        guard let plane = b.shape.facePlane(i, anchor: anchor) else {
             throw ToolError("Face \(i) of “\(bodyLabel(b))” isn't flat; pick a planar face (list_faces with {\"type\": \"plane\"})")
         }
-        return .face(ref, fallback: plane, anchor: .world)
+        return (b, i, ref, plane)
     }
 
     /// An axis: "x" / "y" / "z" (world axes through the origin) or `{"body", "edge"}`.

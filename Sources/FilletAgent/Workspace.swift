@@ -37,6 +37,9 @@ public protocol DesignWorkspace: AnyObject {
     func redo() async -> String?
     /// Moves the view (live: animates the user's camera).
     func show(_ camera: Camera)
+    /// Sets which bodies are hidden, like the eye toggles in the app: saved with the design, but
+    /// not an undo step (live: the user's browser shows it).
+    func setHiddenBodies(_ hidden: Set<BodyRef>)
     /// Gives the design's file the name the document now has, where the host can: live, the
     /// window's document file is renamed (an unsaved Mac window takes it as its name instead).
     func nameFile(_ name: String) async -> FileNaming
@@ -172,7 +175,7 @@ public final class HeadlessWorkspace: DesignWorkspace {
     public func undo() async -> String? {
         guard let last = undoStack.popLast() else { return nil }
         redoStack.append((document, last.action))
-        document = last.document
+        document = keepingVisibility(last.document)
         save()
         return last.action
     }
@@ -180,12 +183,27 @@ public final class HeadlessWorkspace: DesignWorkspace {
     public func redo() async -> String? {
         guard let next = redoStack.popLast() else { return nil }
         undoStack.append((document, next.action))
-        document = next.document
+        document = keepingVisibility(next.document)
         save()
         return next.action
     }
 
     public func show(_ camera: Camera) { self.camera = camera }
+
+    public func setHiddenBodies(_ hidden: Set<BodyRef>) {
+        guard hidden != document.hiddenBodies else { return }
+        document.hiddenBodies = hidden
+        save()
+    }
+
+    /// `snapshot` with today's hidden bodies, as the app does: visibility isn't an undo step, so
+    /// only bodies whose step the snapshot brings back take its visibility.
+    private func keepingVisibility(_ snapshot: Document) -> Document {
+        var doc = snapshot
+        doc.hiddenBodies = document.hiddenBodies.union(snapshot.hiddenBodies.filter { !document.hasStep(for: $0) })
+        doc.pruneHiddenBodies()
+        return doc
+    }
 
     /// The file is the one the agent opened or saved to; naming the design doesn't move it.
     public func nameFile(_ name: String) async -> FileNaming {

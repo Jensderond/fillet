@@ -98,6 +98,11 @@ final class LiveWorkspace: DesignWorkspace {
         session?.camera = camera
     }
 
+    /// Through the session's eye toggles: the browser updates, and it isn't an undo step.
+    func setHiddenBodies(_ hidden: Set<BodyRef>) {
+        session?.hiddenBodies = hidden
+    }
+
     func nameFile(_ name: String) async -> FileNaming {
         guard let session else { return .kept("this design's window was closed") }
         return await DocumentNaming.name(session, name)

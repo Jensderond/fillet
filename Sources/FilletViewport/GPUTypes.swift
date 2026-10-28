@@ -22,6 +22,8 @@ struct FrameUniforms {
     var overhangColor = SIMD4<Float>()
     var overhang = SIMD4<Float>()
     var misc = SIMD4<Float>()
+    var section = SIMD4<Float>()
+    var sectionColor = SIMD4<Float>()
 }
 
 struct GPUMeshVertex {

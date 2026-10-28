@@ -44,10 +44,7 @@ extension FilletTools {
             let a = Args(args)
             let ws = try host.requireCurrent()
             let r = try await Resolver.load(ws, args)
-            let (b, i, ref) = try r.faceRef(["body": .string(try a.string("body")), "face": a["face"] ?? .null], key: "face")
-            guard let plane = b.shape.facePlane(i, anchor: .world) else {
-                throw ToolError("Face \(i) of “\(r.bodyLabel(b))” isn't flat; pick a planar face (list_faces with {\"type\": \"plane\"})")
-            }
+            let (_, _, ref, plane) = try r.flatFace(["body": .string(try a.string("body")), "face": a["face"] ?? .null], key: "face")
             var centers = try (a["centers"]?.array ?? []).map { try Args.point2($0, "centers") }
             for (n, v) in (a["points"]?.array ?? []).enumerated() {
                 guard let p = try Args.point3(v, "points[\(n)]") else { continue }
