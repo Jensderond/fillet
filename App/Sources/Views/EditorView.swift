@@ -362,7 +362,7 @@ struct EditorContent: View {
 
     private var snapFeedback: SketchSnap? {
         switch session.sketchEditor?.engine.snap {
-        case .point, .horizontal, .vertical: session.sketchEditor?.engine.snap
+        case .point, .horizontal, .vertical, .extension, .aligned: session.sketchEditor?.engine.snap
         default: nil
         }
     }

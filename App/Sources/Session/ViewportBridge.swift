@@ -210,9 +210,40 @@ extension DesignSession {
             if editor.tool != .select, let c = editor.engine.cursor {
                 overlay.points.append(SketchPoint(shapeID: UUID(), index: 0, position: c, style: .snap))
             }
+            let snap = editor.move != nil ? editor.moveSnap : editor.tool == .select ? nil
+                : SnapResolution(point: .zero, snap: editor.engine.snap, guides: editor.engine.guides, markers: editor.engine.markers)
+            if let snap { addSnapFeedback(snap, to: &overlay) }
             overlay.grid = adaptiveGrid(snap: editor.gridSize, plane: evaluated.plane)
         }
         return overlay
+    }
+
+    /// Dashed guides past both their ends (a little past the vertex, further past the pointer, in
+    /// on-screen points) and the markers of a snap.
+    private func addSnapFeedback(_ snap: SnapResolution, to overlay: inout SketchOverlay) {
+        let perPoint = camera.worldUnitsPerPoint(at: overlay.plane.origin, viewSize: viewSize)
+        for g in snap.guides {
+            let v = g.to - g.from
+            let length = (v.x * v.x + v.y * v.y).squareRoot()
+            guard length > 1e-9 else { continue }
+            let u = v / length
+            overlay.guides.append(SketchGuide(from: g.from - u * 12 * perPoint, to: g.to + u * 32 * perPoint))
+        }
+        for m in snap.markers {
+            switch m {
+            case .anchor(let p):
+                overlay.markers.append(SketchSnapMarker(position: p, shape: .circle, anchor: true))
+            case .target(let p, let kind):
+                let shape: SketchSnapMarker.Shape = switch kind {
+                case .endpoint, .point: .square
+                case .midpoint: .triangle
+                case .intersection: .cross
+                case .quadrant: .diamond
+                case .center: .circle
+                }
+                overlay.markers.append(SketchSnapMarker(position: p, shape: shape))
+            }
+        }
     }
 
     /// Grid lines that show the snap step itself when zoomed in enough, coarser
@@ -482,14 +513,25 @@ extension DesignSession: ViewportDelegate {
         else { return nil }
         let p = evaluated.plane.project(world)
         let ev = model.parameters.evaluator
-        var points = evaluated.source.shapes.flatMap { $0.snapPoints(using: ev) }
-        points.append(SnapPoint(position: .zero, kind: .point, shape: UUID()))  // sketch origin
+        // The document's sketch, so shapes drawn since the last recompute snap too.
+        var sketch = evaluated.source
+        if case .sketch(let current)? = document.feature(editor.sketch)?.kind { sketch = current }
+        // The snap radius is the pointer's pick tolerance on screen, in mm at the pointer's depth.
         let perPoint = camera.worldUnitsPerPoint(at: world, viewSize: viewSize)
-        let tolerance = perPoint * event.pointer.tolerance * 1.5
-        var context = SnapContext(points: points, tolerance: tolerance, gridSize: editor.gridSize)
+        let tolerance = editor.snapSettings.radius(pointerTolerance: event.pointer.tolerance, unitsPerPoint: perPoint)
+        var context = SnapContext(targets: snapTargets(sketch, using: ev), tolerance: tolerance, gridSize: editor.gridSize)
+        context.settings = editor.snapSettings
         // Offset picks curves, including ones drawn since the last recompute.
-        if editor.tool == .offset, case .sketch(let sketch)? = document.feature(editor.sketch)?.kind { context.sketch = sketch; context.evaluator = ev }
+        if editor.tool == .offset { context.sketch = sketch; context.evaluator = ev }
         return (p, context)
+    }
+
+    /// Snap targets of `sketch` and the sketch origin, rebuilt only when the sketch or its parameters change.
+    private func snapTargets(_ sketch: Sketch, using ev: Evaluator) -> SnapTargets {
+        if let cached = snapTargetCache, cached.sketch == sketch, cached.values == ev.values { return cached.targets }
+        let targets = sketch.snapTargets(using: ev).adding([SnapPoint(position: .zero, kind: .point, shape: UUID())])
+        snapTargetCache = (sketch, ev.values, targets)
+        return targets
     }
 }
 

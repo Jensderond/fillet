@@ -474,7 +474,7 @@ enum DemoDirector {
         defer { lastSnap = snap }
         guard snap != lastSnap else { return }
         switch snap {
-        case .point, .horizontal, .vertical: beat("snap")
+        case .point, .horizontal, .vertical, .extension, .aligned: beat("snap")
         default: break
         }
     }

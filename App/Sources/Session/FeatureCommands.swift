@@ -137,15 +137,18 @@ extension DesignSession {
     /// Shows the shapes at the pointer, like a feature's live edit: no undo step yet.
     func dragSketchMove(to p: SIMD2<Double>, context: SnapContext) {
         guard let move = sketchEditor?.move else { return }
-        let moved = move.moved(by: move.offset(to: p, context: context).offset, using: model.parameters.evaluator)
+        let snapped = move.resolve(to: p, context: context, previous: sketchEditor?.moveSnap?.target)
+        sketchEditor?.moveSnap = snapped.resolution
+        let moved = move.moved(by: snapped.offset, using: model.parameters.evaluator)
         updateEditing { $0.kind = .sketch(moved) }
     }
 
     /// Drops the shapes: the whole drag becomes one undo step.
     func endSketchMove(at p: SIMD2<Double>, context: SnapContext) {
         guard let move = sketchEditor?.move else { return }
+        let offset = move.resolve(to: p, context: context, previous: sketchEditor?.moveSnap?.target).offset
         sketchEditor?.move = nil
-        let offset = move.offset(to: p, context: context).offset
+        sketchEditor?.moveSnap = nil
         // Back to where the drag began without an undo step, then the move as one step.
         updateEditing { $0.kind = .sketch(move.original) }
         guard offset != .zero else { return }
@@ -157,6 +160,7 @@ extension DesignSession {
     func cancelSketchMove() {
         guard let move = sketchEditor?.move else { return }
         sketchEditor?.move = nil
+        sketchEditor?.moveSnap = nil
         updateEditing { $0.kind = .sketch(move.original) }
     }
 

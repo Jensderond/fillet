@@ -26,6 +26,10 @@ struct SketchEditor {
     var lastDrawingTool: SketchTool = .line
     /// Shapes being dragged with the Select tool.
     var move: SketchMove?
+    /// What the dragged shapes snapped to, for guides and to hold the snap (see `SnapContext.resolve`).
+    var moveSnap: SnapResolution?
+    /// How drawing and moving snap (radius, hysteresis, priorities).
+    var snapSettings = SnapSettings()
     /// The size being typed for the shape in progress (Tab, then a number; Mac keyboard).
     var typing: DimensionTyping?
 
