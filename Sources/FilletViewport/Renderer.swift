@@ -568,6 +568,11 @@ public final class ViewportRenderer: NSObject {
             u.overhang = SIMD4(1, Float(sin(o.thresholdDegrees * .pi / 180)), Float(o.bedZ), 0)
         }
         u.misc = SIMD4(0.0008, Float(cam.distance * 0.0008), pal.rim, pal.specular)
+        if let s = scene.section, s.normal.length > 1e-9 {
+            let n = s.normal.normalized
+            u.section = SIMD4(n.float, Float(-n.dot(s.origin)))
+            u.sectionColor = s.color.linear
+        }
         return u
     }
 

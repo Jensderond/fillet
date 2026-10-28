@@ -26,7 +26,16 @@ struct FrameUniforms {
     float4 overhangColor;
     float4 overhang;     // x enabled, y sin(threshold), z bed z
     float4 misc;         // x line pull (perspective fraction), y line pull (ortho world units), z rim strength, w specular
+    float4 section;      // section cut: xyz unit normal, w = -dot(normal, origin); all zero = none
+    float4 sectionColor; // inside of cut bodies, a = how much it replaces the body colour
 };
+
+static bool hasSection(constant FrameUniforms& U) { return any(U.section.xyz != 0.0); }
+
+/// On the side of the section plane that is cut away.
+static bool cutAway(float3 p, constant FrameUniforms& U) {
+    return hasSection(U) && dot(U.section.xyz, p) + U.section.w > 0.0;
+}
 
 // MARK: Background
 
@@ -122,11 +131,14 @@ static float3 shade(float3 base, float3 N, float3 worldPos, constant FrameUnifor
     return c;
 }
 
-fragment float4 mesh_fragment(MeshOut in [[stage_in]],
+fragment float4 mesh_fragment(MeshOut in [[stage_in]], bool front [[front_facing]],
                               constant FrameUniforms& U [[buffer(1)]],
                               constant MeshDraw& D [[buffer(2)]],
                               const device uchar* faceState [[buffer(3)]]) {
+    if (cutAway(in.worldPos, U)) discard_fragment();
     float3 base = D.color.rgb;
+    // Seen through a section cut: the body's inside, flat in the section colour.
+    if (!front && hasSection(U)) return float4(mix(base, U.sectionColor.rgb, U.sectionColor.a), D.color.a);
     base = mix(base, D.highlight.rgb, D.highlight.a);
     uint st = in.face < D.faceStateCount ? uint(faceState[in.face]) : 0u;
     if ((D.flags & 8u) != 0u && st == 0u && D.highlight.a <= 0.0) discard_fragment();
@@ -173,6 +185,8 @@ vertex HullOut hull_vertex(uint vid [[vertex_id]],
 fragment float4 hull_fragment(HullOut in [[stage_in]],
                               constant FrameUniforms& U [[buffer(1)]],
                               constant HullDraw& H [[buffer(4)]]) {
+    // A section shows insides, which are back-facing too: they aren't silhouettes.
+    if (hasSection(U)) discard_fragment();
     float3 V = U.eye.w > 0.5 ? normalize(U.eye.xyz - in.worldPos) : -U.forward.xyz;
     if (dot(normalize(in.worldNormal), V) > 0.0) discard_fragment();
     return H.color;
@@ -200,6 +214,7 @@ struct LineOut {
     float halfWidth;     // px
     float along;         // world distance along the polyline
     float dash;
+    float3 world;
 };
 
 vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
@@ -224,7 +239,7 @@ vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float za = ca.z, zb = cb.z;
     if ((za < 0.0 && zb < 0.0) || style.width <= 0.0) {
         o.position = float4(0.0, 0.0, -1.0, 1.0);
-        o.across = 0; o.halfWidth = 0; o.along = 0;
+        o.across = 0; o.halfWidth = 0; o.along = 0; o.world = a;
         return o;
     }
     float segLen = length(b - a);
@@ -249,10 +264,13 @@ vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     o.across = side * ext;
     o.halfWidth = hw;
     o.along = isB ? distB : distA;
+    o.world = isB ? b : a;
     return o;
 }
 
-fragment float4 line_fragment(LineOut in [[stage_in]], constant LineDraw& D [[buffer(2)]]) {
+fragment float4 line_fragment(LineOut in [[stage_in]], constant FrameUniforms& U [[buffer(1)]],
+                              constant LineDraw& D [[buffer(2)]]) {
+    if (D.pull != 0u && cutAway(in.world, U)) discard_fragment();
     float a = saturate(in.halfWidth + 0.5 - abs(in.across));
     if (in.dash > 0.5 && D.dashPeriod > 0.0) {
         float ph = fract(in.along / D.dashPeriod);
