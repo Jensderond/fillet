@@ -46,6 +46,10 @@ enum DemoDirector {
         guard isEnabled, !ran else { return }
         ran = true
         start = Date()
+        if ProcessInfo.processInfo.environment["FILLET_DEMO"] == "snapping" {
+            await snappingStory(session)
+            return
+        }
         beat("launch")
         session.fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("Pen holder.fillet")  // the title
         // The splash plays over the editor (1.6 s); let it finish and the bed settle.
@@ -282,6 +286,89 @@ enum DemoDirector {
         beat("export")
         await tap(frame: "export-menu") { NotificationCenter.default.post(name: .demoExport, object: nil) }
         await pause(4.5)
+        beat("end")
+    }
+
+    // MARK: Snapping to the part
+
+    /// `FILLET_DEMO=snapping`: a sketch on a part's face snaps to the part's edges. A 60 × 30 × 8
+    /// plate with a Ø7 hole 11.5 mm in from two edges. On its top face the Pencil rings the hole
+    /// with a circle on the hole's centre, then puts a second hole level with the first, along the
+    /// guide from its centre, and the camera closes in on both. Record it again with
+    /// `FILLET_SNAP_BODY_EDGES=0` for the "before": the same strokes land on the 1 mm grid, half a
+    /// millimetre off. `docs/video/record-snapping-demo.sh` records both takes.
+    static func snappingStory(_ session: DesignSession) async {
+        beat("launch")
+        session.fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("Bracket.fillet")  // the title
+        let sketch = Feature(name: "Sketch 1", .sketch(Sketch(plane: .xy, shapes: [
+            SketchShape(.rectangle(anchor: .corner, position: Point2Expr(0, 0), width: 60, height: 30, angle: 0)),
+            SketchShape(.circle(center: Point2Expr(11.5, 11.5), diameter: 7)),
+        ])))
+        let plate = Feature(name: "Extrude 1", .extrude(Extrude(sketch: sketch.id, regions: [RegionRef(x: 40, y: 15)], distance: 8)))
+        session.perform("Plate") { doc in
+            _ = doc.addFeature(sketch)
+            _ = doc.addFeature(plate)
+        }
+        await settle(session)
+        var iso = session.camera
+        iso.setView(.iso)
+        session.camera = iso
+        session.frameBodies()
+        // The splash plays over the editor (1.6 s); let it finish and the part settle.
+        await pause(2.6)
+        beat("story")
+
+        // Sketch on the top face.
+        guard let body = session.model.bodies.first,
+            let top = body.shape.faceInfos.firstIndex(where: { $0.surface == .plane && $0.normal.z > 0.99 }),
+            let p = globalPoint(Vec3(40, 22, 8))
+        else { log("no plate to sketch on"); beat("end"); return }
+        await tap(at: p) {
+            session.viewportDidTap(target: .face(body: body.ref.feature, index: top), hit: nil,
+                                   ray: Ray(origin: .zero, direction: .unitZ), location: .zero, modifiers: [])
+        }
+        await pause(0.5)
+        await tap(frame: "tool.Sketch") { session.startSketch() }
+        await settle(session)
+        guard let plane = session.sketchEditor.flatMap({ session.model.sketches[$0.sketch]?.plane }) else {
+            log("no sketch on the face"); beat("end"); return
+        }
+        session.frameSketch(on: plane, bounds: Bounds3(min: Vec3(-3, -3, 8), max: Vec3(63, 33, 8)))
+        await settle(session)
+        beat("sketch-open")
+        await pause(0.8)
+
+        // A circle around the hole: the Pencil comes in a little off its centre.
+        await tap(frame: "sketch-tool.circle") { session.sketchEditor?.engine.setTool(.circle) }
+        await pause(0.5)
+        beat("ring")
+        await glide(session, from: SIMD2(30, 24), to: SIMD2(11.8, 11.25), duration: 0.9)
+        await pause(0.7)  // the centre marker shows (or, before, nothing does)
+        await stroke(session, path: { t in SIMD2(11.8 + 6 * t, 11.25 + 0.3 * sin(t * .pi)) }, approach: nil, duration: 0.8)
+        beat("ring-done")
+        await pause(0.8)
+
+        // A second hole level with the first: along the guide from its centre.
+        beat("second-hole")
+        await glide(session, from: SIMD2(17.8, 11.25), to: SIMD2(47.9, 11.3), duration: 1.4)
+        await pause(0.7)
+        await stroke(session, path: { t in SIMD2(47.9 + 3.5 * t, 11.3) }, approach: nil, duration: 0.6)
+        beat("second-hole-done")
+        await pause(0.8)
+
+        // Close in on the first hole (centred, or half a millimetre off), then on the pair.
+        beat("close-up")
+        cameraDuration = 1.4
+        session.frameSketch(on: plane, bounds: Bounds3(min: Vec3(3, 3, 8), max: Vec3(20, 20, 8)))
+        await settle(session)
+        await pause(1.6)
+        session.frameSketch(on: plane, bounds: Bounds3(min: Vec3(-3, -3, 8), max: Vec3(63, 33, 8)))
+        await settle(session)
+        cameraDuration = 1.1
+        await pause(0.8)
+        await tap(frame: "finish-sketch-button") { session.finishSketch() }
+        await settle(session)
+        await pause(1.2)
         beat("end")
     }
 

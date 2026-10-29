@@ -578,6 +578,10 @@ extension DesignSession: ViewportDelegate {
     /// The bodies the open sketch snaps to: the visible ones as they were just before it, so
     /// editing an early sketch doesn't snap to what later steps made of it.
     private var snapBodies: [EvaluatedBody] {
+        #if DEBUG
+        // The "before" take of the snapping demo: only the sketch's own shapes snap.
+        if ProcessInfo.processInfo.environment["FILLET_SNAP_BODY_EDGES"] == "0" { return [] }
+        #endif
         let bodies = editing?.feature == sketchEditor?.sketch ? model.bodiesBefore ?? model.bodies : model.bodies
         return bodies.filter { !hiddenBodies.contains($0.ref) }
     }
