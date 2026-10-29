@@ -97,9 +97,13 @@ extension DesignSession {
             scene.pickableFaces = planarFaces()
         }
         if choosingHoleFace { scene.pickableFaces = planarFaces() }
-        scene.section = shownSection
+        // Mid-drag the viewport takes each step of the section straight from the drag
+        // (`viewportSectionDragged`): read it unsubscribed, so a step doesn't rebuild the scene.
+        let section = sectionDrag != nil ? sectionUntracked : self.section
+        scene.section = shownSection(section)
+        scene.sectionCurves = sectionCurves
         // Section's readouts are the value pill and angle tags on the canvas (`SectionGizmoOverlay`).
-        scene.handles = pickMode == .section ? sectionHandles() : editingHandles()
+        scene.handles = pickMode == .section ? sectionHandles(section) : editingHandles()
         scene.measures = sketchMeasures() + handleMeasures(pickMode == .section ? [] : scene.handles)
         scene.edgeHighlights = edgeHighlights()
         // A fillet's or chamfer's picked edges are the body's before it: hidden by that, not the result.
@@ -504,6 +508,8 @@ extension DesignSession: ViewportDelegate {
             }
         }
     }
+
+    func viewportSectionDragged(id: String) -> SectionDragStep? { sectionDragStep(id: id) }
 
     func viewportHandleDragEnded(id: String, value: Double) {
         if sectionDrag != nil { sectionDrag = nil }

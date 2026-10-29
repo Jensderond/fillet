@@ -277,14 +277,18 @@ extension DesignSession {
 
     /// What cuts the viewport: the section that's on, not while a new plane is being picked
     /// (the whole model shows to pick from).
-    var shownSection: SectionPlane? {
+    var shownSection: SectionPlane? { shownSection(section) }
+
+    func shownSection(_ section: SectionState?) -> SectionPlane? {
         guard sectionIsOn, !choosingSectionPlane, let s = section else { return nil }
         return s.plane
     }
 
     /// The arrow across the cut, pointing at the side cut away, and a grip for each tilt, out on
     /// the plane's two in-plane axes. In the selection blue: they steer the view, not a step.
-    func sectionHandles() -> [Handle] {
+    func sectionHandles() -> [Handle] { sectionHandles(section) }
+
+    func sectionHandles(_ section: SectionState?) -> [Handle] {
         guard sectionMode == .editing, let s = section else { return [] }
         let color = ViewportColor(hex: 0x3B8BFF)
         let f = s.frame
@@ -312,8 +316,95 @@ extension DesignSession {
         case Self.sectionTiltVHandleID: setSectionTilt(v: value.rounded())
         default: return false
         }
-        sectionDrag = id
+        if sectionDrag != id { sectionDrag = id }
         return true
+    }
+
+    /// A drag step on a section handle, for the viewport to draw straight away (see
+    /// `viewportSectionDragged`); nil for other handles.
+    func sectionDragStep(id: String) -> SectionDragStep? {
+        guard sectionDrag == id else { return nil }
+        return SectionDragStep(section: shownSection, handles: sectionHandles())
+    }
+
+    // MARK: Exact outline
+
+    /// What the kernel's exact outline is made for: the plane shown, the shapes it cuts, and how
+    /// finely the lines are split at the current zoom. A drag step changes it, so the one fetch
+    /// running is dropped (`SectionCurvesLoader` restarts on every change).
+    struct SectionCurvesRequest: Equatable {
+        var plane: SectionPlane
+        /// Visible bodies the plane goes through: id and `SceneBody.version`.
+        var bodies: [(id: UUID, version: Int)]
+        /// Chord tolerance (mm), a power of two near half a pixel at the cut.
+        var deflection: Double
+
+        static func == (a: Self, b: Self) -> Bool {
+            a.plane == b.plane && a.deflection == b.deflection && a.bodies.elementsEqual(b.bodies) { $0 == $1 }
+        }
+    }
+
+    /// The request for the section shown, nil with none (or nothing it cuts, or no lines needed).
+    var sectionCurvesRequest: SectionCurvesRequest? {
+        guard let plane = shownSection, let n = plane.normal.length > 1e-9 ? plane.normal.normalized : nil else { return nil }
+        let bodies = model.bodies.filter { body in
+            guard !hiddenBodies.contains(body.ref), let b = body.shape.bounds else { return false }
+            let corners = (0..<8).map { i in
+                Vec3(i & 1 == 0 ? b.min.x : b.max.x, i & 2 == 0 ? b.min.y : b.max.y, i & 4 == 0 ? b.min.z : b.max.z)
+            }
+            let sides = corners.map { ($0 - plane.origin).dot(n) }
+            return sides.contains { $0 >= 0 } && sides.contains { $0 <= 0 }
+        }
+        guard !bodies.isEmpty else { return nil }
+        // Half a pixel on a 2× screen (a quarter point) where the cut is, rounded down to a power
+        // of two so zooming a little doesn't fetch again.
+        let size = viewSize.width > 0 ? viewSize : CGSize(width: 1200, height: 800)
+        let quarterPoint = camera.worldUnitsPerPoint(at: plane.origin, viewSize: size) / 4
+        let deflection = pow(2, floor(log2(min(max(quarterPoint, 1e-3), 0.25))))
+        return SectionCurvesRequest(plane: plane, bodies: bodies.map { ($0.ref.feature, ObjectIdentifier($0.shape).hashValue) },
+                                    deflection: deflection)
+    }
+
+    /// How long the plane must hold still before its exact lines are fetched (s): long enough to
+    /// skip the steps of a drag, short enough that a pause shows them.
+    static let sectionCurvesSettle = 0.12
+
+    /// Fetches the kernel's exact section lines for `request` once the plane has held still,
+    /// a boolean per body off the main thread, and hands them to the viewport, which swaps them
+    /// for the lines sliced from the meshes (`SectionCurves`). Cancelled by the next request; a
+    /// body the kernel can't cut keeps its mesh outline. Fails open: the outline is never missing.
+    func loadSectionCurves(_ request: SectionCurvesRequest?) async {
+        guard let request else {
+            if sectionCurves != nil { sectionCurves = nil }
+            return
+        }
+        if let have = sectionCurves, have.plane == request.plane,
+           request.bodies.allSatisfy({ have.bodies[$0.id]?.version == $0.version }) { return }
+        try? await Task.sleep(for: .seconds(Self.sectionCurvesSettle))
+        guard !Task.isCancelled else { return }
+        let n = request.plane.normal.normalized
+        var u = Vec3.unitZ.cross(n)
+        if u.length < 1e-6 { u = .unitX.cross(n) }
+        let plane = Plane(origin: request.plane.origin, normal: n, xDir: u.normalized)
+        let shapes = request.bodies.compactMap { b in
+            model.bodies.first { $0.ref.feature == b.id }.map { (id: b.id, version: b.version, shape: $0.shape) }
+        }
+        let deflection = request.deflection
+        let started = ContinuousClock.now
+        let job = Task.detached(priority: .userInitiated) {
+            var out: [UUID: SectionCurves.Lines] = [:]
+            for s in shapes {
+                if Task.isCancelled { break }
+                if let l = try? s.shape.section(by: plane, linearDeflection: deflection, angularDeflection: 0.1) {
+                    out[s.id] = SectionCurves.Lines(version: s.version, lines: l)
+                }
+            }
+            return out
+        }
+        let lines = await withTaskCancellationHandler { await job.value } onCancel: { job.cancel() }
+        guard !Task.isCancelled, shownSection == request.plane else { return }
+        sectionCurves = SectionCurves(plane: request.plane, bodies: lines)
+        sectionCurvesTime = ContinuousClock.now - started
     }
 
     /// What the value pill on the canvas says: the offset, signed like the panel's field.

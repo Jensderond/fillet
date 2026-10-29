@@ -259,6 +259,7 @@ struct EditorContent: View {
 
             SectionGizmoOverlay(session: session, controller: controller)
                 .ignoresSafeArea(.container, edges: .bottom)
+            SectionCurvesLoader(session: session)
 
             VStack(spacing: Theme.Space.m) {
                 if session.sketchEditor != nil {

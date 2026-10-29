@@ -98,6 +98,14 @@ final class DesignSession {
     var choosingSectionPlane = false
     /// The section handle being dragged (its readout follows the pointer), nil otherwise.
     var sectionDrag: String?
+    /// The kernel's exact outline of the section shown (see `loadSectionCurves`), nil until it's in.
+    var sectionCurves: SectionCurves?
+    /// How long the last exact outline took the kernel (scripted runs log it).
+    @ObservationIgnored var sectionCurvesTime: Duration?
+    /// `section` read without subscribing to it (the macro's storage): mid-drag the viewport takes
+    /// each step straight from the drag (`viewportSectionDragged`), so the scene that holds it
+    /// mustn't be rebuilt on every step.
+    var sectionUntracked: SectionState? { _section }
     /// Bodies hidden in the viewport (and left out of exports). Saved with the document so they
     /// stay hidden on reopen, but not an undo step (like Fusion's eye toggles); see `setDocument`.
     var hiddenBodies: Set<BodyRef> {

@@ -224,6 +224,22 @@ struct SectionFooter: View {
 /// Section view's controls that live by its handles: the offset in a pill past the arrow's head
 /// (tap it to type one), a round flip button behind the arrow's base, and while a grip turns, its
 /// angle beside it. They follow the live camera, so they stay with the handles while orbiting.
+/// Fetches the kernel's exact outline of the section shown once the plane holds still (see
+/// `DesignSession.loadSectionCurves`). On its own, and drawing nothing, so a drag step restarts
+/// only its wait and redraws nothing else.
+struct SectionCurvesLoader: View {
+    let session: DesignSession
+
+    var body: some View {
+        let request = session.sectionCurvesRequest
+        Color.clear
+            .frame(width: 0, height: 0)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+            .task(id: request) { await session.loadSectionCurves(request) }
+    }
+}
+
 struct SectionGizmoOverlay: View {
     @Bindable var session: DesignSession
     let controller: ViewportController
