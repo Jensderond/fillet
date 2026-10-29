@@ -229,6 +229,8 @@ struct SectionGizmoOverlay: View {
     let controller: ViewportController
     @State private var typing = false
     @State private var text = ""
+    /// The field opens with its value selected, so typing replaces it.
+    @State private var selection: TextSelection?
     @State private var error = false
     @FocusState private var focused: Bool
     @Environment(\.touchTargets) private var touch
@@ -294,7 +296,7 @@ struct SectionGizmoOverlay: View {
             HStack(spacing: Theme.Space.xs) {
                 Image(systemName: "keyboard").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.inkTertiary)
                     .accessibilityHidden(true)
-                TextField("Offset", text: $text)
+                TextField("Offset", text: $text, selection: $selection)
                     .textFieldStyle(.plain)
                     .font(Theme.value)
                     .foregroundStyle(Theme.ink)
@@ -326,6 +328,7 @@ struct SectionGizmoOverlay: View {
         } else {
             Button {
                 text = ExprField.format((s.offset * 100).rounded() / 100)
+                selection = TextSelection(range: text.startIndex..<text.endIndex)
                 error = false
                 typing = true
             } label: {
