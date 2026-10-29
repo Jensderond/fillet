@@ -321,7 +321,7 @@ struct FilletTools {
                                           enum: ["perspective", "orthographic"])
         props["section"] = [
             "type": "object",
-            "description": "Section cut: removes everything on the side `normal` points to, so the inside shows (cut-open insides in red). {\"origin\": [x,y,z] (default: the view's centre), \"normal\": [x,y,z] or \"+x\", \"-y\"…}. Without view, yaw or pitch, the camera looks straight at the cut.",
+            "description": "Section cut: removes everything on the side `normal` points to, so the inside shows (the cut faces of solids are closed in red, hatched). {\"origin\": [x,y,z] (default: the view's centre), \"normal\": [x,y,z] or \"+x\", \"-y\"…}. Without view, yaw or pitch, the camera looks straight at the cut.",
             "properties": ["origin": Self.vec3("A point on the cutting plane"),
                            "normal": ["description": "[x, y, z] or \"+x\", \"-x\", \"+y\"…: the side cut away"]],
             "required": ["normal"],
@@ -357,7 +357,7 @@ struct FilletTools {
             if let section = a["section"], let normal {
                 let origin = try Args.point3(section["origin"], "section.origin") ?? camera.target
                 scene.section = SectionPlane(origin: origin, normal: normal)
-                notes.append("section through [\(Self.mm(origin.x)), \(Self.mm(origin.y)), \(Self.mm(origin.z))] cutting away the \(Self.side(normal)) side; red is cut-open inside")
+                notes.append("section through [\(Self.mm(origin.x)), \(Self.mm(origin.y)), \(Self.mm(origin.z))] cutting away the \(Self.side(normal)) side; red hatching is cut material")
             }
             if camera.projection == .orthographic { notes.append("orthographic") }
             let png = try DesignRendering.png(scene: scene, camera: camera, size: CGSize(width: width, height: height),

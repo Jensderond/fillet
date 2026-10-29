@@ -96,7 +96,8 @@ struct ViewAndVisibilityToolTests {
         #expect(!plainText.contains("section"))
         let (cut, text) = try await render(c, ["width": 240, "height": 180, "section": ["origin": [0, 0, 0], "normal": "+x"],
                                                 "projection": "orthographic"])
-        #expect(sectionPixels(cut) > 2000)
+        // Hatched red caps close the cut: their outline and hatch lines take a little of the red.
+        #expect(sectionPixels(cut) > 1600)
         #expect(text.contains("2 visible bodies") && text.contains("cutting away the +x side") && text.contains("orthographic"))
         // Hidden bodies stay hidden in a section; with nothing left to cut, nothing shows red.
         let (hidden, hiddenText) = try await render(c, ["width": 240, "height": 180, "section": ["normal": [1, 0, 0]],
