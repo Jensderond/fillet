@@ -84,7 +84,9 @@ func snapDistance(_ a: SIMD2<Double>, _ b: SIMD2<Double>) -> Double {
 extension Sketch {
     /// Snap points of every shape, the points where curves of different shapes cross, and the
     /// straight edges (for extension guides). Splines take part with their points only.
-    public func snapTargets(using evaluator: Evaluator) -> SnapTargets {
+    /// `references` adds existing geometry in the sketch's plane (body edges): its points and
+    /// straight edges, and where its curves cross the sketch's.
+    public func snapTargets(using evaluator: Evaluator, references: [SnapReference] = []) -> SnapTargets {
         var points = snapPoints(using: evaluator)
         var lines: [SnapLine] = []
         var curves: [(shape: UUID, curve: SnapCurve)] = []
@@ -95,6 +97,21 @@ extension Sketch {
                 if case .line(let a, let b) = segment { lines.append(SnapLine(a: a, b: b, shape: shape.id)) }
                 if let curve = SnapCurve(segment) { curves.append((shape.id, curve)) }
             }
+        }
+        for reference in references {
+            // Edges of a body share their corners: each point once per kind.
+            var own: [SnapPoint] = []
+            func add(_ p: SIMD2<Double>, _ kind: SnapKind) {
+                guard !own.contains(where: { $0.kind == kind && $0.position.isClose(to: p, tolerance: 1e-7) }) else { return }
+                own.append(SnapPoint(position: p, kind: kind, shape: reference.source))
+            }
+            for segment in reference.curves {
+                for (p, kind) in segment.snapPoints { add(p, kind) }
+                if case .line(let a, let b) = segment { lines.append(SnapLine(a: a, b: b, shape: reference.source)) }
+                if let curve = SnapCurve(segment) { curves.append((reference.source, curve)) }
+            }
+            for p in reference.points { add(p, .endpoint) }
+            points += own
         }
         // Crossings of curves of different shapes, except where a point already snaps (shared corners).
         let boxes = curves.map(\.curve.bounds)

@@ -553,19 +553,37 @@ extension DesignSession: ViewportDelegate {
         // The snap radius is the pointer's pick tolerance on screen, in mm at the pointer's depth.
         let perPoint = camera.worldUnitsPerPoint(at: world, viewSize: viewSize)
         let tolerance = editor.snapSettings.radius(pointerTolerance: event.pointer.tolerance, unitsPerPoint: perPoint)
-        var context = SnapContext(targets: snapTargets(sketch, using: ev), tolerance: tolerance, gridSize: editor.gridSize)
+        var context = SnapContext(targets: snapTargets(sketch, on: evaluated.plane, using: ev), tolerance: tolerance, gridSize: editor.gridSize)
         context.settings = editor.snapSettings
         // Offset picks curves, including ones drawn since the last recompute.
         if editor.tool == .offset { context.sketch = sketch; context.evaluator = ev }
         return (p, context)
     }
 
-    /// Snap targets of `sketch` and the sketch origin, rebuilt only when the sketch or its parameters change.
-    private func snapTargets(_ sketch: Sketch, using ev: Evaluator) -> SnapTargets {
-        if let cached = snapTargetCache, cached.sketch == sketch, cached.values == ev.values { return cached.targets }
-        let targets = sketch.snapTargets(using: ev).adding([SnapPoint(position: .zero, kind: .point, shape: UUID())])
-        snapTargetCache = (sketch, ev.values, targets)
+    /// Snap targets of `sketch`, the sketch origin and the edges of visible bodies lying in `plane`
+    /// (the face a sketch is on, the bed under a part), rebuilt only when one of them changes.
+    private func snapTargets(_ sketch: Sketch, on plane: Plane, using ev: Evaluator) -> SnapTargets {
+        let bodies = snapBodies
+        let key = bodies.map { ObjectIdentifier($0.shape) }
+        if let cached = snapTargetCache, cached.sketch == sketch, cached.values == ev.values, cached.plane == plane, cached.bodies == key {
+            return cached.targets
+        }
+        let references = bodies.map { $0.shape.snapReference(in: plane, source: $0.ref.feature) }.filter { !$0.isEmpty }
+        let targets = sketch.snapTargets(using: ev, references: references)
+            .adding([SnapPoint(position: .zero, kind: .point, shape: UUID())])
+        snapTargetCache = (sketch, ev.values, plane, key, targets)
         return targets
+    }
+
+    /// The bodies the open sketch snaps to: the visible ones as they were just before it, so
+    /// editing an early sketch doesn't snap to what later steps made of it.
+    private var snapBodies: [EvaluatedBody] {
+        #if DEBUG
+        // The "before" take of the snapping demo: only the sketch's own shapes snap.
+        if ProcessInfo.processInfo.environment["FILLET_SNAP_BODY_EDGES"] == "0" { return [] }
+        #endif
+        let bodies = editing?.feature == sketchEditor?.sketch ? model.bodiesBefore ?? model.bodies : model.bodies
+        return bodies.filter { !hiddenBodies.contains($0.ref) }
     }
 }
 

@@ -43,26 +43,7 @@ extension SketchShape {
         guard let curves = try? curves(using: evaluator) else { return [] }
 
         for curve in curves {
-            switch curve {
-            case .line(let a, let b):
-                add(a, .endpoint)
-                add(b, .endpoint)
-                add((a + b) / 2, .midpoint)
-            case .arc(let a, let m, let b):
-                add(a, .endpoint)
-                add(b, .endpoint)
-                if let arc = Arc2D(start: a, through: m, end: b) {
-                    add(arc.mid, .midpoint)
-                    add(arc.center, .center)
-                }
-            case .circle(let c, let r):
-                add(c, .center)
-                for q in [SIMD2(r, 0), SIMD2(0, r), SIMD2(-r, 0), SIMD2(0, -r)] { add(c + q, .quadrant) }
-            case .bspline(let points):
-                for (i, p) in points.enumerated() {
-                    add(p, i == 0 || i == points.count - 1 ? .endpoint : .point)
-                }
-            }
+            for (p, kind) in curve.snapPoints { add(p, kind) }
         }
 
         // Shape centres that are not curve centres.
@@ -80,6 +61,24 @@ extension SketchShape {
             break
         }
         return out
+    }
+}
+
+extension Segment2D {
+    /// Endpoints, midpoints, centres and circle quadrants of this curve (a spline's inner points too).
+    var snapPoints: [(SIMD2<Double>, SnapKind)] {
+        switch self {
+        case .line(let a, let b):
+            return [(a, .endpoint), (b, .endpoint), ((a + b) / 2, .midpoint)]
+        case .arc(let a, let m, let b):
+            guard let arc = Arc2D(start: a, through: m, end: b) else { return [(a, .endpoint), (b, .endpoint)] }
+            return [(a, .endpoint), (b, .endpoint), (arc.mid, .midpoint), (arc.center, .center)]
+        case .circle(let c, let r):
+            let quadrants = [SIMD2(r, 0), SIMD2(0, r), SIMD2(-r, 0), SIMD2(0, -r)].map { (c + $0, SnapKind.quadrant) }
+            return [(c, SnapKind.center)] + quadrants
+        case .bspline(let points):
+            return points.enumerated().map { i, p in (p, i == 0 || i == points.count - 1 ? SnapKind.endpoint : .point) }
+        }
     }
 }
 
