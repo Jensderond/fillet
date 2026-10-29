@@ -51,6 +51,7 @@ public final class ViewportController {
         self.options = options
         self.delegate = delegate
         picker.prune(keeping: Set(scene.bodies.map(\.id)))
+        picker.section = scene.section
         renderer?.update(scene: scene)
         renderer?.palette = increasedContrast ? appearance.palette.increasedContrast : appearance.palette
         if lastSyncedCamera == nil {

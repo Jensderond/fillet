@@ -45,6 +45,9 @@ public struct FaceHit: Hashable, Sendable {
     public var normal: Vec3
     /// Distance along the ray.
     public var distance: Double
+    /// The ray met the body's section cap, not one of its faces (`face` is -1): the cap hides what
+    /// is behind it and picks the body, but no face.
+    public var onSectionCap = false
 }
 
 /// The result of picking at a screen location.
@@ -78,6 +81,9 @@ public enum PointerKind: Sendable {
 /// version, built lazily on first use.
 public final class ViewportPicker {
     private var bvhs: [UUID: (key: MeshKey, bvh: TriangleBVH)] = [:]
+    /// The section cut picks see: what it cuts away can't be picked and hides nothing, and its caps
+    /// hide what's behind them. `pick` and `boxSelect` take it from their scene.
+    public var section: SectionPlane?
 
     public init() {}
 
@@ -95,22 +101,47 @@ public final class ViewportPicker {
         bvhs = bvhs.filter { ids.contains($0.key) }
     }
 
-    /// Nearest face hit among visible, pickable bodies.
+    /// Nearest face hit among visible, pickable bodies, on the part of the ray `section` keeps.
     public func raycast(_ ray: Ray, bodies: [SceneBody]) -> FaceHit? {
+        guard let (tMin, tMax) = keptSpan(ray) else { return nil }
+        let start = ray.point(at: tMin)
         var best: FaceHit?
         for body in bodies where body.visible && body.pickable && !body.mesh.indices.isEmpty {
             let tree = bvh(for: body)
-            guard let h = tree.intersect(origin: ray.origin.simd, direction: ray.direction.simd,
-                                         maxT: best?.distance ?? .infinity) else { continue }
+            let limit = min(best?.distance ?? .infinity, tMax) - tMin
+            guard let h = tree.intersect(origin: start.simd, direction: ray.direction.simd, maxT: limit) else { continue }
             let m = body.mesh
             let i0 = Int(m.indices[3 * h.triangle]), i1 = Int(m.indices[3 * h.triangle + 1]), i2 = Int(m.indices[3 * h.triangle + 2])
             let a = Vec3(m.positions[i0]), b = Vec3(m.positions[i1]), c = Vec3(m.positions[i2])
-            var n = (b - a).cross(c - a).normalized
+            let winding = (b - a).cross(c - a).normalized
+            var n = winding
             if n.dot(ray.direction) > 0 { n = -n }
+            // Entering the kept side through the plane and then leaving the body: the ray was
+            // inside it at the plane, on its cap.
+            if tMin > 0, let s = section?.unitNormal {
+                let outward = m.normals.count == m.positions.count
+                    ? Vec3(m.normals[i0] + m.normals[i1] + m.normals[i2]) : winding
+                if outward.dot(ray.direction) > 0 {
+                    best = FaceHit(body: body.id, face: -1, triangle: h.triangle, point: start,
+                                   normal: s.dot(ray.direction) > 0 ? -s : s, distance: tMin, onSectionCap: true)
+                    continue
+                }
+            }
             let face = h.triangle < m.triangleFaces.count ? Int(m.triangleFaces[h.triangle]) : 0
-            best = FaceHit(body: body.id, face: face, triangle: h.triangle, point: ray.point(at: h.t), normal: n, distance: h.t)
+            best = FaceHit(body: body.id, face: face, triangle: h.triangle, point: ray.point(at: tMin + h.t), normal: n,
+                           distance: tMin + h.t)
         }
         return best
+    }
+
+    /// The stretch of `ray` (distances from its origin) on the side `section` keeps; nil when none.
+    private func keptSpan(_ ray: Ray) -> (Double, Double)? {
+        guard let s = section, let n = s.unitNormal else { return (0, .infinity) }
+        let d0 = s.distance(ray.origin), rate = ray.direction.dot(n)
+        if abs(rate) < 1e-12 { return d0 > 0 ? nil : (0, .infinity) }
+        let tPlane = -d0 / rate
+        if rate > 0 { return tPlane > 0 ? (0, tPlane) : nil }
+        return (max(tPlane, 0), .infinity)
     }
 
     /// Picks the most relevant target under `location`.
@@ -119,6 +150,7 @@ public final class ViewportPicker {
     /// `tolerance` and not occluded), faces/bodies, then reference planes (see below).
     public func pick(scene: ViewportScene, camera: Camera, at location: CGPoint, viewSize: CGSize,
                      filter: PickFilter, tolerance: Double = PointerKind.mouse.tolerance) -> PickHit? {
+        section = scene.section
         let ray = camera.ray(at: location, viewSize: viewSize)
         let loc = SIMD2(Double(location.x), Double(location.y))
 
@@ -145,11 +177,17 @@ public final class ViewportPicker {
         // pointer, so the plane only takes the pick where there is no such face, or in front of
         // a face that can't be picked. A face that can't be picked still hides what's behind it.
         if let p = planeHit {
-            let face = faceHit.flatMap { f in filter.contains(.faces) && scene.canPick(face: f.face, of: f.body) ? f : nil }
+            let face = faceHit.flatMap { f in
+                filter.contains(.faces) && !f.onSectionCap && scene.canPick(face: f.face, of: f.body) ? f : nil
+            }
             if face == nil, p.distance < faceHit?.distance ?? .infinity { return p.hit }
         }
         if let f = faceHit {
             if filter.contains(.faces) {
+                // A cap picks the body when bodies can be picked, else it only hides what's behind.
+                if f.onSectionCap {
+                    return filter.contains(.bodies) ? PickHit(target: .body(f.body), point: f.point, normal: f.normal, screenDistance: 0) : nil
+                }
                 guard scene.canPick(face: f.face, of: f.body) else { return nil }
                 return PickHit(target: .face(body: f.body, index: f.face), point: f.point, normal: f.normal, screenDistance: 0)
             }
@@ -191,16 +229,15 @@ public final class ViewportPicker {
             for (ei, poly) in body.mesh.edges.enumerated() where poly.count >= 2 {
                 var bestD = Double.infinity
                 var bestSeg: Candidate?
-                var prev = Vec3(poly[0])
-                var prevS = camera.project(prev, viewSize: viewSize).map { SIMD2(Double($0.x), Double($0.y)) }
                 for k in 1..<poly.count {
-                    let cur = Vec3(poly[k])
+                    // Only what the section leaves of the edge.
+                    guard let (prev, cur) = keptPart(Vec3(poly[k - 1]), Vec3(poly[k])) else { continue }
+                    let prevS = camera.project(prev, viewSize: viewSize).map { SIMD2(Double($0.x), Double($0.y)) }
                     let curS = camera.project(cur, viewSize: viewSize).map { SIMD2(Double($0.x), Double($0.y)) }
                     if let p0 = prevS, let p1 = curS {
                         let (d, s) = Self.segmentDistance(location, p0, p1)
                         if d < bestD { bestD = d; bestSeg = Candidate(body: body.id, edge: ei, a: prev, b: cur, s: s, d: d) }
                     }
-                    prev = cur; prevS = curS
                 }
                 if let c = bestSeg, c.d <= tolerance { candidates.append(c) }
             }
@@ -221,9 +258,20 @@ public final class ViewportPicker {
         return nil
     }
 
+    /// The part of segment `ab` the section keeps, nil when it cuts all of it.
+    private func keptPart(_ a: Vec3, _ b: Vec3) -> (Vec3, Vec3)? {
+        guard let s = section, s.unitNormal != nil else { return (a, b) }
+        let da = s.distance(a), db = s.distance(b)
+        if da <= 0 && db <= 0 { return (a, b) }
+        if da > 0 && db > 0 { return nil }
+        let x = a + (b - a) * (da / (da - db))
+        return da > 0 ? (x, b) : (a, x)
+    }
+
     /// Whether a world point is not hidden behind any face (with a depth tolerance of
-    /// a couple of screen points).
+    /// a couple of screen points), nor cut away by the section.
     func isVisible(_ p: Vec3, bodies: [SceneBody], camera: Camera, viewSize: CGSize) -> Bool {
+        if let s = section, s.unitNormal != nil, s.distance(p) > 1e-6 * max(1, p.length) { return false }
         guard let sp = camera.project(p, viewSize: viewSize) else { return false }
         let r = camera.ray(at: sp, viewSize: viewSize)
         let tPoint = (p - r.origin).dot(r.direction)
