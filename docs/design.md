@@ -278,8 +278,19 @@ Snapping, shared by every drawing tool and by dragging shapes with Select
 centres, sketch points and crossings of curves), midpoints and quadrants,
 horizontal/vertical alignment with any vertex, then the extension of a
 straight edge past its ends, then the grid. Where two guides cross near the
-pointer it snaps to the crossing (level with one vertex, under another). The
-radius is the pointer's pick tolerance on screen (finger 10 pt, Pencil 6 pt,
+pointer it snaps to the crossing (level with one vertex, under another).
+
+Edges of the bodies that lie in the sketch's plane snap too, like the face
+edges Fusion brings into a sketch on a face (FilletCore `SnapReference`): the
+outline and holes of the face a sketch is on, or the outline a part leaves on
+the bed. Their corners, midpoints, hole centres and quadrants are snap points,
+alignment guides come from them, straight edges extend, and sketch curves
+crossing them give crossings. The ends of edges that only touch the plane (an
+upright edge's foot) are points too. Only visible bodies count, as they were
+just before the sketch, so editing an early sketch doesn't snap to what later
+steps made. They are snap targets only: never drawn, saved or used as profiles.
+
+The radius is the pointer's pick tolerance on screen (finger 10 pt, Pencil 6 pt,
 mouse 5 pt, × 1.5; guides catch within ¾ of that), so it feels the same at
 every zoom. A snap holds until the pointer is 1.5 radii away or a better kind,
 or one a quarter radius closer, takes over, so it doesn't flicker. Guides are
@@ -287,8 +298,8 @@ thin dashed orange lines with a small ring on the vertex they come from; the
 snapped point gets a marker by kind (square endpoint, triangle midpoint, ×
 crossing, diamond quadrant, ring centre). They are feedback only: never picked,
 saved or undone, and gone when the gesture ends. `SnapTargets` is built once per
-sketch change (points sorted by x and y, so a pointer event only looks near
-it). `FILLET_SCENARIO=snapping` and the `FilletUITests` scheme exercise it on iPad.
+change to the sketch, its parameters, its plane or the bodies (points sorted by x
+and y, so a pointer event only looks near it). `FILLET_SCENARIO=snapping` and the `FilletUITests` scheme exercise it on iPad.
 
 ## Milestones
 
