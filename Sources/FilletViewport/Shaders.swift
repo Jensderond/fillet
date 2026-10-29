@@ -221,16 +221,10 @@ struct LineOut {
     float3 world;
 };
 
-vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
-                           const device LineSeg* segs [[buffer(0)]],
-                           constant FrameUniforms& U [[buffer(1)]],
-                           constant LineDraw& D [[buffer(2)]],
-                           const device uchar* states [[buffer(3)]]) {
-    LineSeg s = segs[iid];
-    uint st = s.id < D.stateCount ? uint(states[s.id]) : 0u;
-    LineStyle style = D.styles[min(st, 5u)];
-    float3 a = (D.model * float4(float3(s.a), 1.0)).xyz;
-    float3 b = (D.model * float4(float3(s.b), 1.0)).xyz;
+/// Vertex `vid` (0…3, a triangle strip) of the screen-space quad that draws world segment a–b,
+/// `dist` along its polyline at a.
+static LineOut lineQuad(float3 a, float3 b, float dist, LineStyle style, uint vid,
+                        constant FrameUniforms& U, constant LineDraw& D) {
     float4 va = U.view * float4(a, 1.0);
     float4 vb = U.view * float4(b, 1.0);
     if (D.pull != 0u) { va = pullView(va, U); vb = pullView(vb, U); }
@@ -247,7 +241,7 @@ vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
         return o;
     }
     float segLen = length(b - a);
-    float distA = s.dist, distB = s.dist + segLen;
+    float distA = dist, distB = dist + segLen;
     if (za < 0.0) { float t = za / (za - zb); ca = mix(ca, cb, t); distA = mix(distA, distB, t); }
     if (zb < 0.0) { float t = zb / (zb - za); cb = mix(cb, ca, t); distB = mix(distB, distA, t); }
     float2 half_vp = U.viewport.xy * 0.5;
@@ -270,6 +264,49 @@ vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     o.along = isB ? distB : distA;
     o.world = isB ? b : a;
     return o;
+}
+
+vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                           const device LineSeg* segs [[buffer(0)]],
+                           constant FrameUniforms& U [[buffer(1)]],
+                           constant LineDraw& D [[buffer(2)]],
+                           const device uchar* states [[buffer(3)]]) {
+    LineSeg s = segs[iid];
+    uint st = s.id < D.stateCount ? uint(states[s.id]) : 0u;
+    LineStyle style = D.styles[min(st, 5u)];
+    float3 a = (D.model * float4(float3(s.a), 1.0)).xyz;
+    float3 b = (D.model * float4(float3(s.b), 1.0)).xyz;
+    return lineQuad(a, b, s.dist, style, vid, U, D);
+}
+
+/// The section's outline sliced from a body's mesh on the GPU, so moving the plane costs the CPU
+/// nothing: one instance per triangle, a segment where the plane crosses two of its edges, by
+/// the same test the caps are cut with (`cutAway`), so the line runs exactly along the cap's rim.
+/// A triangle the plane misses gets a quad with no area.
+vertex LineOut section_outline_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
+                                      const device MeshVertex* verts [[buffer(0)]],
+                                      constant FrameUniforms& U [[buffer(1)]],
+                                      constant LineDraw& D [[buffer(2)]],
+                                      const device uint* indices [[buffer(3)]]) {
+    float3 p[3];
+    float d[3];
+    for (uint k = 0; k < 3; k++) {
+        p[k] = (D.model * float4(float3(verts[indices[3 * iid + k]].position), 1.0)).xyz;
+        d[k] = dot(U.section.xyz, p[k]) + U.section.w;
+    }
+    bool s0 = d[0] > 0.0, s1 = d[1] > 0.0, s2 = d[2] > 0.0;
+    if (s0 == s1 && s1 == s2) {
+        LineOut o;
+        o.position = float4(0.0, 0.0, -1.0, 1.0);
+        o.color = 0; o.across = 0; o.halfWidth = 0; o.along = 0; o.dash = 0; o.world = p[0];
+        return o;
+    }
+    // The odd one out: both edges from it cross the plane.
+    uint lone = s0 == s1 ? 2u : (s0 == s2 ? 1u : 0u);
+    uint j = (lone + 1u) % 3u, k = (lone + 2u) % 3u;
+    float3 a = mix(p[lone], p[j], d[lone] / (d[lone] - d[j]));
+    float3 b = mix(p[lone], p[k], d[lone] / (d[lone] - d[k]));
+    return lineQuad(a, b, 0.0, D.styles[0], vid, U, D);
 }
 
 fragment float4 line_fragment(LineOut in [[stage_in]], constant FrameUniforms& U [[buffer(1)]],

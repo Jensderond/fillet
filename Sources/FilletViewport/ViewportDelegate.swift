@@ -74,6 +74,11 @@ public protocol ViewportDelegate: AnyObject {
     /// A handle is being dragged; `value` is the new (clamped) handle value.
     func viewportHandleDragged(id: String, value: Double)
     func viewportHandleDragEnded(id: String, value: Double)
+    /// Right after `viewportHandleDragged`: when the handle steers the section, the plane and the
+    /// handles as that step left them. The viewport draws them at once and keeps them over any
+    /// scene that comes in until the drag ends, so a step moves the cut without a new scene (nil:
+    /// the next scene shows what the step changed).
+    func viewportSectionDragged(id: String) -> SectionDragStep?
     /// A press on `target` started moving while no tool takes the input. Return true to drag
     /// it (`viewportDragMoved` / `Ended` / `Cancelled` follow) instead of navigating. `event`
     /// is the press. A press that doesn't move stays a tap.
@@ -95,6 +100,7 @@ public protocol ViewportDelegate: AnyObject {
 
 public extension ViewportDelegate {
     var wantsToolInput: Bool { false }
+    func viewportSectionDragged(id: String) -> SectionDragStep? { nil }
     func viewportDidTap(target: PickTarget?, hit: PickHit?, ray: Ray, location: CGPoint, modifiers: ViewportModifiers,
                         pointer: PointerKind) {}
     /// A tap made in code (automation, demos): a touch, so it adds to the selection.

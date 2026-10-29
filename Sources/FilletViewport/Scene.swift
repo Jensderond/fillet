@@ -236,6 +236,33 @@ public struct SectionPlane: Hashable, Sendable {
     }
 }
 
+/// The exact lines where a section plane meets the bodies (the kernel's, from their B-rep): drawn
+/// as the cut's outline in place of the lines sliced from the meshes, for each body whose shape
+/// hasn't changed, while the section is still `plane`. They take a boolean per body, so they come
+/// in after a drag settles.
+public struct SectionCurves: Sendable {
+    public struct Lines: Sendable {
+        /// `SceneBody.version` of the body they were made for.
+        public var version: Int
+        public var lines: [[SIMD3<Float>]]
+        public init(version: Int, lines: [[SIMD3<Float>]]) { self.version = version; self.lines = lines }
+    }
+
+    public var plane: SectionPlane
+    /// By body id.
+    public var bodies: [UUID: Lines]
+
+    public init(plane: SectionPlane, bodies: [UUID: Lines]) { self.plane = plane; self.bodies = bodies }
+}
+
+/// A step of a section handle's drag: the plane and the handles as it left them, drawn at once
+/// (`ViewportDelegate.viewportSectionDragged`).
+public struct SectionDragStep: Sendable, Equatable {
+    public var section: SectionPlane?
+    public var handles: [Handle]
+    public init(section: SectionPlane?, handles: [Handle]) { self.section = section; self.handles = handles }
+}
+
 /// A draggable handle. An arrow (e.g. extrude distance) has its tip at `origin + direction * value`
 /// and is dragged along `direction`; a rotation grip turns about an axis. Dragging reports a new `value`.
 public struct Handle: Hashable, Sendable, Identifiable {
@@ -472,6 +499,8 @@ public struct ViewportScene: Sendable {
     public var ellipticalShadows = false
     /// Cuts the bodies open and caps them (see `SectionPlane`); their edges and silhouettes are cut too.
     public var section: SectionPlane?
+    /// The kernel's exact outline of a section, used while it's for `section` (see `SectionCurves`).
+    public var sectionCurves: SectionCurves?
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
                 plate: BuildPlate? = nil, selection: Set<PickTarget> = [], hover: PickTarget? = nil,

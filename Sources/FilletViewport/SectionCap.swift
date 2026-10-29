@@ -25,6 +25,14 @@ extension SectionPlane {
         return (u, n.cross(u))
     }
 
+    /// Whether the plane goes through `box` (or touches it).
+    func crosses(_ box: Bounds3) -> Bool {
+        guard let n = unitNormal else { return false }
+        // The box's half extent along the normal, against its centre's distance from the plane.
+        let c = (box.min + box.max) * 0.5, h = (box.max - box.min) * 0.5
+        return abs((c - origin).dot(n)) <= abs(h.x * n.x) + abs(h.y * n.y) + abs(h.z * n.z)
+    }
+
     /// Where the plane crosses `box` (grown a little so the cap covers the whole cut), as a convex
     /// polygon in order around the plane; empty when it misses.
     func polygon(through box: Bounds3) -> [Vec3] {
@@ -55,9 +63,10 @@ extension SectionPlane {
         outlineSegments(of: mesh).map { (SIMD3($0.ax, $0.ay, $0.az), SIMD3($0.bx, $0.by, $0.bz)) }
     }
 
-    /// `outline(of:)` as the line segments that draw it. It runs on every frame a section is
-    /// dragged, so it reads the mesh through raw buffers with plain loops: a debug build checks
-    /// every subscript and steps every range through generic code.
+    /// `outline(of:)` as the line segments that draw it. The viewport slices on the GPU instead
+    /// (`section_outline_vertex`); this is the same cut on the CPU, for tests and snapshots of it.
+    /// It reads the mesh through raw buffers with plain loops: a debug build checks every
+    /// subscript and steps every range through generic code.
     func outlineSegments(of mesh: Mesh) -> [GPULineSeg] {
         guard let n = unitNormal, !mesh.indices.isEmpty else { return [] }
         let nf = n.float, of = origin.float

@@ -25,6 +25,13 @@ final class Recorder: ViewportDelegate {
     func viewportHoverChanged(target: PickTarget?) { hovers.append(target) }
     func viewportHandleDragged(id: String, value: Double) { handleValues.append(value) }
     func viewportHandleDragEnded(id: String, value: Double) { handleEnded = value }
+    /// Handles steer a section across Z, at their value (`viewportSectionDragged`).
+    var steersSection = false
+    func viewportSectionDragged(id: String) -> SectionDragStep? {
+        guard steersSection, let v = handleValues.last else { return nil }
+        return SectionDragStep(section: SectionPlane(origin: Vec3(0, 0, v), normal: .unitZ),
+                               handles: [Handle(id: id, origin: .zero, direction: .unitZ, value: v)])
+    }
     func viewportToolBegan(_ event: ViewportToolEvent) { toolEvents.append(("began", event)) }
     func viewportToolMoved(_ event: ViewportToolEvent) { toolEvents.append(("moved", event)) }
     func viewportToolEnded(_ event: ViewportToolEvent) { toolEvents.append(("ended", event)) }
@@ -122,6 +129,31 @@ struct ControllerTests {
         c.endHandleDrag()
         #expect(r.handleEnded == 40)
         #expect(!c.isDraggingHandle)
+    }
+
+    /// A section handle's drag moves the plane in the renderer with no new scene, and a scene
+    /// that comes in mid-drag (for something else) keeps the plane where the drag has it.
+    @Test func sectionDragMovesThePlaneWithoutANewScene() throws {
+        let h = Handle(id: "section.offset", origin: .zero, direction: .unitZ, value: 0)
+        let (c, r, box) = make(handles: [h])
+        r.steersSection = true
+        let renderer = try #require(c.renderer)
+        let scenes = renderer.sceneUpdates
+        let g = try #require(ViewportPicker.handleScreenGeometry(h, camera: c.liveCamera, viewSize: size))
+        let grab = CGPoint(x: (g.start.x + g.tip.x) / 2, y: (g.start.y + g.tip.y) / 2)
+        #expect(c.beginHandleDrag(at: grab, pointer: .mouse))
+        for dy in stride(from: 10.0, through: 50, by: 10) { c.dragHandle(to: CGPoint(x: grab.x, y: grab.y - dy)) }
+        let v = try #require(r.handleValues.last)
+        #expect(v > 5)
+        #expect(renderer.sceneUpdates == scenes && renderer.sectionUpdates == 5)
+        #expect(renderer.scene.section?.origin.z == v && renderer.scene.handles.first?.value == v)
+        // A scene made mid-drag from what the delegate had before the drag.
+        let stale = ViewportScene(bodies: [SceneBody(id: cubeID, mesh: DemoMeshes.cube(size: 20))], handles: [h])
+        c.update(scene: stale, camera: box.camera, filter: .default, options: ViewportOptions(), delegate: r, appearance: .light)
+        #expect(renderer.scene.section?.origin.z == v && renderer.scene.handles.first?.value == v)
+        c.endHandleDrag()
+        c.update(scene: stale, camera: box.camera, filter: .default, options: ViewportOptions(), delegate: r, appearance: .light)
+        #expect(renderer.scene.section == nil, "after the drag the scene says where the plane is")
     }
 
     /// A rotation grip turns with the pointer about its axis, past ±180° without jumping back.

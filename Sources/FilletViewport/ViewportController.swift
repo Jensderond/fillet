@@ -34,6 +34,10 @@ public final class ViewportController {
     /// now, and the last reading (a grip's angle is unwrapped against it across ±180°).
     @ObservationIgnored private var dragHandle: (handle: Handle, offset: Double, value: Double, reading: Double)?
     @ObservationIgnored private(set) var isDraggingTarget = false
+    /// What the section handle being dragged last left (`ViewportDelegate.viewportSectionDragged`):
+    /// drawn over every scene that comes in until the drag ends, so one rebuilt mid-drag for
+    /// something else can't put the cut back where it was.
+    @ObservationIgnored private var sectionDrag: SectionDragStep?
 
     public init() {
         renderer = try? ViewportRenderer()
@@ -48,6 +52,11 @@ public final class ViewportController {
 
     func update(scene: ViewportScene, camera: Camera, filter: PickFilter, options: ViewportOptions,
                 delegate: (any ViewportDelegate)?, appearance: ViewportAppearance, increasedContrast: Bool = false) {
+        var scene = scene
+        if let step = sectionDrag {
+            scene.section = step.section
+            scene.handles = step.handles
+        }
         self.scene = scene
         self.filter = filter
         self.options = options
@@ -424,6 +433,7 @@ public final class ViewportController {
         let s = ViewportPicker.handleParameter(h, ray: ray(at: p)) ?? h.value
         dragHandle = (h, h.value - s, h.value, s)
         renderer?.activeHandleID = id
+        renderer?.drawsEveryRefresh = true
         redraw()
         return true
     }
@@ -448,13 +458,28 @@ public final class ViewportController {
         if let r = d.handle.range { v = min(max(v, r.lowerBound), r.upperBound) }
         d.value = v
         dragHandle = d
+        renderer?.noteInput()
         delegate?.viewportHandleDragged(id: d.handle.id, value: v)
+        if let step = delegate?.viewportSectionDragged(id: d.handle.id) { moveSection(step) }
+    }
+
+    /// The fast path of a section drag: the plane and handles go straight to the renderer and the
+    /// picker, and the frame is redrawn, with no new scene.
+    private func moveSection(_ step: SectionDragStep) {
+        sectionDrag = step
+        scene.section = step.section
+        scene.handles = step.handles
+        picker.section = step.section
+        renderer?.updateSection(step.section, handles: step.handles)
+        redraw()
     }
 
     public func endHandleDrag() {
         guard let d = dragHandle else { return }
         dragHandle = nil
+        sectionDrag = nil
         renderer?.activeHandleID = nil
+        renderer?.drawsEveryRefresh = false
         delegate?.viewportHandleDragEnded(id: d.handle.id, value: d.value)
         redraw()
     }

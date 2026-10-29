@@ -26,9 +26,10 @@ struct SectionCapTests {
     init() throws { renderer = try ViewportRenderer() }
 
     private func render(_ mesh: Mesh, section: SectionPlane?, camera: Camera, handles: [Handle] = [],
-                        size: Int = 200) throws -> [SIMD3<Int>] {
+                        curves: SectionCurves? = nil, size: Int = 200) throws -> [SIMD3<Int>] {
         var scene = ViewportScene(bodies: [SceneBody(id: sectionBodyID, mesh: mesh)], handles: handles, showsGroundGrid: false)
         scene.section = section
+        scene.sectionCurves = curves
         let image = try #require(renderer.snapshot(scene: scene, camera: camera, size: CGSize(width: size, height: size), scale: 1))
         return pixels(image)
     }
@@ -95,6 +96,54 @@ struct SectionCapTests {
         let plain = try greenCount(nil)
         #expect(plain > 40)
         #expect(Double(try greenCount(cutX)) > Double(plain) * 0.9)
+    }
+
+    /// Without the kernel's lines the outline is sliced from the mesh (on the GPU): ink all round
+    /// the cap's rim. Once lines are in for this plane they are drawn instead; lines made for
+    /// another plane are not.
+    @Test func outlineIsTheMeshesUntilExactLinesComeForThisPlane() throws {
+        let cam = right()
+        let size = CGSize(width: 200, height: 200)
+        let rim = Int(try #require(cam.project(Vec3(0, 10, 0), viewSize: size)).x.rounded())
+        let line = Int(try #require(cam.project(Vec3(0, 3, 0), viewSize: size)).x.rounded())
+        // Rows (of the cap's middle) where column x of `a` is inked darker than in `b`.
+        func darker(_ a: [SIMD3<Int>], than b: [SIMD3<Int>], column x: Int) -> Int {
+            (70..<130).filter { y in (x - 1...x + 1).contains { c in
+                let p = a[y * 200 + c], q = b[y * 200 + c]
+                return (q.x + q.y + q.z) - (p.x + p.y + p.z) > 60
+            } }.count
+        }
+        let lines = SectionCurves.Lines(version: 0, lines: [[SIMD3(0, 3, -8), SIMD3(0, 3, 8)]])
+        let sliced = try render(DemoMeshes.cube(size: 20), section: cutX, camera: cam)
+        let exact = try render(DemoMeshes.cube(size: 20), section: cutX, camera: cam,
+                               curves: SectionCurves(plane: cutX, bodies: [sectionBodyID: lines]))
+        let stale = try render(DemoMeshes.cube(size: 20), section: cutX, camera: cam,
+                               curves: SectionCurves(plane: SectionPlane(origin: Vec3(1, 0, 0), normal: .unitX), bodies: [sectionBodyID: lines]))
+        #expect(darker(sliced, than: exact, column: rim) > 55, "the mesh's outline runs down the cap's side")
+        #expect(darker(exact, than: sliced, column: line) > 55, "the exact lines are drawn in its place")
+        #expect(darker(stale, than: sliced, column: line) == 0 && darker(stale, than: sliced, column: rim) == 0
+                && darker(sliced, than: stale, column: rim) == 0, "lines made for another plane are not")
+    }
+
+    /// A drag step moves the plane and swaps the handles without a new scene: the meshes stay
+    /// uploaded and the exact lines, made for where the plane was, give way to the mesh's.
+    @Test func movingTheSectionKeepsTheScene() throws {
+        let lines = SectionCurves.Lines(version: 0, lines: [[SIMD3(0, 3, -8), SIMD3(0, 3, 8)]])
+        var scene = ViewportScene(bodies: [SceneBody(id: sectionBodyID, mesh: DemoMeshes.cube(size: 20))], showsGroundGrid: false)
+        scene.section = cutX
+        scene.sectionCurves = SectionCurves(plane: cutX, bodies: [sectionBodyID: lines])
+        renderer.update(scene: scene)
+        renderer.prepare()
+        let gpu = renderer.gpuBodyIdentity(sectionBodyID)
+        let updates = renderer.sceneUpdates
+        let moved = SectionPlane(origin: Vec3(4, 0, 0), normal: .unitX)
+        let arrow = Handle(id: "section.offset", origin: .zero, direction: .unitX, value: 4)
+        renderer.updateSection(moved, handles: [arrow])
+        renderer.prepare()
+        #expect(renderer.sceneUpdates == updates && renderer.gpuBodyIdentity(sectionBodyID) == gpu)
+        #expect(renderer.scene.section == moved && renderer.scene.handles == [arrow])
+        let px = try #require(renderer.snapshot(scene: renderer.scene, camera: right(), size: CGSize(width: 200, height: 200), scale: 1))
+        #expect(pixels(px).filter(isRed).count > 2000, "the cap is drawn at the moved plane")
     }
 
     @Test func outlineRunsAroundTheCut() {

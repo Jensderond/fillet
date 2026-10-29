@@ -150,6 +150,8 @@ public final class ViewportRenderer: NSObject {
     /// Section caps: the stencil parity pass over a body's remaining surface, and the cap itself.
     private let pSectionMask: MTLRenderPipelineState
     private let pCap: MTLRenderPipelineState
+    /// The section's outline sliced from a body's mesh on the GPU (`section_outline_vertex`).
+    private let pSectionOutline: MTLRenderPipelineState
     /// Resets depth to the far plane over the whole target (a mid-pass depth clear).
     private let pDepthReset: MTLRenderPipelineState
     private let dsGreater: MTLDepthStencilState
@@ -193,8 +195,9 @@ public final class ViewportRenderer: NSObject {
     private var bodiesBefore: [UUID: GPUBody] = [:]
     private var sceneBounds: Bounds3?
     private var bodiesDirty = true
-    /// Where the section plane meets each body, for its outline (by body id).
-    private var sectionOutlines: [UUID: (key: MeshKey, plane: SectionPlane, segs: MTLBuffer?, count: Int)] = [:]
+    /// The kernel's exact lines where the section plane meets each body (`scene.sectionCurves`, by
+    /// body id), once they are in for this plane; other bodies' outlines are sliced on the GPU.
+    private var sectionOutlines: [UUID: (version: Int, plane: SectionPlane, segs: MTLBuffer?, count: Int)] = [:]
     private var statesDirty = true
     private var overlaysDirty = true
 
@@ -269,6 +272,7 @@ public final class ViewportRenderer: NSObject {
         pDepthReset = try pipeline("bg_vertex", "bg_fragment", blend: false, writeColor: false)
         pSectionMask = try pipeline("mesh_vertex", "section_mask_fragment", blend: false, writeColor: false)
         pCap = try pipeline("cap_vertex", "cap_fragment", blend: false)
+        pSectionOutline = try pipeline("section_outline_vertex", "line_fragment", blend: true)
 
         func depth(_ cmp: MTLCompareFunction, write: Bool) -> MTLDepthStencilState {
             let d = MTLDepthStencilDescriptor()
@@ -315,6 +319,20 @@ public final class ViewportRenderer: NSObject {
         bodiesDirty = true
         statesDirty = true
         overlaysDirty = true
+        sceneUpdates += 1
+    }
+
+    /// Moves the section plane and swaps the handles, keeping the rest of the scene: what a step
+    /// of a section handle's drag changes. Meshes, selection states and overlays stay as they
+    /// are; the next frame takes the plane straight into its uniforms (the caps follow on the
+    /// GPU) and slices only the cut's outline again.
+    public func updateSection(_ section: SectionPlane?, handles: [Handle]) {
+        sectionUpdates += 1
+        scene.handles = handles
+        guard section != scene.section else { return }
+        scene.section = section
+        // The exact lines were for where the plane was: the GPU slices the meshes until new ones come.
+        sectionOutlines = [:]
     }
 
     /// Identity of the cached GPU buffers for a body (tests).
@@ -357,22 +375,20 @@ public final class ViewportRenderer: NSObject {
         }
     }
 
-    /// Recomputes the section outline of each visible body the plane or its mesh moved for.
+    /// Uploads the kernel's exact section lines of each visible body they were made for (this
+    /// plane, this shape); the rest are sliced from their meshes as they are drawn.
     private func syncSectionOutlines() {
-        guard let section = scene.section, section.unitNormal != nil else {
+        guard let section = scene.section, section.unitNormal != nil, let curves = scene.sectionCurves, curves.plane == section else {
             sectionOutlines = [:]
             return
         }
         var keep = Set<UUID>()
         for b in scene.bodies where b.visible {
+            guard let exact = curves.bodies[b.id], exact.version == b.version else { continue }
             keep.insert(b.id)
-            let key = MeshKey(b)
-            if let o = sectionOutlines[b.id], o.key == key, o.plane == section { continue }
-            var segs: [GPULineSeg] = []
-            if let box = bodies[b.id]?.bounds, !section.polygon(through: box).isEmpty {
-                segs = section.outlineSegments(of: b.mesh)
-            }
-            sectionOutlines[b.id] = (key, section, makeBuffer(segs), segs.count)
+            if let o = sectionOutlines[b.id], o.version == b.version, o.plane == section { continue }
+            let segs = GPUBody.segments(exact.lines)
+            sectionOutlines[b.id] = (b.version, section, makeBuffer(segs), segs.count)
         }
         if keep.count != sectionOutlines.count { sectionOutlines = sectionOutlines.filter { keep.contains($0.key) } }
     }
@@ -549,9 +565,17 @@ public final class ViewportRenderer: NSObject {
             return
         }
         animation = Animation(from: camera, to: target, start: CACurrentMediaTime(), duration: duration)
-        if let v = view {
-            v.enableSetNeedsDisplay = false
-            v.isPaused = false
+        resumeView()
+    }
+
+    /// Draws on every display refresh while true (a handle being dragged) rather than when asked.
+    /// Input comes faster than the display refreshes: drawing on every event, the main thread
+    /// waits for a drawable each time while finished frames queue up, and the input behind them
+    /// with it (on the frog: 76 ms from a drag step to the screen, the steps handled 1.5 s late).
+    public var drawsEveryRefresh = false {
+        didSet {
+            guard drawsEveryRefresh != oldValue else { return }
+            if drawsEveryRefresh { resumeView() } else if animation == nil { pauseView() }
         }
     }
 
@@ -588,9 +612,16 @@ public final class ViewportRenderer: NSObject {
     }
 
     private func pauseView() {
-        guard let v = view else { return }
+        guard let v = view, !drawsEveryRefresh else { return }
         v.isPaused = true
         v.enableSetNeedsDisplay = true
+    }
+
+    /// The view draws on its display link, once a refresh.
+    private func resumeView() {
+        guard let v = view else { return }
+        v.enableSetNeedsDisplay = false
+        v.isPaused = false
     }
 
     /// Requests a redraw of the attached view.
@@ -892,20 +923,34 @@ public final class ViewportRenderer: NSObject {
         }
     }
 
-    /// The line where the section plane meets each body, in the edge ink, over the cap's rim.
+    /// The line where the section plane meets each body, in the edge ink, over the cap's rim: the
+    /// kernel's exact lines where they are in for this plane, else sliced from the mesh on the GPU
+    /// (exactly where the stencil cap ends, so mid-drag it never lags the cap).
     private func drawSectionOutlines(_ enc: MTLRenderCommandEncoder, ink: ViewportColor, opaque: [SceneBody]) {
-        guard scene.section != nil, !sectionOutlines.isEmpty else { return }
-        enc.setRenderPipelineState(pLine)
+        guard let section = scene.section, section.unitNormal != nil else { return }
         enc.setDepthStencilState(dsTest)
         enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
         var d = LineDraw(LineStyle(ink, width: 1.6))
         d.pull = 2
         enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        var sliced: [GPUBody] = []
+        enc.setRenderPipelineState(pLine)
         for b in opaque {
-            guard let o = sectionOutlines[b.id], let segs = o.segs, o.count > 0 else { continue }
-            enc.setVertexBuffer(segs, offset: 0, index: 0)
-            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: o.count)
+            if let o = sectionOutlines[b.id] {
+                guard let segs = o.segs, o.count > 0 else { continue }
+                enc.setVertexBuffer(segs, offset: 0, index: 0)
+                enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: o.count)
+            } else if let g = bodies[b.id], g.vertexBuffer != nil, g.indexBuffer != nil, let box = g.bounds, section.crosses(box) {
+                sliced.append(g)
+            }
+        }
+        guard !sliced.isEmpty else { return }
+        enc.setRenderPipelineState(pSectionOutline)
+        for g in sliced {
+            enc.setVertexBuffer(g.vertexBuffer, offset: 0, index: 0)
+            enc.setVertexBuffer(g.indexBuffer, offset: 0, index: 3)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: g.indexCount / 3)
         }
     }
 
