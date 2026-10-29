@@ -178,6 +178,8 @@ public final class ViewportRenderer: NSObject {
     }
     /// Handle currently being dragged (drawn highlighted).
     public var activeHandleID: String?
+    /// Frames drawn to the view so far (scripted runs count them to measure the frame rate).
+    public private(set) var framesDrawn = 0
 
     private var bodies: [UUID: GPUBody] = [:]
     /// `scene.bodiesBefore`, by the id of the shown body each replaces (only ever depth).
@@ -361,7 +363,7 @@ public final class ViewportRenderer: NSObject {
             if let o = sectionOutlines[b.id], o.key == key, o.plane == section { continue }
             var segs: [GPULineSeg] = []
             if let box = bodies[b.id]?.bounds, !section.polygon(through: box).isEmpty {
-                segs = section.outline(of: b.mesh).map { GPULineSeg($0.0, $0.1, dist: 0, id: 0) }
+                segs = section.outlineSegments(of: b.mesh)
             }
             sectionOutlines[b.id] = (key, section, makeBuffer(segs), segs.count)
         }
@@ -1404,6 +1406,7 @@ extension ViewportRenderer: MTKViewDelegate {
     }
 
     private func render(in view: MTKView) {
+        framesDrawn += 1
         stepAnimation()
         prepare()
         guard let rp = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,

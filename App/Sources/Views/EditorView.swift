@@ -247,18 +247,8 @@ struct EditorContent: View {
 
     private var viewport: some View {
         ZStack(alignment: .top) {
-            ViewportView(
-                scene: session.makeScene(),
-                camera: $session.camera,
-                filter: session.pickFilter,
-                // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
-                options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: !reduceMotion,
-                                         cameraAnimationDuration: cameraAnimationDuration,
-                                         contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary,
-                                         boxFilter: session.boxFilter, boxSelects: session.boxSelecting),
-                visualStyle: $visualStyle,
-                delegate: session,
-                controller: controller)
+            EditorViewport(session: session, controller: controller, visualStyle: $visualStyle, fingerDraws: fingerDraws,
+                           animatesCameraChanges: !reduceMotion, cameraAnimationDuration: cameraAnimationDuration)
                 .background(GeometryReader { proxy in
                     Color.clear
                         .onAppear { session.viewportGeometryChanged(size: proxy.size, chrome: chromeInsets) }
@@ -414,7 +404,7 @@ struct EditorContent: View {
 
     /// A section cuts the model with its handles away: the pill says so and brings them back.
     private var showsSectionPill: Bool {
-        session.section?.isOn == true && session.pickMode != .section && !session.choosingSectionPlane
+        session.sectionMode == .on && !session.choosingSectionPlane
     }
 
     private var currentHint: (text: String, symbol: String, context: String)? {
@@ -447,6 +437,32 @@ struct EditorContent: View {
             return ("Start with Sketch to draw a profile on the bed", "pencil.and.outline", "start")
         }
         return nil
+    }
+}
+
+/// The 3D view, on its own so that what only it shows (the scene, rebuilt on every step of a
+/// handle drag) redraws it and not the editor around it.
+struct EditorViewport: View {
+    @Bindable var session: DesignSession
+    let controller: ViewportController
+    @Binding var visualStyle: VisualStyle
+    let fingerDraws: Bool
+    let animatesCameraChanges: Bool
+    let cameraAnimationDuration: Double
+
+    var body: some View {
+        ViewportView(
+            scene: session.makeScene(),
+            camera: $session.camera,
+            filter: session.pickFilter,
+            // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.
+            options: ViewportOptions(fingerDraws: fingerDraws, animatesCameraChanges: animatesCameraChanges,
+                                     cameraAnimationDuration: cameraAnimationDuration,
+                                     contentInsets: session.viewInsets, accessibilitySummary: session.viewportSummary,
+                                     boxFilter: session.boxFilter, boxSelects: session.boxSelecting),
+            visualStyle: $visualStyle,
+            delegate: session,
+            controller: controller)
     }
 }
 
@@ -654,7 +670,7 @@ struct ToolStrip: View {
                         // A view, not a step: "on" in ink like Overhangs once it just cuts; orange
                         // while its plane is being picked or its handles are up.
                         ToolButton("Section", SectionSymbol.name,
-                                   active: session.section?.isOn == true || session.choosingSectionPlane,
+                                   active: session.sectionIsOn || session.choosingSectionPlane,
                                    toggle: !(session.choosingSectionPlane || session.pickMode == .section),
                                    unavailable: session.sectionUnavailableReason, shortcut: "⇧⌘X",
                                    detail: "cut the model open along a plane or a flat face") { session.toggleSection() }

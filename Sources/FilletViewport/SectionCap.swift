@@ -52,22 +52,39 @@ extension SectionPlane {
     /// The segments where the plane cuts the mesh's triangles: the cap's outline, exactly where
     /// the stencil cap ends (both come from the same triangles).
     func outline(of mesh: Mesh) -> [(SIMD3<Float>, SIMD3<Float>)] {
+        outlineSegments(of: mesh).map { (SIMD3($0.ax, $0.ay, $0.az), SIMD3($0.bx, $0.by, $0.bz)) }
+    }
+
+    /// `outline(of:)` as the line segments that draw it. It runs on every frame a section is
+    /// dragged, so it reads the mesh through raw buffers with plain loops: a debug build checks
+    /// every subscript and steps every range through generic code.
+    func outlineSegments(of mesh: Mesh) -> [GPULineSeg] {
         guard let n = unitNormal, !mesh.indices.isEmpty else { return [] }
         let nf = n.float, of = origin.float
-        let d = mesh.positions.map { simd_dot($0 - of, nf) }
-        var out: [(SIMD3<Float>, SIMD3<Float>)] = []
-        let p = mesh.positions
-        func cross(_ i: Int, _ j: Int) -> SIMD3<Float> { p[i] + (p[j] - p[i]) * (d[i] / (d[i] - d[j])) }
-        var t = 0
-        while t + 2 < mesh.indices.count {
-            let a = Int(mesh.indices[t]), b = Int(mesh.indices[t + 1]), c = Int(mesh.indices[t + 2])
-            t += 3
-            let sa = d[a] > 0, sb = d[b] > 0, sc = d[c] > 0
-            guard sa != sb || sb != sc else { continue }
-            // Two of the three edges change sides.
-            if sa == sb { out.append((cross(a, c), cross(b, c))) }
-            else if sa == sc { out.append((cross(a, b), cross(c, b))) }
-            else { out.append((cross(b, a), cross(c, a))) }
+        var d = [Float](repeating: 0, count: mesh.positions.count)
+        var out: [GPULineSeg] = []
+        mesh.positions.withUnsafeBufferPointer { p in
+            d.withUnsafeMutableBufferPointer { d in
+                var i = 0
+                while i < p.count { d[i] = simd_dot(p[i] - of, nf); i += 1 }
+            }
+            d.withUnsafeBufferPointer { d in
+                mesh.indices.withUnsafeBufferPointer { idx in
+                    func cross(_ i: Int, _ j: Int) -> SIMD3<Float> { p[i] + (p[j] - p[i]) * (d[i] / (d[i] - d[j])) }
+                    func add(_ a: SIMD3<Float>, _ b: SIMD3<Float>) { out.append(GPULineSeg(a, b, dist: 0, id: 0)) }
+                    var t = 0
+                    while t + 2 < idx.count {
+                        let a = Int(idx[t]), b = Int(idx[t + 1]), c = Int(idx[t + 2])
+                        t += 3
+                        let sa = d[a] > 0, sb = d[b] > 0, sc = d[c] > 0
+                        if sa == sb && sb == sc { continue }
+                        // Two of the three edges change sides.
+                        if sa == sb { add(cross(a, c), cross(b, c)) }
+                        else if sa == sc { add(cross(a, b), cross(c, b)) }
+                        else { add(cross(b, a), cross(c, a)) }
+                    }
+                }
+            }
         }
         return out
     }

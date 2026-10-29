@@ -34,10 +34,6 @@ struct SectionState: Equatable {
     var tiltV = 0.0
     /// The other side is cut away (the normal points the other way; the plane stays where it is).
     var flipped = false
-    /// Cutting the model. Off, the plane is kept for the next time Section view is turned on.
-    var isOn = true
-    /// The handles and the section panel are up (Escape or Done puts them away; the cut stays).
-    var isEditing = true
 
     /// The plane's axes after the tilts, before the flip: `u` and `v` in the plane, `n` across it.
     var frame: (u: Vec3, v: Vec3, n: Vec3) {
@@ -90,14 +86,34 @@ struct SectionState: Equatable {
     }
 }
 
+/// Whether Section view cuts the model, and whether its handles are up. Kept apart from the
+/// plane (`DesignSession.section`), so the tool strip and everything that asks what mode the
+/// editor is in don't redraw on every step of a drag.
+enum SectionMode: Equatable {
+    /// The model is whole (a plane picked before is kept for next time).
+    case off
+    /// Cut, the handles away.
+    case on
+    /// Cut, with the handles and the section panel up (Escape or Done puts them away; the cut stays).
+    case editing
+}
+
 extension DesignSession {
+    /// A section cuts the model.
+    var sectionIsOn: Bool { sectionMode != .off }
+
+    /// The handles go away; the cut stays.
+    func putSectionHandlesAway() {
+        if sectionMode == .editing { sectionMode = .on }
+    }
+
     static let sectionOffsetHandleID = "section.offset"
     static let sectionTiltUHandleID = "section.tiltU"
     static let sectionTiltVHandleID = "section.tiltV"
 
     /// Why Section view can't start right now, or nil when it can (one that is on can always be turned off).
     var sectionUnavailableReason: String? {
-        if section?.isOn == true || choosingSectionPlane { return nil }
+        if sectionIsOn || choosingSectionPlane { return nil }
         if model.bodies.isEmpty { return "Needs a body to cut. Extrude a sketch first." }
         if isBusyEditing, section == nil, let name = editingFeature?.name { return "Finish \(name) first: Done or Cancel." }
         return nil
@@ -107,13 +123,12 @@ extension DesignSession {
     /// used last, or with the planes offered to pick from); on, or choosing, turns it off.
     func toggleSection() {
         if choosingSectionPlane { return cancelChoosingSectionPlane() }
-        if section?.isOn == true { return turnSectionOff() }
+        if sectionIsOn { return turnSectionOff() }
         if let reason = sectionUnavailableReason { message = ToastMessage(reason); return }
         if let face = sketchableFace, section == nil { return startSection(onFace: face.body, face.index) }
         guard section != nil else { return beginChoosingSectionPlane() }
-        section?.isOn = true
         // While a step is open its own handles and panel stay; the cut just comes back.
-        if !isBusyEditing { editSection() }
+        if isBusyEditing { sectionMode = .on } else { editSection() }
     }
 
     /// Shows the origin planes and flat faces to cut along (the next tap picks one).
@@ -121,7 +136,7 @@ extension DesignSession {
         if sketchEditor != nil { finishSketch() }
         if choosingSketchPlane { cancelChoosingSketchPlane() }
         measure = nil
-        section?.isEditing = false
+        putSectionHandlesAway()
         selection = []
         hover = nil
         choosingSectionPlane = true
@@ -163,6 +178,7 @@ extension DesignSession {
         selection = []
         hover = nil
         section = SectionState(reference: reference, center: center)
+        sectionMode = .editing
     }
 
     /// `n` or its opposite, whichever points from `p` towards the camera.
@@ -178,22 +194,20 @@ extension DesignSession {
         measure = nil
         selection = []
         hover = nil
-        section?.isOn = true
-        section?.isEditing = true
+        sectionMode = .editing
     }
 
     /// Done or Escape: the handles go, the cut stays.
     func endSectionEditing() {
-        section?.isEditing = false
+        putSectionHandlesAway()
         sectionDrag = nil
         hover = nil
     }
 
     /// The model is whole again; the plane is kept for next time.
     func turnSectionOff() {
-        guard section?.isOn == true else { return }
-        section?.isOn = false
-        section?.isEditing = false
+        guard sectionIsOn else { return }
+        sectionMode = .off
         sectionDrag = nil
         message = "Section view off. Turn it on again to cut along the same plane."
     }
@@ -201,6 +215,7 @@ extension DesignSession {
     /// Forgets the plane: the next Section view picks a new one.
     func deleteSection() {
         section = nil
+        sectionMode = .off
         sectionDrag = nil
     }
 
@@ -252,14 +267,14 @@ extension DesignSession {
     /// What cuts the viewport: the section that's on, not while a new plane is being picked
     /// (the whole model shows to pick from).
     var shownSection: SectionPlane? {
-        guard let s = section, s.isOn, !choosingSectionPlane else { return nil }
+        guard sectionIsOn, !choosingSectionPlane, let s = section else { return nil }
         return s.plane
     }
 
     /// The arrow across the cut, pointing at the side cut away, and a grip for each tilt, out on
     /// the plane's two in-plane axes. In the selection blue: they steer the view, not a step.
     func sectionHandles() -> [Handle] {
-        guard let s = section, s.isOn, s.isEditing else { return [] }
+        guard sectionMode == .editing, let s = section else { return [] }
         let color = ViewportColor(hex: 0x3B8BFF)
         let f = s.frame
         let n = s.normal

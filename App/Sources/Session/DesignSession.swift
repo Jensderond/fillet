@@ -91,6 +91,8 @@ final class DesignSession {
     var measure: MeasureState?
     /// Section view's plane (see `SectionState`), kept while it's off; nil when none was picked.
     var section: SectionState?
+    /// Whether that plane cuts the model and its handles are up; `.off` whenever `section` is nil.
+    var sectionMode = SectionMode.off
     /// Section view was asked for with no plane: the origin planes show and the next tap on one
     /// of them, or on a flat face, cuts there.
     var choosingSectionPlane = false
@@ -297,7 +299,7 @@ final class DesignSession {
         measure = nil
         // A section stays cut through what comes next; its handles and panel make way.
         choosingSectionPlane = false
-        section?.isEditing = false
+        putSectionHandlesAway()
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil

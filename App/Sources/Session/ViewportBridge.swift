@@ -36,7 +36,7 @@ extension DesignSession {
         if choosingSketchPlane { return .sketchPlane }
         if choosingSectionPlane { return .sectionPlane }
         if measure != nil { return .measure }
-        guard let feature = editingFeature else { return section?.isOn == true && section?.isEditing == true ? .section : .idle }
+        guard let feature = editingFeature else { return sectionMode == .editing ? .section : .idle }
         switch feature.kind {
         case .extrude(let e): return .regions(sketch: e.sketch)
         case .revolve(let r): return .regions(sketch: r.sketch)

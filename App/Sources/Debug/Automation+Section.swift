@@ -215,13 +215,13 @@ extension DebugAutomation {
         // Another tool takes over the panel and the handles; the cut stays.
         session.startMeasure()
         await settle(session)
-        check(session.measure != nil && session.section?.isEditing == false && session.makeScene().section != nil,
+        check(session.measure != nil && session.sectionMode == .on && session.makeScene().section != nil,
               "Measure takes over from the handles and measures the cut model")
         session.endMeasure()
         session.editSection()
         session.startPressPull()
         await settle(session)
-        check(session.editingKind == "pressPull" && session.section?.isEditing == false && session.makeScene().section != nil
+        check(session.editingKind == "pressPull" && session.sectionMode == .on && session.makeScene().section != nil
               && session.makeScene().handles.allSatisfy { !$0.id.hasPrefix("section.") },
               "a step opens with the cut still on, and its own handles")
         await snap(session, "sec10-step-in-a-section")
@@ -236,6 +236,58 @@ extension DebugAutomation {
         check(session.pickMode == .idle && session.section == nil, "Escape stops choosing")
 
         check(session.document == documentBefore, "the document is as it was")
+        await sectionDragFrameRate(session)
+    }
+
+    /// `FILLET_SECTION_FIXTURE=<file.step or .fillet>`: imports or opens it (in place of the plate), cuts it along XZ through its middle and
+    /// drags the arrow back and forth like a pointer (an event every 8 ms, ±9 mm, three times
+    /// round), logging how many frames the viewport drew a second while it moved (the bar: 58 of 60).
+    static func sectionDragFrameRate(_ session: DesignSession) async {
+        guard let path = ProcessInfo.processInfo.environment["FILLET_SECTION_FIXTURE"], let controller, let renderer = controller.renderer else { return }
+        let url = URL(fileURLWithPath: path)
+        if url.pathExtension == "fillet" {
+            guard let data = try? Data(contentsOf: url), let document = try? Document(data: data) else {
+                check(false, "frame rate: \(path) opens"); return
+            }
+            session.externalUpdate(document)
+        } else {
+            session.importSTEP(from: url)
+            await settle(session)
+            for body in session.model.bodies.dropLast() { session.hiddenBodies.insert(body.ref) }
+        }
+        session.camera = session.camera.viewing(.iso)
+        session.frameBodies()
+        await settle(session)
+        session.deleteSection()
+        session.startSection(on: .xz)
+        if let b = session.visibleBodyBounds { session.setSectionOffset(-(b.min.y + b.max.y) / 2) }
+        await settle(session)
+        guard let arrow = session.makeScene().handles.first(where: { $0.id == DesignSession.sectionOffsetHandleID }) else {
+            check(false, "frame rate: an arrow to drag"); return
+        }
+        let cam = controller.liveCamera, size = controller.viewSize
+        let wpp = cam.worldUnitsPerPoint(at: arrow.tip, viewSize: size)
+        let grabWorld = arrow.tip + arrow.direction * (HandleMetrics.totalLength / 2 * wpp)
+        guard let grab = cam.project(grabWorld, viewSize: size), controller.beginHandleDrag(at: grab, pointer: .mouse) else {
+            check(false, "frame rate: the arrow can be grabbed"); return
+        }
+        let triangles = session.model.meshes.values.reduce(0) { $0 + $1.indices.count / 3 }
+        let framesBefore = renderer.framesDrawn
+        let start = ContinuousClock.now
+        let ticks = 375  // 3 s at 125 Hz
+        for i in 0..<ticks {
+            // A triangle wave: 0.5 s out, 0.5 s back.
+            let phase = Double(i % 125) / 125
+            let mm = 9 * (phase < 0.5 ? phase * 4 - 1 : 3 - phase * 4)
+            if let p = cam.project(grabWorld + arrow.direction * mm, viewSize: size) { controller.dragHandle(to: p) }
+            try? await Task.sleep(until: start + .milliseconds(8 * (i + 1)), clock: .continuous)
+        }
+        let elapsed = (ContinuousClock.now - start).components
+        let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+        let fps = Double(renderer.framesDrawn - framesBefore) / seconds
+        controller.endHandleDrag()
+        log("section drag: \(String(format: "%.1f", fps)) frames/s over \(String(format: "%.2f", seconds)) s, \(triangles) triangles, \(path)")
+        await snap(session, "sec11-frame-rate")
     }
 }
 #endif
