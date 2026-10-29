@@ -242,9 +242,9 @@ extension DebugAutomation {
     }
 
     /// `FILLET_SECTION_FIXTURE=<file.step or .fillet>`: imports or opens it (in place of the plate),
-    /// cuts it along XZ through its middle and drags the arrow back and forth like a pointer (an
-    /// event every 8 ms, ±9 mm, three times round), then lets go and turns the camera while the
-    /// exact outline comes in. Logs the frame times of both (`FrameTimingReport`: frames on screen
+    /// cuts it along XZ 3 mm off its middle and drags the arrow back and forth like a pointer (an
+    /// event every 8 ms, ±9 mm, three times round), ending through the middle; then lets go and
+    /// turns the camera while the exact outline comes in. Logs the frame times of both (`FrameTimingReport`: frames on screen
     /// a second, frame interval, CPU and GPU time per frame and input → screen latency, p50/p95),
     /// how late the pointer's steps ran, and how many times the scene was rebuilt mid-drag (the
     /// fast path moves only the plane: none but the first step's). The bar: 58 frames/s of 60.
@@ -256,6 +256,7 @@ extension DebugAutomation {
                 check(false, "frame rate: \(path) opens"); return
             }
             session.externalUpdate(document)
+            await settle(session)  // framed below on its own bounds, not the plate's
         } else {
             session.importSTEP(from: url)
             await settle(session)
@@ -266,7 +267,8 @@ extension DebugAutomation {
         await settle(session)
         session.deleteSection()
         session.startSection(on: .xz)
-        if let b = session.visibleBodyBounds { session.setSectionOffset(-(b.min.y + b.max.y) / 2) }
+        // 3 mm off the middle: the drag ends through it, somewhere its exact outline isn't in yet.
+        if let b = session.visibleBodyBounds { session.setSectionOffset(-(b.min.y + b.max.y) / 2 + 3) }
         await settle(session)
         guard let arrow = session.makeScene().handles.first(where: { $0.id == DesignSession.sectionOffsetHandleID }) else {
             check(false, "frame rate: an arrow to drag"); return
@@ -290,13 +292,14 @@ extension DebugAutomation {
         func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
         var late: [Double] = []
         for i in 0..<ticks {
-            // A triangle wave: 0.5 s out, 0.5 s back.
-            let phase = Double(i % 125) / 125
-            let mm = 9 * (phase < 0.5 ? phase * 4 - 1 : 3 - phase * 4)
+            // A triangle wave from the middle: out 9 mm, back through it to -9 and home, a second a round.
+            let phase = Double((i + 1) % 125) / 125
+            let mm = 9 * (phase < 0.25 ? phase * 4 : phase < 0.75 ? 2 - phase * 4 : phase * 4 - 4)
             late.append(ms(ContinuousClock.now - (start + .milliseconds(8 * i))))
             if let p = cam.project(grabWorld + arrow.direction * mm, viewSize: size) { controller.dragHandle(to: p) }
             try? await Task.sleep(until: start + .milliseconds(8 * (i + 1)), clock: .continuous)
         }
+        if let p = cam.project(grabWorld - arrow.direction * 3, viewSize: size) { controller.dragHandle(to: p) }
         let elapsed = (ContinuousClock.now - start).components
         let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
         let fps = Double(renderer.framesDrawn - framesBefore) / seconds
@@ -307,7 +310,7 @@ extension DebugAutomation {
         log("section drag frames: \(drag.summary)")
         log("section drag steps: \(ticks) pointer steps, late p50/p95 \(String(format: "%.1f/%.1f", FrameTimingReport.percentile(late, 0.5), FrameTimingReport.percentile(late, 0.95))) ms; "
             + "\(rebuilt) scene rebuilds, \(moved) plane moves")
-        check(rebuilt <= 2 && moved >= ticks - 2, "frame rate: a drag moves the plane without rebuilding the scene (\(rebuilt) rebuilds, \(moved) moves)")
+        check(rebuilt <= 2 && moved >= ticks, "frame rate: a drag moves the plane without rebuilding the scene (\(rebuilt) rebuilds, \(moved) moves)")
         check(session.sectionCurves?.plane != session.shownSection, "frame rate: mid-drag the outline is the mesh's, the exact one is for where the plane was")
 
         // Let go and turn the camera for 1.5 s: the exact outline comes in while frames keep coming.
