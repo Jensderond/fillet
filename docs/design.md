@@ -317,6 +317,32 @@ saved or undone, and gone when the gesture ends. `SnapTargets` is built once per
 change to the sketch, its parameters, its plane or the bodies (points sorted by x
 and y, so a pointer event only looks near it). `FILLET_SCENARIO=snapping` and the `FilletUITests` scheme exercise it on iPad.
 
+Section view (`App/Sources/Session/Section.swift`, after Shapr3D's): Section on the tool strip,
+⇧⌘X or *View ▸ Section View* cuts the model open. With a flat face selected it cuts right on that
+face; otherwise the viewport offers the origin planes and flat faces like choosing a sketch plane
+(bar with XY / XZ / YZ and Cancel). The picked plane's normal is turned towards the camera, so
+what faces the viewer is cut away and the inside shows. Then, with the panel in the inspector:
+
+- An arrow across the cut (in the selection blue: it steers the view, not a step) slides it; the
+  offset reads in a pill past the arrow's head, live while dragging, and a tap on the pill types
+  one (an expression, like every field). The offset is the handles' distance from the picked plane
+  along its normal, positive towards the side cut away, in 0.1 mm steps.
+- Two curved grips, out on the plane's in-plane axes, tilt it about the handles' point (whole
+  degrees; first about the picked plane's level axis, then about the axis that turned to). Tilting
+  never moves that point, so the offset reads the same through a tilt. The grip's angle shows
+  beside it while it turns.
+- A round button behind the arrow's base flips the side cut away; the plane stays where it is.
+- The panel types the offset and both tilts, changes the plane, untilts, and *Look at the cut*
+  turns the camera straight at it from the cut-away side.
+
+It is view state, like Measure: never a step, never in the document or the undo history, and the
+plane stays put in the world while orbiting. Escape or Done puts the handles away and keeps the
+cut, with a pill over the viewport (Edit, Turn off); other tools and steps take over the handles
+but keep the cut. The tool turns it off and later back on at the same plane (Delete forgets it).
+A section drag rebuilds only the viewport, the panel and the pill (the mode is kept apart from
+the plane, so the rest of the editor doesn't redraw), and the cut's outline is sliced in plain
+loops over raw buffers: the frog benchmark (159k triangles) drags at 60 frames/s in a debug build.
+
 ## Milestones
 
 1. Foundations: OCCT xcframework, package wiring, kernel bridge + tests, app
