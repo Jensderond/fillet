@@ -16,7 +16,7 @@ struct BodySnapTests {
 
     func line(_ a: Vec3, _ b: Vec3) -> EdgeInfo { edge(.line, a, (a + b) / 2, b) }
 
-    func context(_ shapes: [SketchShape] = [], _ references: [SnapReference], tolerance: Double = 0.5) -> SnapContext {
+    func context(_ references: [SnapReference], shapes: [SketchShape] = [], tolerance: Double = 0.5) -> SnapContext {
         SnapContext(targets: Sketch(shapes: shapes).snapTargets(using: ev, references: references), tolerance: tolerance, gridSize: 0)
     }
 
@@ -88,7 +88,7 @@ struct BodySnapTests {
     @Test func snapsWhereASketchLineCrossesABodyEdge() {
         // (Its midpoint is elsewhere: a crossing on a point already snapped to isn't added again.)
         let sketchLine = SketchShape(.line(a: Point2Expr(20, -10), b: Point2Expr(20, 30)))
-        let c = context([sketchLine], [SnapReference(source: body, curves: [.line(SIMD2(0, 0), SIMD2(40, 0))])])
+        let c = context([SnapReference(source: body, curves: [.line(SIMD2(0, 0), SIMD2(40, 0))])], shapes: [sketchLine])
         #expect(c.targets.points.contains { $0.kind == .intersection && $0.position == SIMD2(20, 0) })
         #expect(c.resolve(SIMD2(20.2, 0.2)).point == SIMD2(20, 0))
     }
