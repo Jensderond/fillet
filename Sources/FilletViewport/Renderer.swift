@@ -180,6 +180,13 @@ public final class ViewportRenderer: NSObject {
     public var activeHandleID: String?
     /// Frames drawn to the view so far (scripted runs count them to measure the frame rate).
     public private(set) var framesDrawn = 0
+    /// New scenes taken so far (`update(scene:)`), and section moves without one (`updateSection`):
+    /// a section drag should make only the second kind.
+    public private(set) var sceneUpdates = 0
+    public private(set) var sectionUpdates = 0
+    /// Collecting frame times (`beginFrameTimings`), and when the earliest input not yet drawn came in.
+    var frameTimings: FrameTimingLog?
+    var pendingInput: CFTimeInterval?
 
     private var bodies: [UUID: GPUBody] = [:]
     /// `scene.bodiesBefore`, by the id of the shown body each replaces (only ever depth).
@@ -1406,16 +1413,20 @@ extension ViewportRenderer: MTKViewDelegate {
     }
 
     private func render(in view: MTKView) {
+        let start = CACurrentMediaTime()
         framesDrawn += 1
         stepAnimation()
         prepare()
+        let prepared = CACurrentMediaTime()
         guard let rp = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
               let cb = queue.makeCommandBuffer(), let enc = cb.makeRenderCommandEncoder(descriptor: rp) else { return }
+        let gotDrawable = CACurrentMediaTime()
         let ds = view.drawableSize
         let pts = view.bounds.size
         let ppp = pts.width > 0 ? Float(ds.width / pts.width) : 1
         encode(enc, pixelSize: SIMD2(Float(ds.width), Float(ds.height)), pixelsPerPoint: ppp)
         enc.endEncoding()
+        timeFrame(cb, drawable: drawable, cpu: (prepared - start) + (CACurrentMediaTime() - gotDrawable), wait: gotDrawable - prepared)
         cb.present(drawable)
         cb.commit()
     }
