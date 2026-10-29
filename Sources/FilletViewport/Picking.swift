@@ -376,8 +376,17 @@ public final class ViewportPicker {
     func pickHandle(_ handles: [Handle], camera: Camera, location: SIMD2<Double>, viewSize: CGSize, tolerance: Double) -> PickHit? {
         var best: (Handle, Double)?
         for h in handles {
-            guard let g = Self.handleScreenGeometry(h, camera: camera, viewSize: viewSize) else { continue }
-            let (d, _) = Self.segmentDistance(location, g.start, g.tip)
+            var d = Double.infinity
+            switch h.kind {
+            case .arrow:
+                guard let g = Self.handleScreenGeometry(h, camera: camera, viewSize: viewSize) else { continue }
+                d = Self.segmentDistance(location, g.start, g.tip).0
+            case .rotation:
+                // The grip's arc on screen, heads included.
+                let points = Self.rotationGrip(h, camera: camera, viewSize: viewSize, reach: HandleMetrics.gripHeadLength)
+                    .compactMap { camera.project($0, viewSize: viewSize) }.map { SIMD2(Double($0.x), Double($0.y)) }
+                for i in points.indices.dropLast() { d = min(d, Self.segmentDistance(location, points[i], points[i + 1]).0) }
+            }
             if d <= tolerance, d < (best?.1 ?? .infinity) { best = (h, d) }
         }
         guard let (h, d) = best else { return nil }
@@ -390,12 +399,54 @@ public final class ViewportPicker {
         guard abs(ray.direction.dot(h.direction)) < 0.995 else { return nil }
         return ray.closestParameters(toLine: h.origin, direction: h.direction)?.s
     }
+
+    /// What a drag through `ray` reads off a handle: an arrow's axis parameter (see
+    /// `handleAxisParameter`), or for a rotation grip the angle in degrees, about its axis, from
+    /// `direction` to where the ray crosses the grip's plane (in -180…180). Nil when the ray runs
+    /// (nearly) along an arrow, or (nearly) in a grip's plane, where the angle would jump.
+    public static func handleParameter(_ h: Handle, ray: Ray) -> Double? {
+        guard case .rotation(let axis) = h.kind else { return handleAxisParameter(h, ray: ray) }
+        let along = ray.direction.dot(axis)
+        guard abs(along) > 0.05 else { return nil }
+        let t = (h.origin - ray.origin).dot(axis) / along
+        let w = ray.point(at: t) - h.origin
+        let side = axis.cross(h.direction)
+        guard w.length > 1e-9 else { return nil }
+        return atan2(w.dot(side), w.dot(h.direction)) * 180 / .pi
+    }
+
+    /// World points along a rotation grip's arc, at its screen-constant radius: from one end to the
+    /// other, `reach` points further past each end (its heads).
+    static func rotationGrip(_ h: Handle, camera: Camera, viewSize: CGSize, reach: Double = 0) -> [Vec3] {
+        guard case .rotation(let axis) = h.kind else { return [] }
+        let wpp = camera.worldUnitsPerPoint(at: h.origin, viewSize: viewSize)
+        return rotationGripPoints(center: h.origin, axis: axis, direction: h.direction,
+                                  radius: HandleMetrics.gripRadius * wpp, reach: reach / HandleMetrics.gripRadius)
+    }
+
+    /// `count` + 1 points on the arc of `radius` around `center` in the plane across `axis`,
+    /// spanning `HandleMetrics.gripSpan` either side of `direction`, plus `reach` radians past each end.
+    static func rotationGripPoints(center: Vec3, axis: Vec3, direction: Vec3, radius: Double, reach: Double = 0,
+                                   count: Int = 12) -> [Vec3] {
+        let side = axis.cross(direction)
+        let half = HandleMetrics.gripSpan + reach
+        return (0...count).map { i in
+            let a = -half + 2 * half * Double(i) / Double(count)
+            return center + (direction * cos(a) + side * sin(a)) * radius
+        }
+    }
 }
 
-/// Screen-space arrow dimensions (points).
-enum HandleMetrics {
+/// Screen-space handle dimensions (points; the grip's span in radians).
+public enum HandleMetrics {
     static let shaftLength = 34.0
     static let headLength = 14.0
     static let headRadius = 6.0
-    static var totalLength: Double { shaftLength + headLength }
+    /// Arrow length from its tip (the base dot) to the end of its head.
+    public static var totalLength: Double { shaftLength + headLength }
+    /// How far a rotation grip sits from its centre.
+    public static let gripRadius = 64.0
+    /// Half the angle a rotation grip's arc covers.
+    static let gripSpan = 0.32
+    static let gripHeadLength = 10.0
 }

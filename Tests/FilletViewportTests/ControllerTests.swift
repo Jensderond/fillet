@@ -124,6 +124,42 @@ struct ControllerTests {
         #expect(!c.isDraggingHandle)
     }
 
+    /// A rotation grip turns with the pointer about its axis, past ±180° without jumping back.
+    @Test func rotationGripDragReportsAngle() throws {
+        // Seen from the front (camera on -Y), a grip turning about Y sits on +X from the origin.
+        let h = Handle(id: "tilt", origin: .zero, direction: .unitX, value: 10, kind: .rotation(axis: .unitY))
+        let (c, r, _) = make(handles: [h])
+        let cam = c.liveCamera
+        let wpp = cam.worldUnitsPerPoint(at: .zero, viewSize: size)
+        let radius = HandleMetrics.gripRadius * wpp
+        func screen(_ degrees: Double) -> CGPoint {
+            // About +Y, +X turns towards -Z (the right-hand rule): (cos, 0, -sin).
+            let a = degrees * .pi / 180
+            return cam.project(Vec3(cos(a), 0, -sin(a)) * radius, viewSize: size)!
+        }
+        #expect(c.beginHandleDrag(at: screen(0), pointer: .mouse))
+        c.dragHandle(to: screen(30))
+        #expect(abs((r.handleValues.last ?? 0) - 40) < 0.5)
+        // On round past the back (±180°), the reading keeps counting.
+        for degrees in stride(from: 60.0, through: 200, by: 20) { c.dragHandle(to: screen(degrees)) }
+        #expect(abs((r.handleValues.last ?? 0) - 210) < 0.5)
+        c.endHandleDrag()
+        #expect(abs((r.handleEnded ?? 0) - 210) < 0.5)
+        // Off the grip (the middle of its circle) nothing is grabbed.
+        #expect(!c.beginHandleDrag(at: cam.project(.zero, viewSize: size)!, pointer: .mouse))
+    }
+
+    /// A fingertip grabs a handle from further away than a mouse pointer does.
+    @Test func touchGrabsHandlesFromFurtherAway() throws {
+        let h = Handle(id: "distance", origin: .zero, direction: .unitZ, value: 0)
+        let (c, _, _) = make(handles: [h])
+        let g = try #require(ViewportPicker.handleScreenGeometry(h, camera: c.liveCamera, viewSize: size))
+        let beside = CGPoint(x: g.start.x + 20, y: (g.start.y + g.tip.y) / 2)
+        #expect(!c.beginHandleDrag(at: beside, pointer: .mouse))
+        #expect(c.beginHandleDrag(at: beside, pointer: .touch))
+        c.endHandleDrag()
+    }
+
     @Test func toolEventsCarryRayAndHit() throws {
         let (c, r, _) = make()
         r.wantsToolInput = true

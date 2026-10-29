@@ -140,6 +140,25 @@ struct PickingTests {
         #expect(ViewportPicker.handleAxisParameter(h, ray: Ray(origin: Vec3(0, 0, 100), direction: -Vec3.unitZ)) == nil)
     }
 
+    @Test func rotationGripPicksOnItsArc() throws {
+        let h = Handle(id: "tilt", origin: .zero, direction: .unitZ, value: 0, kind: .rotation(axis: .unitX))
+        let scene = ViewportScene(handles: [h])
+        let cam = Camera(target: .zero, distance: 150).viewing(.right)
+        let picker = ViewportPicker()
+        let grip = ViewportPicker.rotationGrip(h, camera: cam, viewSize: viewSize)
+        #expect(grip.count == 13)
+        // The middle of the arc is straight out along `direction`, at the grip radius.
+        let wpp = cam.worldUnitsPerPoint(at: .zero, viewSize: viewSize)
+        #expect(grip[6].distance(to: Vec3(0, 0, HandleMetrics.gripRadius * wpp)) < 1e-9)
+        #expect(picker.pick(scene: scene, camera: cam, at: screen(grip[3], cam), viewSize: viewSize, filter: .default)?.target == .handle("tilt"))
+        #expect(picker.pick(scene: scene, camera: cam, at: screen(.zero, cam), viewSize: viewSize, filter: .default) == nil)
+        // Its reading is the angle about the axis from `direction`: about +X, +Z turns towards -Y.
+        let r = cam.ray(at: screen(Vec3(0, -10, 10), cam), viewSize: viewSize)
+        #expect(abs((ViewportPicker.handleParameter(h, ray: r) ?? 0) - 45) < 1e-6)
+        // A ray in the grip's plane reads nothing.
+        #expect(ViewportPicker.handleParameter(h, ray: Ray(origin: Vec3(0, -100, 0), direction: .unitY)) == nil)
+    }
+
     @Test func bvhCacheReusedUntilVersionChanges() {
         let picker = ViewportPicker()
         var body = SceneBody(id: cubeID, mesh: DemoMeshes.cube())

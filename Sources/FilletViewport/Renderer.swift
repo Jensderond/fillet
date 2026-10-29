@@ -1227,17 +1227,14 @@ public final class ViewportRenderer: NSObject {
             // Screen-constant size at the tip's depth.
             let depthScale = camera.projection == .perspective ? max(camera.depth(of: h.tip), 1e-3) / camera.distance : 1
             let wpp = wppPoints * depthScale
+            let width: Float = active || hovered ? 3.5 : 2.75
+            if case .rotation(let axis) = h.kind {
+                drawRotationGrip(enc, h, axis: axis, color: color, width: width, wpp: wpp)
+                continue
+            }
             let shaftEnd = h.tip + h.direction * (HandleMetrics.shaftLength * wpp)
             // Shaft.
-            enc.setRenderPipelineState(pLine)
-            enc.setDepthStencilState(dsAlways)
-            var seg = GPULineSeg(h.tip.float, shaftEnd.float, dist: 0, id: 0)
-            var d = LineDraw(LineStyle(color, width: active || hovered ? 3.5 : 2.75))
-            enc.setVertexBytes(&seg, length: MemoryLayout<GPULineSeg>.stride, index: 0)
-            enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
-            enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
-            enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
-            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 1)
+            drawHandleLines(enc, [GPULineSeg(h.tip.float, shaftEnd.float, dist: 0, id: 0)], color: color, width: width)
             // Base dot.
             enc.setRenderPipelineState(pPoint)
             var pd = PointDraw()
@@ -1248,25 +1245,62 @@ public final class ViewportRenderer: NSObject {
             enc.setVertexBytes(&pd, length: MemoryLayout<PointDraw>.stride, index: 2)
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 1)
             // Cone head.
-            guard let vb = cone.vertexBuffer, let ib = cone.indexBuffer else { continue }
-            let z = h.direction
-            let x = Plane(origin: .zero, normal: z, xDir: abs(z.x) < 0.9 ? .unitX : .unitY).xDir
-            let y = z.cross(x)
-            let s = Float(HandleMetrics.headLength * wpp)
-            var md = MeshDraw()
-            md.model = simd_float4x4(columns: (SIMD4(x.float * s, 0), SIMD4(y.float * s, 0), SIMD4(z.float * s, 0),
-                                               SIMD4(shaftEnd.float, 1)))
-            md.color = SIMD4(SIMD3(color.linear.x, color.linear.y, color.linear.z), 1)
-            md.flags = MeshDraw.ignoresSection
-            enc.setRenderPipelineState(pMeshOpaque)
-            enc.setCullMode(.back)
-            enc.setVertexBuffer(vb, offset: 0, index: 0)
-            enc.setFragmentBuffer(zeroBuffer, offset: 0, index: 3)
-            enc.setVertexBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
-            enc.setFragmentBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
-            enc.drawIndexedPrimitives(type: .triangle, indexCount: cone.indexCount, indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
-            enc.setCullMode(.none)
+            drawHandleHead(enc, at: shaftEnd, pointing: h.direction, length: HandleMetrics.headLength * wpp, color: color)
         }
+    }
+
+    /// A rotation grip: a short arc around the handle's axis with a head at each end, so it reads
+    /// as "turn this either way".
+    private func drawRotationGrip(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, color: ViewportColor, width: Float, wpp: Double) {
+        let radius = HandleMetrics.gripRadius * wpp
+        let points = ViewportPicker.rotationGripPoints(center: h.origin, axis: axis, direction: h.direction, radius: radius)
+        guard points.count >= 2 else { return }
+        drawHandleLines(enc, (0..<points.count - 1).map { GPULineSeg(points[$0].float, points[$0 + 1].float, dist: 0, id: 0) },
+                        color: color, width: width)
+        // The heads run on along the arc's tangent at both ends.
+        let side = axis.cross(h.direction)
+        let span = HandleMetrics.gripSpan
+        for sign in [-1.0, 1.0] {
+            let tangent = (side * cos(span) - h.direction * sin(span) * sign) * sign
+            drawHandleHead(enc, at: points[sign < 0 ? 0 : points.count - 1], pointing: tangent,
+                           length: HandleMetrics.gripHeadLength * wpp, color: color)
+        }
+    }
+
+    /// Screen-space-wide lines drawn over everything (a handle's shaft or arc).
+    private func drawHandleLines(_ enc: MTLRenderCommandEncoder, _ segs: [GPULineSeg], color: ViewportColor, width: Float) {
+        guard !segs.isEmpty else { return }
+        enc.setRenderPipelineState(pLine)
+        enc.setDepthStencilState(dsAlways)
+        var segs = segs
+        var d = LineDraw(LineStyle(color, width: width))
+        enc.setVertexBytes(&segs, length: MemoryLayout<GPULineSeg>.stride * segs.count, index: 0)
+        enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
+        enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: segs.count)
+    }
+
+    /// A cone with its base at `base`, `length` long along `direction` (the section never cuts it).
+    private func drawHandleHead(_ enc: MTLRenderCommandEncoder, at base: Vec3, pointing direction: Vec3, length: Double, color: ViewportColor) {
+        guard let vb = cone.vertexBuffer, let ib = cone.indexBuffer else { return }
+        let z = direction.normalized
+        let x = Plane(origin: .zero, normal: z, xDir: abs(z.x) < 0.9 ? .unitX : .unitY).xDir
+        let y = z.cross(x)
+        let s = Float(length)
+        var md = MeshDraw()
+        md.model = simd_float4x4(columns: (SIMD4(x.float * s, 0), SIMD4(y.float * s, 0), SIMD4(z.float * s, 0),
+                                           SIMD4(base.float, 1)))
+        md.color = SIMD4(SIMD3(color.linear.x, color.linear.y, color.linear.z), 1)
+        md.flags = MeshDraw.ignoresSection
+        enc.setRenderPipelineState(pMeshOpaque)
+        enc.setCullMode(.back)
+        enc.setVertexBuffer(vb, offset: 0, index: 0)
+        enc.setFragmentBuffer(zeroBuffer, offset: 0, index: 3)
+        enc.setVertexBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
+        enc.setFragmentBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
+        enc.drawIndexedPrimitives(type: .triangle, indexCount: cone.indexCount, indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
+        enc.setCullMode(.none)
     }
 
     // MARK: Offscreen snapshot

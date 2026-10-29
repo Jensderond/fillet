@@ -30,7 +30,9 @@ public final class ViewportController {
     @ObservationIgnored private var orbitPivot: Vec3?
     @ObservationIgnored private var zoomAnchor: Vec3?
     @ObservationIgnored private var panDepthPoint: Vec3?
-    @ObservationIgnored private var dragHandle: (handle: Handle, offset: Double, value: Double)?
+    /// The handle as it was when the drag began, value minus what the press read off it, the value
+    /// now, and the last reading (a grip's angle is unwrapped against it across ±180°).
+    @ObservationIgnored private var dragHandle: (handle: Handle, offset: Double, value: Double, reading: Double)?
     @ObservationIgnored private(set) var isDraggingTarget = false
 
     public init() {
@@ -410,25 +412,38 @@ public final class ViewportController {
 
     // MARK: Handles
 
-    /// Starts dragging the handle under `p`, if any. Returns whether a drag began.
-    func beginHandleDrag(at p: CGPoint, pointer: PointerKind) -> Bool {
+    /// Starts dragging the handle under `p`, if any. Returns whether a drag began. (Public, like
+    /// `dragHandle` and `endHandleDrag`, so scripted runs can drag handles as a pointer does.)
+    public func beginHandleDrag(at p: CGPoint, pointer: PointerKind) -> Bool {
         guard filter.contains(.handles) || !scene.handles.isEmpty,
               let hit = picker.pickHandle(scene.handles, camera: liveCamera, location: SIMD2(Double(p.x), Double(p.y)),
-                                          viewSize: viewSize, tolerance: max(pointer.tolerance, 12) + 4),
+                                          viewSize: viewSize, tolerance: Self.handleTolerance(pointer)),
               case .handle(let id) = hit.target,
               let h = scene.handles.first(where: { $0.id == id }) else { return false }
         renderer?.cancelAnimation()
-        let s = ViewportPicker.handleAxisParameter(h, ray: ray(at: p)) ?? h.value
-        dragHandle = (h, h.value - s, h.value)
+        let s = ViewportPicker.handleParameter(h, ray: ray(at: p)) ?? h.value
+        dragHandle = (h, h.value - s, h.value, s)
         renderer?.activeHandleID = id
         redraw()
         return true
     }
 
+    /// How far from a handle a press still grabs it (points): a fingertip gets a wide margin, as a
+    /// handle is a small thing to hit on a moving model.
+    static func handleTolerance(_ pointer: PointerKind) -> Double {
+        pointer == .touch ? 22 : max(pointer.tolerance, 12) + 4
+    }
+
     var isDraggingHandle: Bool { dragHandle != nil }
 
-    func dragHandle(to p: CGPoint) {
-        guard var d = dragHandle, let s = ViewportPicker.handleAxisParameter(d.handle, ray: ray(at: p)) else { return }
+    public func dragHandle(to p: CGPoint) {
+        guard var d = dragHandle, var s = ViewportPicker.handleParameter(d.handle, ray: ray(at: p)) else { return }
+        if case .rotation = d.handle.kind {
+            // atan2 wraps at ±180°: keep the reading continuous, so a grip turned past it keeps going.
+            while s - d.reading > 180 { s -= 360 }
+            while s - d.reading < -180 { s += 360 }
+            d.reading = s
+        }
         var v = s + d.offset
         if let r = d.handle.range { v = min(max(v, r.lowerBound), r.upperBound) }
         d.value = v
@@ -436,7 +451,7 @@ public final class ViewportController {
         delegate?.viewportHandleDragged(id: d.handle.id, value: v)
     }
 
-    func endHandleDrag() {
+    public func endHandleDrag() {
         guard let d = dragHandle else { return }
         dragHandle = nil
         renderer?.activeHandleID = nil

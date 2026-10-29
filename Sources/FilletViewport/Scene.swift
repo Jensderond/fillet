@@ -236,26 +236,41 @@ public struct SectionPlane: Hashable, Sendable {
     }
 }
 
-/// A draggable arrow handle (e.g. extrude distance). The arrow tip sits at
-/// `origin + direction * value`; dragging reports a new `value`.
+/// A draggable handle. An arrow (e.g. extrude distance) has its tip at `origin + direction * value`
+/// and is dragged along `direction`; a rotation grip turns about an axis. Dragging reports a new `value`.
 public struct Handle: Hashable, Sendable, Identifiable {
+    /// How the handle looks and what dragging it means.
+    public enum Kind: Hashable, Sendable {
+        /// An arrow along `direction`; `value` is a distance in mm.
+        case arrow
+        /// A short curved grip with a head at each end, `HandleMetrics.gripRadius` points from
+        /// `origin` along `direction`, turning about `axis` through `origin` (a section's tilt).
+        /// `value` is an angle in degrees; dragging around the axis adds to it.
+        case rotation(axis: Vec3)
+    }
+
     public var id: String
     public var origin: Vec3
-    /// Unit axis the handle moves along.
+    /// Unit axis the handle moves along (an arrow), or where the grip sits from `origin` (a rotation).
     public var direction: Vec3
     public var value: Double
     /// Allowed values (drag results are clamped).
     public var range: ClosedRange<Double>?
     public var color: ViewportColor?
+    public var kind: Kind
 
     public init(id: String, origin: Vec3, direction: Vec3, value: Double, range: ClosedRange<Double>? = nil,
-                color: ViewportColor? = nil) {
+                color: ViewportColor? = nil, kind: Kind = .arrow) {
         self.id = id; self.origin = origin; self.direction = direction.normalized; self.value = value
         self.range = range; self.color = color
+        if case .rotation(let axis) = kind { self.kind = .rotation(axis: axis.normalized) } else { self.kind = kind }
     }
 
-    /// World position of the arrow tip.
-    public var tip: Vec3 { origin + direction * value }
+    /// World position of the arrow tip; a rotation grip's centre.
+    public var tip: Vec3 {
+        if case .rotation = kind { return origin }
+        return origin + direction * value
+    }
 }
 
 /// A picked edge drawn on top of the model: thick, in the selection blue, with a halo, and
