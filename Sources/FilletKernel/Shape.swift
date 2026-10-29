@@ -516,6 +516,22 @@ public final class Shape: @unchecked Sendable {
                     brepVertices: brepVertices)
     }
 
+    /// The exact lines where `plane` cuts the shape (a section view's outline): one polyline per
+    /// section edge, discretised to `linearDeflection` (mm) and `angularDeflection` (radians).
+    /// Empty when the plane misses the shape. A boolean, so tens of milliseconds on a big body:
+    /// run it off the main thread.
+    public func section(by plane: Plane, linearDeflection: Double = 0.01, angularDeflection: Double = 0.1) throws -> [[SIMD3<Float>]] {
+        guard let m = fk_section(handle, plane.fk, linearDeflection, angularDeflection) else {
+            throw KernelError.last("Section failed")
+        }
+        defer { fk_mesh_free(m) }
+        return (0..<Int(fk_mesh_edge_count(m))).compactMap { e in
+            var count: Int32 = 0
+            guard let pts = fk_mesh_edge_points(m, Int32(e), &count), count > 1 else { return nil }
+            return (0..<Int(count)).map { SIMD3(pts[3 * $0], pts[3 * $0 + 1], pts[3 * $0 + 2]) }
+        }
+    }
+
     // MARK: Exchange
 
     public static func importSTEP(url: URL) throws -> Shape {
