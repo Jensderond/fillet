@@ -41,15 +41,12 @@ struct SectionPlaneBar: View {
             .foregroundStyle(Theme.ink)
             .fixedSize()
             divider
+            // Three chips written out, not a ForEach: iPad's asynchronous renderer re-ran a ForEach's
+            // items off the main thread while the bar slid in, which a main-actor view can't allow.
             HStack(spacing: Theme.Space.xs) {
-                ForEach(StandardPlane.allCases, id: \.self) { plane in
-                    PlaneChip(plane: plane, lit: session.hover == .originPlane(plane), help: "Cut along \(plane.title), the \(plane.role) plane",
-                              hint: "Cuts the model open along the \(plane.role) plane", automationID: "section-plane.\(plane.rawValue)") {
-                        session.startSection(on: plane)
-                    } onHover: { inside in
-                        if inside { session.hover = .originPlane(plane) } else if session.hover == .originPlane(plane) { session.hover = nil }
-                    }
-                }
+                chip(.xy)
+                chip(.xz)
+                chip(.yz)
             }
             divider
             Button("Cancel") { session.cancelChoosingSectionPlane() }
@@ -67,6 +64,15 @@ struct SectionPlaneBar: View {
         .floatingElevation(cornerRadius: touch ? 26 : 18)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Section view")
+    }
+
+    private func chip(_ plane: StandardPlane) -> some View {
+        PlaneChip(plane: plane, lit: session.hover == .originPlane(plane), help: "Cut along \(plane.title), the \(plane.role) plane",
+                  hint: "Cuts the model open along the \(plane.role) plane", automationID: "section-plane.\(plane.rawValue)") {
+            session.startSection(on: plane)
+        } onHover: { inside in
+            if inside { session.hover = .originPlane(plane) } else if session.hover == .originPlane(plane) { session.hover = nil }
+        }
     }
 
     private var divider: some View { Theme.hairlineStrong.frame(width: 1, height: 16) }
