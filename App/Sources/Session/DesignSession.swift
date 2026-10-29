@@ -127,9 +127,11 @@ final class DesignSession {
     @ObservationIgnored var offeredFingerDrawing = false
     /// The flat faces of each body, kept while the body's shape stays the same (see `planarFaces`).
     @ObservationIgnored var planarFaceCache: [BodyRef: (shape: Shape, faces: Set<Int>)] = [:]
-    /// The open sketch's snap targets (points, intersections, edges), kept while the sketch and its
-    /// parameters stay the same, so pointer events don't rebuild them (see `snapTargets`).
-    @ObservationIgnored var snapTargetCache: (sketch: Sketch, values: [String: Quantity], targets: SnapTargets)?
+    /// The open sketch's snap targets (points, intersections, edges, and body edges in its plane),
+    /// kept while the sketch, its parameters, its plane and the bodies stay the same, so pointer
+    /// events don't rebuild them (see `snapTargets`).
+    @ObservationIgnored var snapTargetCache: (sketch: Sketch, values: [String: Quantity], plane: Plane, bodies: [ObjectIdentifier],
+                                              targets: SnapTargets)?
     /// Live undo state for the toolbar (`UndoManager` itself isn't observable).
     private(set) var canUndo = false
     private(set) var canRedo = false
