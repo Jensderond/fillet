@@ -321,7 +321,9 @@ Section view (`App/Sources/Session/Section.swift`, after Shapr3D's): Section on 
 ⇧⌘X or *View ▸ Section View* cuts the model open. With a flat face selected it cuts right on that
 face; otherwise the viewport offers the origin planes and flat faces like choosing a sketch plane
 (bar with XY / XZ / YZ and Cancel). The picked plane's normal is turned towards the camera, so
-what faces the viewer is cut away and the inside shows. Then, with the panel in the inspector:
+what faces the viewer is cut away and the inside shows. An origin plane that misses the part (a
+part standing on the bed, or beside the plane) starts the cut through the part's middle instead,
+so picking always shows a cut; a face starts right on it. Then, with the panel in the inspector:
 
 - An arrow across the cut (in the selection blue: it steers the view, not a step) slides it; the
   offset reads in a pill past the arrow's head, live while dragging, and a tap on the pill types

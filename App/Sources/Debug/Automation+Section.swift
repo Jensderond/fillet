@@ -72,25 +72,27 @@ extension DebugAutomation {
         await settle(session)
         scene = session.makeScene()
         // The iso camera looks from -Y: that side is cut away, so the inside faces the viewer.
-        check(session.section?.reference.name == "XZ plane" && near(scene.section?.normal, Vec3(0, -1, 0)) && near(session.section?.offset, 0)
+        check(session.section?.reference.name == "XZ plane" && near(scene.section?.normal, Vec3(0, -1, 0))
               && session.pickMode == .section && session.pickFilter.isEmpty && scene.handles.count == 3,
-              "picking XZ cuts there, the cut-away side facing the camera, with an arrow and two grips")
-        check(near(session.section?.center, Vec3(30, 0, 6)), "the handles sit on the plane across the plate's middle (\(String(describing: session.section?.center)))")
+              "picking XZ cuts along it, the cut-away side facing the camera, with an arrow and two grips")
+        // The plate stands on XZ's far side (y 0…30): cut at y = 0 nothing would show, so it starts through its middle.
+        check(near(session.section?.center, Vec3(30, 15, 6)) && near(session.section?.offset, -15) && session.sectionOffsetLabel == "−15 mm",
+              "a plane that misses the plate cuts through its middle (\(String(describing: session.section?.center)), \(session.sectionOffsetLabel))")
         check(frames["section-panel"] != nil, "the section panel shows")
         check(frames["section-pill-value"] != nil && frames["section-flip"] != nil, "the value pill and the flip button are on the canvas")
         await snap(session, "sec02-xz-picked")
 
-        // Drag the arrow like a pointer: grabbed mid-shaft, moved 15 mm back along it into the plate.
+        // Drag the arrow like a pointer: grabbed mid-shaft, moved 5 mm back along it, deeper into the plate.
         if let controller, let arrow = handle(DesignSession.sectionOffsetHandleID) {
             let cam = controller.liveCamera, size = controller.viewSize
             let wpp = cam.worldUnitsPerPoint(at: arrow.tip, viewSize: size)
             let grabWorld = arrow.tip + arrow.direction * (HandleMetrics.totalLength / 2 * wpp)
             if let grab = cam.project(grabWorld, viewSize: size), controller.beginHandleDrag(at: grab, pointer: pointer) {
-                for step in 1...15 {
+                for step in 1...5 {
                     if let p = cam.project(grabWorld - arrow.direction * Double(step), viewSize: size) { controller.dragHandle(to: p) }
                 }
                 await settle(session)
-                check(session.sectionDrag == DesignSession.sectionOffsetHandleID && session.sectionOffsetLabel == "−15 mm",
+                check(session.sectionDrag == DesignSession.sectionOffsetHandleID && session.sectionOffsetLabel == "−20 mm",
                       "mid-drag the pill reads the live offset (\(session.sectionOffsetLabel))")
                 await snap(session, "sec03-dragging")
                 controller.endHandleDrag()
@@ -100,8 +102,8 @@ extension DebugAutomation {
         }
         await settle(session)
         scene = session.makeScene()
-        check(near(session.section?.offset, -15, 0.051) && near(scene.section?.origin.y, 15, 0.051) && session.sectionDrag == nil,
-              "dragging the arrow 15 mm into the plate cuts at y = \(scene.section?.origin.y ?? -1)")
+        check(near(session.section?.offset, -20, 0.051) && near(scene.section?.origin.y, 20, 0.051) && session.sectionDrag == nil,
+              "dragging the arrow 5 mm further into the plate cuts at y = \(scene.section?.origin.y ?? -1)")
 
         // Orbiting leaves the cut where it is in the world, with its handles.
         let planeBefore = scene.section
@@ -122,7 +124,7 @@ extension DebugAutomation {
         session.flipSection()
         scene = session.makeScene()
         check(near(scene.section?.normal, Vec3(0, 1, 0)) && near(scene.section?.origin, planeBefore?.origin ?? .zero)
-              && near(session.section?.offset, 15, 0.051) && session.sectionOffsetLabel == "15 mm",
+              && near(session.section?.offset, 20, 0.051) && session.sectionOffsetLabel == "20 mm",
               "flip cuts away the other side of the same plane (\(session.sectionOffsetLabel))")
         await settle(session)
         await snap(session, "sec05-flipped")

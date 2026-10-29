@@ -125,7 +125,8 @@ extension DesignSession {
         if choosingSectionPlane { return cancelChoosingSectionPlane() }
         if sectionIsOn { return turnSectionOff() }
         if let reason = sectionUnavailableReason { message = ToastMessage(reason); return }
-        if let face = sketchableFace, section == nil { return startSection(onFace: face.body, face.index) }
+        // A flat face picked first is what to cut along, even when another plane was used before.
+        if let face = sketchableFace { return startSection(onFace: face.body, face.index) }
         guard section != nil else { return beginChoosingSectionPlane() }
         // While a step is open its own handles and panel stay; the cut just comes back.
         if isBusyEditing { sectionMode = .on } else { editSection() }
@@ -154,11 +155,21 @@ extension DesignSession {
         hover = nil
     }
 
-    /// Cuts along an origin plane, through the middle of what's shown.
+    /// Cuts along an origin plane, the handles over the middle of what's shown. A plane that
+    /// misses the part (a part standing on the bed, or beside the plane) would cut nothing and
+    /// show nothing happened, so the cut starts through the part's middle instead, parallel to it.
     func startSection(on plane: StandardPlane) {
         let p = plane.plane
         let reference = SectionReference(name: "\(plane.title) plane", origin: .zero, normal: facingCamera(p.normal, at: p.origin), u: p.xDir)
-        beginSection(reference, center: visibleBodyBounds.map { reference.project(($0.min + $0.max) * 0.5) } ?? .zero)
+        guard let bounds = visibleBodyBounds else { return beginSection(reference, center: .zero) }
+        let middle = (bounds.min + bounds.max) * 0.5
+        let corners = (0..<8).map { i in
+            Vec3(i & 1 == 0 ? bounds.min.x : bounds.max.x, i & 2 == 0 ? bounds.min.y : bounds.max.y, i & 4 == 0 ? bounds.min.z : bounds.max.z)
+        }
+        let sides = corners.map { $0.dot(reference.normal) }
+        let tolerance = 1e-6 * max(1, (bounds.max - bounds.min).length)
+        let cuts = sides.contains { $0 > tolerance } && sides.contains { $0 < -tolerance }
+        beginSection(reference, center: cuts ? reference.project(middle) : middle)
     }
 
     /// Cuts along a flat face (displayed face index), right on it: drag the arrow in to see inside.
