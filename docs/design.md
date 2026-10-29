@@ -202,6 +202,22 @@ grid + bed rectangle, sketch overlay drawn on top with depth test off for
 points. Picking on the CPU: ray vs triangles (BVH per body) for faces,
 screen-space distance to edge polylines (tolerance 8 pt touch / 4 pt mouse).
 
+Section cuts (`ViewportScene.section`) discard everything on the plane's cut-away side in the
+shaders and close every opaque solid they open with a cap, drawn right after the opaque bodies
+with the stencil buffer (`depth32Float_stencil8`). Per body: what is left of its surface is drawn
+without colour or depth test, flipping a stencil bit per layer, so the bit ends up set where the
+plane lies inside the solid (closed meshes; parity, so cavities, enclosed channels and crossing
+bores come out open); then a polygon on the plane (where it crosses the body's bounding box) is
+drawn where the bit is set, with a small depth bias so a face lying in the plane doesn't fight it;
+then the surface again clears the bit for the next body. Caps take the body colour with the
+section colour mixed in, half lit, and are hatched in world units at a power of two picked from the
+pixel size, so the lines stay put on the part and keep about 9 pt apart at any zoom. Each body
+hatches at its own angle (45°, 135°, 15°…) and shade, so nested parts stay apart, and the outline
+where the plane meets each body is sliced from its triangles on the CPU (the same triangles the
+cap comes from) and drawn as an edge. Silhouettes and edges are cut with the body, not dropped.
+Picks clip the ray to the kept side: what is cut away can't be picked or hide anything, and a ray
+that enters a body through the plane hits its cap, which picks the body but no face.
+
 Input:
 - iPad: 1 finger drag orbit, 2 finger drag pan, pinch zoom, two-finger double‑tap
   fit; tap = pick. Apple Pencil (or a finger when "draw with finger" is on)
