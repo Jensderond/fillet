@@ -29,13 +29,14 @@ xcrun simctl install $UDID build/dd-sim129/Build/Products/Debug-iphonesimulator/
 record() {
   local name=$1; shift
   xcrun simctl terminate $UDID $BUNDLE 2>/dev/null || true
+  local log=$(xcrun simctl get_app_container $UDID $BUNDLE data)/tmp/fillet-demo/beats.txt
+  rm -f $log  # an earlier take's "beat end" would stop this one at once
   sleep 2
   xcrun simctl io $UDID recordVideo --codec=h264 --force $OUT/$name.mp4 &
   local rec=$!
   sleep 1.5
   python3 -c 'import time; print(f"{time.time():.3f}")' > $OUT/$name.start.txt
   env SIMCTL_CHILD_FILLET_DEMO=snapping "$@" xcrun simctl launch $UDID $BUNDLE >/dev/null
-  local log=$(xcrun simctl get_app_container $UDID $BUNDLE data)/tmp/fillet-demo/beats.txt
   for i in {1..120}; do
     sleep 0.5
     [[ -f $log ]] && grep -q "beat end" $log && break
@@ -49,25 +50,29 @@ record() {
 record before SIMCTL_CHILD_FILLET_SNAP_BODY_EDGES=0
 record after
 
-# Each take from its "story" beat (the splash is cut) to its "end" beat, side by side, labelled.
+# Each take from its "story" beat (the splash is cut) to its "end" beat, side by side on a card
+# with the labels (snapping-labels.swift).
+swift docs/video/snapping-labels.swift $OUT/labels.png
 python3 - $OUT <<'EOF'
 import re, subprocess, sys
 out = sys.argv[1]
+# simctl's first frame comes about 1.65 s after the start time written above (measured from the
+# camera flights: they show up in the video that much later than their beats).
+LAG = 1.65
 def span(name):
     start = float(open(f"{out}/{name}.start.txt").read())
     beats = {m[0]: float(m[1]) for m in re.findall(r"beat (\S+) t=\S+ epoch=([\d.]+)", open(f"{out}/{name}.beats.txt").read())}
-    return beats["story"] - start, beats["end"] - beats["story"] + 0.6
+    return beats["story"] - start + LAG, beats["end"] - beats["story"] + 0.6
 (b0, bd), (a0, ad) = span("before"), span("after")
 d = max(bd, ad)
-font = "/System/Library/Fonts/Supplemental/Arial Bold.ttf"
-def take(i, s, label):
-    return (f"[{i}:v]trim=start={s:.3f}:duration={d:.3f},setpts=PTS-STARTPTS,fps=30,scale=-2:960,"
-            f"tpad=stop_mode=clone:stop_duration=2,trim=duration={d:.3f},pad=iw+40:1080:20:100:color=0xF4F1E8,"
-            f"drawtext=fontfile='{font}':text='{label}':fontsize=44:fontcolor=0x1F2A44:x=(w-tw)/2:y=34[v{i}]")
-graph = ";".join([take(0, b0, "Before"), take(1, a0, "After  -  snaps to the part"),
-                  "[v0][v1]hstack,pad=1920:1080:(ow-iw)/2:0:color=0xF4F1E8[v]"])
+def take(i, s):
+    # Portrait 2048×2732 at 720×960; the shorter take holds its last frame.
+    return (f"[{i}:v]trim=start={s:.3f}:duration={d:.3f},setpts=PTS-STARTPTS,fps=30,scale=720:960,"
+            f"tpad=stop_mode=clone:stop_duration=2,trim=duration={d:.3f}[v{i}]")
+graph = ";".join([take(0, b0), take(1, a0), f"[2:v]loop=-1:1,fps=30,trim=duration={d:.3f}[bg]",
+                  "[bg][v0]overlay=200:110[l]", "[l][v1]overlay=1000:110,format=yuv420p[v]"])
 subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", f"{out}/before.mp4", "-i", f"{out}/after.mp4",
-                "-filter_complex", graph, "-map", "[v]", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18",
-                f"{out}/Fillet-Snapping.mp4"], check=True)
+                "-i", f"{out}/labels.png", "-filter_complex", graph, "-map", "[v]", "-c:v", "libx264", "-crf", "18",
+                "-movflags", "+faststart", f"{out}/Fillet-Snapping.mp4"], check=True)
 print(f"wrote {out}/Fillet-Snapping.mp4 ({d:.1f} s)")
 EOF
