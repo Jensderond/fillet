@@ -71,7 +71,8 @@ struct MeshDraw {
     float4 highlight;    // rgb tint, a = amount
     uint faceStateCount;
     uint flags;          // 1 = overhang, 2 = unlit (flat colour), 4 = pull towards the camera,
-                         // 8 = only picked / hovered faces (open-face visual styles)
+                         // 8 = only picked / hovered faces (open-face visual styles),
+                         // 16 = not cut by the section (handles)
     float pad0;
     float pad1;
 };
@@ -135,9 +136,10 @@ fragment float4 mesh_fragment(MeshOut in [[stage_in]], bool front [[front_facing
                               constant FrameUniforms& U [[buffer(1)]],
                               constant MeshDraw& D [[buffer(2)]],
                               const device uchar* faceState [[buffer(3)]]) {
-    if (cutAway(in.worldPos, U)) discard_fragment();
+    if ((D.flags & 16u) == 0u && cutAway(in.worldPos, U)) discard_fragment();
     float3 base = D.color.rgb;
-    // Seen through a section cut: the body's inside, flat in the section colour.
+    // Seen through a section cut where no cap closes it (an open shell): the body's inside,
+    // flat in the section colour.
     if (!front && hasSection(U)) return float4(mix(base, U.sectionColor.rgb, U.sectionColor.a), D.color.a);
     base = mix(base, D.highlight.rgb, D.highlight.a);
     uint st = in.face < D.faceStateCount ? uint(faceState[in.face]) : 0u;
@@ -185,8 +187,9 @@ vertex HullOut hull_vertex(uint vid [[vertex_id]],
 fragment float4 hull_fragment(HullOut in [[stage_in]],
                               constant FrameUniforms& U [[buffer(1)]],
                               constant HullDraw& H [[buffer(4)]]) {
-    // A section shows insides, which are back-facing too: they aren't silhouettes.
-    if (hasSection(U)) discard_fragment();
+    // What a section cuts away has no outline; what stays keeps its silhouettes. Insides behind
+    // a section cap are back-facing too, but the cap is in front of them.
+    if (cutAway(in.worldPos, U)) discard_fragment();
     float3 V = U.eye.w > 0.5 ? normalize(U.eye.xyz - in.worldPos) : -U.forward.xyz;
     if (dot(normalize(in.worldNormal), V) > 0.0) discard_fragment();
     return H.color;
@@ -202,7 +205,8 @@ struct LineDraw {
     float4x4 model;
     LineStyle styles[6];
     uint stateCount;
-    uint pull;           // 1 = pull towards the camera (edges on faces)
+    uint pull;           // 1 = pull towards the camera (edges on faces), cut by the section;
+                         // 2 = pulled but not cut (outlines lying on the section plane)
     float dashPeriod;    // world units
     float pad;
 };
@@ -270,7 +274,7 @@ vertex LineOut line_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 
 fragment float4 line_fragment(LineOut in [[stage_in]], constant FrameUniforms& U [[buffer(1)]],
                               constant LineDraw& D [[buffer(2)]]) {
-    if (D.pull != 0u && cutAway(in.world, U)) discard_fragment();
+    if (D.pull == 1u && cutAway(in.world, U)) discard_fragment();
     float a = saturate(in.halfWidth + 0.5 - abs(in.across));
     if (in.dash > 0.5 && D.dashPeriod > 0.0) {
         float ph = fract(in.along / D.dashPeriod);
@@ -278,6 +282,63 @@ fragment float4 line_fragment(LineOut in [[stage_in]], constant FrameUniforms& U
     }
     if (a <= 0.0) discard_fragment();
     return float4(in.color.rgb, in.color.a * a);
+}
+
+// MARK: Section caps
+// A section cut leaves each solid open; a cap closes it. The stencil buffer finds where the
+// plane lies inside a body: drawing what is left of the body's surface, without a depth test,
+// flips a bit for every layer a pixel's ray crosses. All of those lie beyond the plane (or all
+// before it, seen from the kept side), so an odd count means the ray is inside the solid where
+// it meets the plane (closed meshes). The cap is a polygon on the plane drawn only there.
+
+fragment void section_mask_fragment(MeshOut in [[stage_in]], constant FrameUniforms& U [[buffer(1)]]) {
+    if (cutAway(in.worldPos, U)) discard_fragment();
+}
+
+struct CapDraw {
+    float4 color;        // linear rgb fill
+    float4 hatch;        // linear rgb hatch lines, a = strength
+    float4 across;       // xyz unit vector in the plane across the hatch lines
+    float4 params;       // x line spacing (pt), y line width (pt), z = 1 lit
+};
+
+struct CapOut { float4 position [[position]]; float3 world; };
+
+vertex CapOut cap_vertex(uint vid [[vertex_id]],
+                         const device float4* pts [[buffer(0)]],
+                         constant FrameUniforms& U [[buffer(1)]]) {
+    CapOut o;
+    o.world = pts[vid].xyz;
+    o.position = U.viewProj * float4(o.world, 1.0);
+    return o;
+}
+
+/// Anti-aliased lines `spacing` world units apart along `t`, `widthPx` wide; `fw` is world units per pixel.
+static float hatchLines(float t, float spacing, float fw, float widthPx) {
+    float d = abs(fract(t / spacing + 0.5) - 0.5) * spacing / fw;
+    return saturate(widthPx * 0.5 + 0.5 - d);
+}
+
+fragment float4 cap_fragment(CapOut in [[stage_in]],
+                             constant FrameUniforms& U [[buffer(1)]],
+                             constant CapDraw& C [[buffer(2)]]) {
+    // Partly lit: enough to sit in the scene like a face, not so much that a cap facing away from
+    // the light turns muddy (a section should read the same from any side).
+    float3 c = C.params.z > 0.5 ? mix(C.color.rgb, shade(C.color.rgb, U.section.xyz, in.world, U), 0.4) : C.color.rgb;
+    // Hatching keeps about the same spacing on screen at any zoom: the lines sit at a power of
+    // two in world units (so they stay put on the part while panning) and every other one fades
+    // out as they close up, which leaves the next coarser set. The fade is kept to the last part
+    // of each octave so the lines mostly read as one even weight.
+    float t = dot(in.world, C.across.xyz);
+    float fw = max(fwidth(t), 1e-7);
+    float spacing = C.params.x * U.viewport.z * fw;
+    float level = log2(spacing);
+    float base = exp2(floor(level));
+    float fade = 1.0 - smoothstep(0.55, 1.0, level - floor(level));
+    float w = C.params.y * U.viewport.z;
+    float a = max(hatchLines(t, base * 2.0, fw, w), hatchLines(t, base, fw, w) * fade);
+    c = mix(c, C.hatch.rgb, a * C.hatch.a);
+    return float4(c, 1.0);
 }
 
 // MARK: Round points

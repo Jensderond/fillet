@@ -130,7 +130,8 @@ final class GPUBody {
 @MainActor
 public final class ViewportRenderer: NSObject {
     public static let colorFormat: MTLPixelFormat = .bgra8Unorm_srgb
-    public static let depthFormat: MTLPixelFormat = .depth32Float
+    /// Depth with stencil: the stencil finds where a section plane lies inside a body (caps).
+    public static let depthFormat: MTLPixelFormat = .depth32Float_stencil8
     public static let sampleCount = 4
 
     public let device: MTLDevice
@@ -146,6 +147,9 @@ public final class ViewportRenderer: NSObject {
     private let pGrid: MTLRenderPipelineState
     private let pHull: MTLRenderPipelineState
     private let pShadow: MTLRenderPipelineState
+    /// Section caps: the stencil parity pass over a body's remaining surface, and the cap itself.
+    private let pSectionMask: MTLRenderPipelineState
+    private let pCap: MTLRenderPipelineState
     /// Resets depth to the far plane over the whole target (a mid-pass depth clear).
     private let pDepthReset: MTLRenderPipelineState
     private let dsGreater: MTLDepthStencilState
@@ -154,6 +158,12 @@ public final class ViewportRenderer: NSObject {
     private let dsLess: MTLDepthStencilState
     private let dsAlways: MTLDepthStencilState
     private let dsReset: MTLDepthStencilState
+    /// Flips the stencil bit for every fragment (no depth test).
+    private let dsCapMask: MTLDepthStencilState
+    /// Draws where the bit is set, with the usual depth test, and clears it.
+    private let dsCapFill: MTLDepthStencilState
+    /// Clears the stencil wherever it draws (no depth test).
+    private let dsCapClear: MTLDepthStencilState
     private let zeroBuffer: MTLBuffer
     private let cone: GPUBody
 
@@ -174,6 +184,8 @@ public final class ViewportRenderer: NSObject {
     private var bodiesBefore: [UUID: GPUBody] = [:]
     private var sceneBounds: Bounds3?
     private var bodiesDirty = true
+    /// Where the section plane meets each body, for its outline (by body id).
+    private var sectionOutlines: [UUID: (key: MeshKey, plane: SectionPlane, segs: MTLBuffer?, count: Int)] = [:]
     private var statesDirty = true
     private var overlaysDirty = true
 
@@ -220,6 +232,7 @@ public final class ViewportRenderer: NSObject {
             d.fragmentFunction = lib.makeFunction(name: f)
             d.rasterSampleCount = Self.sampleCount
             d.depthAttachmentPixelFormat = Self.depthFormat
+            d.stencilAttachmentPixelFormat = Self.depthFormat
             let c = d.colorAttachments[0]!
             c.pixelFormat = Self.colorFormat
             if !writeColor { c.writeMask = [] }
@@ -245,6 +258,8 @@ public final class ViewportRenderer: NSObject {
         pHull = try pipeline("hull_vertex", "hull_fragment", blend: true)
         pShadow = try pipeline("shadow_vertex", "shadow_fragment", blend: true)
         pDepthReset = try pipeline("bg_vertex", "bg_fragment", blend: false, writeColor: false)
+        pSectionMask = try pipeline("mesh_vertex", "section_mask_fragment", blend: false, writeColor: false)
+        pCap = try pipeline("cap_vertex", "cap_fragment", blend: false)
 
         func depth(_ cmp: MTLCompareFunction, write: Bool) -> MTLDepthStencilState {
             let d = MTLDepthStencilDescriptor()
@@ -258,6 +273,25 @@ public final class ViewportRenderer: NSObject {
         dsAlways = depth(.always, write: false)
         dsGreater = depth(.greater, write: false)
         dsReset = depth(.always, write: true)
+        func stencil(_ cmp: MTLCompareFunction, write: Bool, test: MTLCompareFunction, pass: MTLStencilOperation,
+                     depthFail: MTLStencilOperation = .keep) -> MTLDepthStencilState {
+            let s = MTLStencilDescriptor()
+            s.stencilCompareFunction = test
+            s.depthStencilPassOperation = pass
+            s.depthFailureOperation = depthFail
+            s.stencilFailureOperation = .keep
+            s.readMask = 1
+            s.writeMask = 1
+            let d = MTLDepthStencilDescriptor()
+            d.depthCompareFunction = cmp
+            d.isDepthWriteEnabled = write
+            d.frontFaceStencil = s
+            d.backFaceStencil = s
+            return device.makeDepthStencilState(descriptor: d)!
+        }
+        dsCapMask = stencil(.always, write: false, test: .always, pass: .invert)
+        dsCapFill = stencil(.lessEqual, write: true, test: .equal, pass: .zero, depthFail: .zero)
+        dsCapClear = stencil(.always, write: false, test: .always, pass: .zero)
         zeroBuffer = device.makeBuffer(length: 64, options: .storageModeShared)!
         let coneMesh = DemoMeshes.cone(radius: Float(HandleMetrics.headRadius / HandleMetrics.headLength))
         cone = GPUBody(device: device, mesh: coneMesh, key: MeshKey(SceneBody(id: UUID(), mesh: coneMesh)))
@@ -302,6 +336,7 @@ public final class ViewportRenderer: NSObject {
             }
             if keepBefore.count != bodiesBefore.count { bodiesBefore = bodiesBefore.filter { keepBefore.contains($0.key) } }
             sceneBounds = computeBounds()
+            syncSectionOutlines()
         }
         if statesDirty {
             statesDirty = false
@@ -311,6 +346,26 @@ public final class ViewportRenderer: NSObject {
             overlaysDirty = false
             rebuildOverlays()
         }
+    }
+
+    /// Recomputes the section outline of each visible body the plane or its mesh moved for.
+    private func syncSectionOutlines() {
+        guard let section = scene.section, section.unitNormal != nil else {
+            sectionOutlines = [:]
+            return
+        }
+        var keep = Set<UUID>()
+        for b in scene.bodies where b.visible {
+            keep.insert(b.id)
+            let key = MeshKey(b)
+            if let o = sectionOutlines[b.id], o.key == key, o.plane == section { continue }
+            var segs: [GPULineSeg] = []
+            if let box = bodies[b.id]?.bounds, !section.polygon(through: box).isEmpty {
+                segs = section.outline(of: b.mesh).map { GPULineSeg($0.0, $0.1, dist: 0, id: 0) }
+            }
+            sectionOutlines[b.id] = (key, section, makeBuffer(segs), segs.count)
+        }
+        if keep.count != sectionOutlines.count { sectionOutlines = sectionOutlines.filter { keep.contains($0.key) } }
     }
 
     /// Scene bounds from cached per-body bounds (avoids touching vertices per update).
@@ -602,6 +657,7 @@ public final class ViewportRenderer: NSObject {
             enc.setRenderPipelineState(pMeshOpaque)
             enc.setDepthStencilState(dsWrite)
             for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: style.faces == .lit, paper: style.faces == .paper) }
+            drawSectionCaps(enc, opaque: opaque, paper: style.faces == .paper)
             // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
             // silhouettes draw on top of the bed).
             drawGround(enc, U: U)
@@ -660,6 +716,7 @@ public final class ViewportRenderer: NSObject {
             d.pull = 1
             drawEdges(enc, id: b.id, draw: &d)
         }
+        drawSectionOutlines(enc, ink: lineInk, opaque: opaque)
         drawEdgeHighlights(enc, U: U, pixelsPerPoint: pixelsPerPoint, opaque: opaque)
 
         // Translucent bodies and previews: depth pre-pass so only the front layer blends.
@@ -766,6 +823,81 @@ public final class ViewportRenderer: NSObject {
         enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: g.segmentCount)
+    }
+
+    /// Closes every opaque body the section cuts open with a cap on the plane: filled in its body's
+    /// colour mixed with the section colour, hatched (per body a different way), lit like a face.
+    /// Per body: the stencil parity pass over what's left of its surface, the cap polygon where the
+    /// bit is set (which clears it there), then the surface again to clear any bit the cap missed.
+    private func drawSectionCaps(_ enc: MTLRenderCommandEncoder, opaque: [SceneBody], paper: Bool) {
+        guard let section = scene.section, section.unitNormal != nil else { return }
+        let pal = palette
+        let (u, v) = section.axes
+        for b in opaque {
+            guard let g = bodies[b.id], let box = g.bounds else { continue }
+            let polygon = section.polygon(through: box)
+            guard polygon.count >= 3 else { continue }
+            enc.setRenderPipelineState(pSectionMask)
+            enc.setDepthStencilState(dsCapMask)
+            drawDepth(enc, g)
+
+            let index = scene.bodies.firstIndex { $0.id == b.id } ?? 0
+            var d = CapDraw()
+            if paper {
+                d.color = pal.paper.linear
+                d.hatch = SIMD4(SIMD3(pal.wire.linear.x, pal.wire.linear.y, pal.wire.linear.z), 0.8)
+            } else {
+                let body = (b.color ?? pal.body).linear
+                let cut = section.color.linear
+                var fill = simd_mix(SIMD3(body.x, body.y, body.z), SIMD3(cut.x, cut.y, cut.z), SIMD3(repeating: section.color.a))
+                fill *= SectionPlane.capShade(index: index)
+                if scene.selection.contains(.body(b.id)) || b.highlight == .selected {
+                    fill = simd_mix(fill, SIMD3(pal.accent.linear.x, pal.accent.linear.y, pal.accent.linear.z), SIMD3(repeating: 0.45))
+                }
+                d.color = SIMD4(fill, 1)
+                d.hatch = SIMD4(fill * 0.3, 0.9)
+                d.params.z = 1
+            }
+            let angle = SectionPlane.hatchAngle(index: index)
+            d.across = SIMD4((u * -sin(angle) + v * cos(angle)).float, 0)
+            d.params.x = 9
+            d.params.y = 1.1
+            var verts: [SIMD4<Float>] = []
+            for k in 1..<(polygon.count - 1) {
+                for p in [polygon[0], polygon[k], polygon[k + 1]] { verts.append(SIMD4(p.float, 1)) }
+            }
+            enc.setRenderPipelineState(pCap)
+            enc.setDepthStencilState(dsCapFill)
+            enc.setStencilReferenceValue(1)
+            enc.setVertexBytes(verts, length: verts.count * MemoryLayout<SIMD4<Float>>.stride, index: 0)
+            enc.setFragmentBytes(&d, length: MemoryLayout<CapDraw>.stride, index: 2)
+            // A face lying in the plane is kept and would fight the cap for the same depth: nudge
+            // the cap a few depth steps forward so it wins cleanly.
+            enc.setDepthBias(-8, slopeScale: -2, clamp: 0)
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: verts.count)
+            enc.setDepthBias(0, slopeScale: 0, clamp: 0)
+
+            enc.setRenderPipelineState(pSectionMask)
+            enc.setDepthStencilState(dsCapClear)
+            drawDepth(enc, g)
+        }
+    }
+
+    /// The line where the section plane meets each body, in the edge ink, over the cap's rim.
+    private func drawSectionOutlines(_ enc: MTLRenderCommandEncoder, ink: ViewportColor, opaque: [SceneBody]) {
+        guard scene.section != nil, !sectionOutlines.isEmpty else { return }
+        enc.setRenderPipelineState(pLine)
+        enc.setDepthStencilState(dsTest)
+        enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
+        var d = LineDraw(LineStyle(ink, width: 1.6))
+        d.pull = 2
+        enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        for b in opaque {
+            guard let o = sectionOutlines[b.id], let segs = o.segs, o.count > 0 else { continue }
+            enc.setVertexBuffer(segs, offset: 0, index: 0)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: o.count)
+        }
     }
 
     /// Picked edges are 3 pt (4 pt on touch, read at arm's length) with a halo. Where the model is
@@ -1125,6 +1257,7 @@ public final class ViewportRenderer: NSObject {
             md.model = simd_float4x4(columns: (SIMD4(x.float * s, 0), SIMD4(y.float * s, 0), SIMD4(z.float * s, 0),
                                                SIMD4(shaftEnd.float, 1)))
             md.color = SIMD4(SIMD3(color.linear.x, color.linear.y, color.linear.z), 1)
+            md.flags = MeshDraw.ignoresSection
             enc.setRenderPipelineState(pMeshOpaque)
             enc.setCullMode(.back)
             enc.setVertexBuffer(vb, offset: 0, index: 0)
@@ -1175,6 +1308,10 @@ public final class ViewportRenderer: NSObject {
         rp.depthAttachment.loadAction = .clear
         rp.depthAttachment.clearDepth = 1
         rp.depthAttachment.storeAction = .dontCare
+        rp.stencilAttachment.texture = depth
+        rp.stencilAttachment.loadAction = .clear
+        rp.stencilAttachment.clearStencil = 0
+        rp.stencilAttachment.storeAction = .dontCare
         guard let enc = cb.makeRenderCommandEncoder(descriptor: rp) else { return nil }
         encode(enc, pixelSize: SIMD2(Float(w), Float(h)), pixelsPerPoint: Float(scale))
         enc.endEncoding()

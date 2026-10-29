@@ -223,7 +223,9 @@ public struct OverhangStyle: Hashable, Sendable {
 }
 
 /// A section cut: everything on the side `normal` points to is cut away, so the inside shows.
-/// Where the cut opens a body, its inside is drawn in `color` (mixed `color.a` into the body's colour).
+/// Where the cut goes through an opaque solid it is closed with a cap on the plane: the body's
+/// colour with `color` mixed in (`color.a` of it), hatched, and outlined where the plane meets the
+/// body. What is cut away can't be picked.
 public struct SectionPlane: Hashable, Sendable {
     public var origin: Vec3
     public var normal: Vec3
@@ -453,7 +455,7 @@ public struct ViewportScene: Sendable {
     public var visualStyle: VisualStyle = .shadedWithEdges
     /// Contact shadows as soft ellipses instead of rounded boxes (organic, product-shot renders).
     public var ellipticalShadows = false
-    /// Cuts the bodies open (renders for agents); their edges and silhouettes are cut too.
+    /// Cuts the bodies open and caps them (see `SectionPlane`); their edges and silhouettes are cut too.
     public var section: SectionPlane?
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
