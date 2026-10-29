@@ -241,9 +241,13 @@ extension DebugAutomation {
         await sectionDragFrameRate(session)
     }
 
-    /// `FILLET_SECTION_FIXTURE=<file.step or .fillet>`: imports or opens it (in place of the plate), cuts it along XZ through its middle and
-    /// drags the arrow back and forth like a pointer (an event every 8 ms, ±9 mm, three times
-    /// round), logging how many frames the viewport drew a second while it moved (the bar: 58 of 60).
+    /// `FILLET_SECTION_FIXTURE=<file.step or .fillet>`: imports or opens it (in place of the plate),
+    /// cuts it along XZ through its middle and drags the arrow back and forth like a pointer (an
+    /// event every 8 ms, ±9 mm, three times round), then lets go and turns the camera while the
+    /// exact outline comes in. Logs the frame times of both (`FrameTimingReport`: frames on screen
+    /// a second, frame interval, CPU and GPU time per frame and input → screen latency, p50/p95),
+    /// how late the pointer's steps ran, and how many times the scene was rebuilt mid-drag (the
+    /// fast path moves only the plane: none but the first step's). The bar: 58 frames/s of 60.
     static func sectionDragFrameRate(_ session: DesignSession) async {
         guard let path = ProcessInfo.processInfo.environment["FILLET_SECTION_FIXTURE"], let controller, let renderer = controller.renderer else { return }
         let url = URL(fileURLWithPath: path)
@@ -267,6 +271,10 @@ extension DebugAutomation {
         guard let arrow = session.makeScene().handles.first(where: { $0.id == DesignSession.sectionOffsetHandleID }) else {
             check(false, "frame rate: an arrow to drag"); return
         }
+        // The exact outline of the plane as it starts, so the drag starts from one.
+        for _ in 0..<100 where session.sectionCurves == nil { try? await Task.sleep(for: .milliseconds(50)) }
+        check(session.sectionCurves?.plane == session.shownSection && session.sectionCurves?.bodies.isEmpty == false,
+              "frame rate: the exact outline comes in for the plane held still")
         let cam = controller.liveCamera, size = controller.viewSize
         let wpp = cam.worldUnitsPerPoint(at: arrow.tip, viewSize: size)
         let grabWorld = arrow.tip + arrow.direction * (HandleMetrics.totalLength / 2 * wpp)
@@ -275,20 +283,50 @@ extension DebugAutomation {
         }
         let triangles = session.model.meshes.values.reduce(0) { $0 + $1.indices.count / 3 }
         let framesBefore = renderer.framesDrawn
+        let scenesBefore = renderer.sceneUpdates, movesBefore = renderer.sectionUpdates
+        renderer.beginFrameTimings()
         let start = ContinuousClock.now
         let ticks = 375  // 3 s at 125 Hz
+        func ms(_ d: Duration) -> Double { Double(d.components.seconds) * 1000 + Double(d.components.attoseconds) / 1e15 }
+        var late: [Double] = []
         for i in 0..<ticks {
             // A triangle wave: 0.5 s out, 0.5 s back.
             let phase = Double(i % 125) / 125
             let mm = 9 * (phase < 0.5 ? phase * 4 - 1 : 3 - phase * 4)
+            late.append(ms(ContinuousClock.now - (start + .milliseconds(8 * i))))
             if let p = cam.project(grabWorld + arrow.direction * mm, viewSize: size) { controller.dragHandle(to: p) }
             try? await Task.sleep(until: start + .milliseconds(8 * (i + 1)), clock: .continuous)
         }
         let elapsed = (ContinuousClock.now - start).components
         let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
         let fps = Double(renderer.framesDrawn - framesBefore) / seconds
+        try? await Task.sleep(for: .milliseconds(50))  // the last frames reach the screen
+        let drag = renderer.endFrameTimings()
+        let rebuilt = renderer.sceneUpdates - scenesBefore, moved = renderer.sectionUpdates - movesBefore
+        log("section drag: \(String(format: "%.1f", fps)) frames/s drawn over \(String(format: "%.2f", seconds)) s, \(triangles) triangles, \(path)")
+        log("section drag frames: \(drag.summary)")
+        log("section drag steps: \(ticks) pointer steps, late p50/p95 \(String(format: "%.1f/%.1f", FrameTimingReport.percentile(late, 0.5), FrameTimingReport.percentile(late, 0.95))) ms; "
+            + "\(rebuilt) scene rebuilds, \(moved) plane moves")
+        check(rebuilt <= 2 && moved >= ticks - 2, "frame rate: a drag moves the plane without rebuilding the scene (\(rebuilt) rebuilds, \(moved) moves)")
+        check(session.sectionCurves?.plane != session.shownSection, "frame rate: mid-drag the outline is the mesh's, the exact one is for where the plane was")
+
+        // Let go and turn the camera for 1.5 s: the exact outline comes in while frames keep coming.
+        let settleStart = ContinuousClock.now
+        renderer.beginFrameTimings()
         controller.endHandleDrag()
-        log("section drag: \(String(format: "%.1f", fps)) frames/s over \(String(format: "%.2f", seconds)) s, \(triangles) triangles, \(path)")
+        var turned = controller.liveCamera
+        turned.yaw += 0.25
+        renderer.animateCamera(to: turned, duration: 1.5)
+        var landed: Duration?
+        while ContinuousClock.now - settleStart < .milliseconds(1600) {
+            if landed == nil, session.sectionCurves?.plane == session.shownSection { landed = ContinuousClock.now - settleStart }
+            try? await Task.sleep(for: .milliseconds(4))
+        }
+        let settled = renderer.endFrameTimings()
+        func text(_ d: Duration?) -> String { d.map { String(format: "%.0f ms", ms($0)) } ?? "not yet" }
+        log("section settle: exact outline in \(text(landed)) after letting go (kernel \(text(session.sectionCurvesTime))); turning meanwhile: \(settled.summary)")
+        check(landed != nil, "frame rate: the exact outline comes in after letting go (\(text(landed)))")
+        await settle(session)
         await snap(session, "sec11-frame-rate")
     }
 }
