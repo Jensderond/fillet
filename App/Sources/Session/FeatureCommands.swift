@@ -195,7 +195,11 @@ extension DesignSession {
     /// size, cancel the stroke in progress, then leave sketch mode, then leave box select, then cancel the feature
     /// being edited, then clear the selection.
     func escape() {
-        if measure != nil {
+        if choosingSectionPlane {
+            cancelChoosingSectionPlane()
+        } else if pickMode == .section {
+            endSectionEditing()
+        } else if measure != nil {
             escapeMeasure()
         } else if choosingSketchPlane {
             cancelChoosingSketchPlane()

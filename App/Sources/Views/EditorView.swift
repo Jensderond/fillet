@@ -108,7 +108,7 @@ struct EditorContent: View {
     /// doesn't jump 320 pt as the selection changes, and the empty document gets its starter.
     private var showInspector: Bool {
         layout == .regular || session.editing != nil || session.sketchEditor != nil || !session.selection.isEmpty
-            || !session.model.bodies.isEmpty || session.measure != nil
+            || !session.model.bodies.isEmpty || session.measure != nil || session.pickMode == .section
     }
 
     /// The browser floats over the viewport below regular width, and at accessibility text
@@ -267,6 +267,9 @@ struct EditorContent: View {
                 })
                 .ignoresSafeArea(.container, edges: .bottom)
 
+            SectionGizmoOverlay(session: session, controller: controller)
+                .ignoresSafeArea(.container, edges: .bottom)
+
             VStack(spacing: Theme.Space.m) {
                 if session.sketchEditor != nil {
                     // Lead-aligned, away from the view cube in the trailing corner (84 pt + margins).
@@ -278,6 +281,20 @@ struct EditorContent: View {
                 }
                 if session.pickMode == .sketchPlane {
                     SketchPlaneBar(session: session)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.panel(from: .top, reduceMotion: reduceMotion))
+                }
+                if session.pickMode == .sectionPlane {
+                    SectionPlaneBar(session: session)
+                        .dynamicTypeSize(...Theme.TypeLimit.chrome)
+                        .padding(.trailing, Self.cubeClearance)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .transition(.panel(from: .top, reduceMotion: reduceMotion))
+                }
+                if showsSectionPill {
+                    SectionPill(session: session)
                         .dynamicTypeSize(...Theme.TypeLimit.chrome)
                         .padding(.trailing, Self.cubeClearance)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -328,6 +345,8 @@ struct EditorContent: View {
             .animation(Theme.Motion.enter, value: session.sketchEditor != nil)
             .animation(Theme.Motion.enter, value: session.choosingSketchPlane)
             .animation(Theme.Motion.enter, value: showsBoxBar)
+            .animation(Theme.Motion.enter, value: session.choosingSectionPlane)
+            .animation(Theme.Motion.enter, value: showsSectionPill)
             .animation(Theme.Motion.enter, value: session.document.activeFeatureCount < session.document.features.count)
             .animation(Theme.Motion.enter, value: session.message)
             .animation(Theme.Motion.enter, value: agentWorking)
@@ -393,6 +412,11 @@ struct EditorContent: View {
     /// Box select is on and there is something to box: the bar says what a box picks and how.
     private var showsBoxBar: Bool { session.boxSelecting && !session.boxFilter.isEmpty }
 
+    /// A section cuts the model with its handles away: the pill says so and brings them back.
+    private var showsSectionPill: Bool {
+        session.section?.isOn == true && session.pickMode != .section && !session.choosingSectionPlane
+    }
+
     private var currentHint: (text: String, symbol: String, context: String)? {
         let pick = Theme.Copy.pick
         // The box bar takes the hint's place and says what to do.
@@ -414,6 +438,8 @@ struct EditorContent: View {
         case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap", "pick")
         case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap", "pick")
         case .measure: return (session.measureHint, "ruler", "pick")
+        case .sectionPlane: return nil  // the plane bar says what to pick
+        case .section: return (session.sectionHint, "hand.draw", "section")
         default: break
         }
         // Without the always-visible inspector (narrow layouts), the empty document still needs a first step.
@@ -625,6 +651,13 @@ struct ToolStrip: View {
                                    unavailable: session.showOverhangs ? nil : session.unavailableReason(.overhangs)) { session.showOverhangs.toggle() }
                         ToolButton("Measure", "ruler", active: session.measure != nil,
                                    unavailable: session.measure != nil ? nil : session.measureUnavailableReason, shortcut: "I") { session.startMeasure() }
+                        // A view, not a step: "on" in ink like Overhangs once it just cuts; orange
+                        // while its plane is being picked or its handles are up.
+                        ToolButton("Section", SectionSymbol.name,
+                                   active: session.section?.isOn == true || session.choosingSectionPlane,
+                                   toggle: !(session.choosingSectionPlane || session.pickMode == .section),
+                                   unavailable: session.sectionUnavailableReason, shortcut: "⇧⌘X",
+                                   detail: "cut the model open along a plane or a flat face") { session.toggleSection() }
                     }
                 }
                 .padding(.vertical, 1)

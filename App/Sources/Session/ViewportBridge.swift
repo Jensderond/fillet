@@ -24,14 +24,19 @@ enum PickMode: Equatable {
     case holePoints
     /// Picking things to measure (see `MeasureState`).
     case measure
+    /// Choosing where Section view cuts: an origin plane or a flat face.
+    case sectionPlane
+    /// Section view's handles are up (see `SectionState`): only they take a drag.
+    case section
 }
 
 extension DesignSession {
     var pickMode: PickMode {
         if sketchEditor != nil { return .sketch }
         if choosingSketchPlane { return .sketchPlane }
+        if choosingSectionPlane { return .sectionPlane }
         if measure != nil { return .measure }
-        guard let feature = editingFeature else { return .idle }
+        guard let feature = editingFeature else { return section?.isOn == true && section?.isEditing == true ? .section : .idle }
         switch feature.kind {
         case .extrude(let e): return .regions(sketch: e.sketch)
         case .revolve(let r): return .regions(sketch: r.sketch)
@@ -55,6 +60,8 @@ extension DesignSession {
         case .edges: [.edges]
         case .faces, .singleFace, .bodies, .holePoints: [.faces]
         case .measure: measure?.picksBodies == true ? [.bodies] : [.faces, .edges, .vertices]
+        case .sectionPlane: [.faces, .referencePlanes]
+        case .section: []
         }
     }
 
@@ -85,13 +92,15 @@ extension DesignSession {
             scene.overhang = OverhangStyle(thresholdDegrees: overhangAngle, bedZ: minZ)
         }
         scene.sketch = sketchOverlay()
-        if pickMode == .sketchPlane {
+        if pickMode == .sketchPlane || pickMode == .sectionPlane {
             scene.referencePlanes = originPlanePatches
             scene.pickableFaces = planarFaces()
         }
         if choosingHoleFace { scene.pickableFaces = planarFaces() }
-        scene.handles = editingHandles()
-        scene.measures = sketchMeasures() + handleMeasures(scene.handles)
+        scene.section = shownSection
+        // Section's readouts are the value pill and angle tags on the canvas (`SectionGizmoOverlay`).
+        scene.handles = pickMode == .section ? sectionHandles() : editingHandles()
+        scene.measures = sketchMeasures() + handleMeasures(pickMode == .section ? [] : scene.handles)
         scene.edgeHighlights = edgeHighlights()
         // A fillet's or chamfer's picked edges are the body's before it: hidden by that, not the result.
         scene.bodiesBefore = model.meshesBefore.compactMap { ref, mesh in
@@ -420,6 +429,18 @@ extension DesignSession: ViewportDelegate {
             holeTapped(target: target, hit: hit)
         case .measure:
             measureTapped(target)
+        case .sectionPlane:
+            // Like choosing a sketch plane: empty space and curved faces keep waiting.
+            switch target {
+            case .referencePlane(let id):
+                if let plane = StandardPlane(rawValue: id) { startSection(on: plane) }
+            case .face(let body, let index):
+                startSection(onFace: BodyRef(body), index)
+            default: break
+            }
+        case .section:
+            // Only the handles take input; a stray tap mustn't throw the cut somewhere else.
+            break
         }
     }
 
@@ -472,6 +493,7 @@ extension DesignSession: ViewportDelegate {
     }
 
     func viewportHandleDragged(id: String, value: Double) {
+        if dragSectionHandle(id: id, value: value) { return }
         if id == Self.pressPullHandleID { dragPressPullHandle(to: value); return }
         guard id == "distance" else { return }
         let rounded = (value * 10).rounded() / 10
@@ -481,6 +503,10 @@ extension DesignSession: ViewportDelegate {
                 feature.kind = .extrude(e)
             }
         }
+    }
+
+    func viewportHandleDragEnded(id: String, value: Double) {
+        if sectionDrag != nil { sectionDrag = nil }
     }
 
     /// Select tool: a press on a shape that starts to move drags the selection, a press on a line's

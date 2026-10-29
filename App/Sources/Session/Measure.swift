@@ -97,6 +97,9 @@ extension DesignSession {
         if let reason = measureUnavailableReason { message = ToastMessage(reason); return }
         if sketchEditor != nil { finishSketch() }
         if choosingSketchPlane { cancelChoosingSketchPlane() }
+        // A section stays cut (what it hides can't be picked); its handles make way.
+        if choosingSectionPlane { cancelChoosingSectionPlane() }
+        section?.isEditing = false
         var state = MeasureState()
         for s in selection.prefix(2) {
             if let target = s.pickTarget, let pick = MeasurePick(target, in: model) { state.toggle(pick) }

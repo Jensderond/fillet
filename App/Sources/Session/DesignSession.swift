@@ -89,6 +89,13 @@ final class DesignSession {
     var pendingSketchTool: SketchTool?
     /// Measure is on (see `MeasureState`); nil otherwise.
     var measure: MeasureState?
+    /// Section view's plane (see `SectionState`), kept while it's off; nil when none was picked.
+    var section: SectionState?
+    /// Section view was asked for with no plane: the origin planes show and the next tap on one
+    /// of them, or on a flat face, cuts there.
+    var choosingSectionPlane = false
+    /// The section handle being dragged (its readout follows the pointer), nil otherwise.
+    var sectionDrag: String?
     /// Bodies hidden in the viewport (and left out of exports). Saved with the document so they
     /// stay hidden on reopen, but not an undo step (like Fusion's eye toggles); see `setDocument`.
     var hiddenBodies: Set<BodyRef> {
@@ -288,6 +295,9 @@ final class DesignSession {
         choosingSketchPlane = false
         pendingSketchTool = nil
         measure = nil
+        // A section stays cut through what comes next; its handles and panel make way.
+        choosingSectionPlane = false
+        section?.isEditing = false
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil
