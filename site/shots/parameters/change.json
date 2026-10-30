@@ -1,0 +1,234 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/parameters",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Pen holder"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "width",
+        "expression": "80"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "height",
+        "expression": "40"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "wall",
+        "expression": "2"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "hole_d",
+        "expression": "14"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Base",
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "rectangle",
+            "anchor": "center",
+            "position": [
+              0,
+              0
+            ],
+            "width": "width",
+            "height": "hole_d + 4 * wall"
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "name": "Block",
+        "sketch": "Base",
+        "distance": "height"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Pen holes",
+        "plane": "xy",
+        "offset": "wall",
+        "shapes": [
+          {
+            "type": "circle",
+            "center": [
+              "-width / 3",
+              0
+            ],
+            "diameter": "hole_d"
+          },
+          {
+            "type": "circle",
+            "center": [
+              0,
+              0
+            ],
+            "diameter": "hole_d"
+          },
+          {
+            "type": "circle",
+            "center": [
+              "width / 3",
+              0
+            ],
+            "diameter": "hole_d"
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "name": "Holes",
+        "sketch": "Pen holes",
+        "distance": "height - wall",
+        "operation": "cut",
+        "targets": "Block"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "hole_d",
+        "expression": "16"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso"
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "hole-d-16.png"
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "width",
+        "expression": "120",
+        "allow_failures": true
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso"
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "width-120-failed.png"
+    },
+    {
+      "do": "tap",
+      "labelContains": ", Holes"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "width-120-holes-open.png"
+    },
+    {
+      "do": "dump",
+      "path": "width-120-tree.txt"
+    },
+    {
+      "do": "tap",
+      "label": "Clear"
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "tap",
+      "x": 522,
+      "y": 533
+    },
+    {
+      "do": "wait",
+      "seconds": 0.8
+    },
+    {
+      "do": "tap",
+      "x": 647,
+      "y": 611
+    },
+    {
+      "do": "wait",
+      "seconds": 0.8
+    },
+    {
+      "do": "tap",
+      "x": 798,
+      "y": 702
+    },
+    {
+      "do": "wait",
+      "seconds": 0.8
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "width-120-repicked.png"
+    },
+    {
+      "do": "tap",
+      "labelContains": "Done"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "width-120-fixed.png"
+    }
+  ]
+}

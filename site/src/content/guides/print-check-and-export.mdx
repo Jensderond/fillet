@@ -1,0 +1,161 @@
+---
+title: "Check a part and export it for printing"
+short: "Print check & export"
+group: "Inspect & Print"
+order: 3
+blurb: "Pick a printer, check the part and send it to your slicer."
+lede: "Fillet checks your part against your printer while you model: does it fit the bed, does it need supports, is it safe to slice. When it passes, export a 3MF and open it in your slicer."
+summary: "Choose a printer in the toolbar's printer menu: Bambu Lab A1 mini, A1, P1P, P1S, X1 Carbon, X1E and H2D, Prusa MK4 and Core One, or Custom. The bed is drawn to size. With nothing selected, the inspector's Print check shows: Fits the bed (with the size, 'Rotate 90° in the slicer', or 'too big'), Overhangs (area past the angle, with Show) or No overhangs, Watertight (or the open/non-manifold edge counts), any failed steps, and Material (volume, solid PLA grams at 1.24 g/cm³, body count). The Overhangs toggle (tool strip, ⇧⌘O) tints downward faces red. The threshold angle (35-60°, 45° by default) is in the printer menu. Lay flat: select the flat face that should touch the bed, then Lay flat (or the Next action); tap another flat face to change it. Lay flat is a timeline step. Export menu: 3MF (Bambu Studio, PrusaSlicer…; one object with a part per body, in mm, placed at the bed centre), STL or STEP. Only visible bodies are exported. Exports use fine tessellation (0.01 mm). On iPad, the system save sheet puts the file in Files, from where Bambu Handy or Studio picks it up. The Mac also has Open in Bambu Studio. Tips: chamfer bottom edges, and walls of 2-3 nozzle widths."
+related: ["fillet-chamfer-shell","section-view","files-and-icloud","measure"]
+---
+
+## Choose your printer
+
+Fillet checks your part against one printer's build volume. Pick yours first. New designs start on the Bambu Lab A1 mini.
+
+1. Tap the printer button in the toolbar, at the top right.
+2. Choose your printer. Each one is listed with its build volume in mm.
+
+The bed in the viewport changes to the new size and is labelled with the printer's name. The printer is saved with the design, and Undo takes the change back.
+
+| Printer | Build volume (mm) |
+| --- | --- |
+| Bambu Lab A1 mini | 180 × 180 × 180 |
+| Bambu Lab A1, P1P, P1S, X1 Carbon, X1E | 256 × 256 × 256 |
+| Bambu Lab H2D | 325 × 320 × 325 |
+| Prusa MK4 | 250 × 210 × 220 |
+| Prusa Core One | 250 × 220 × 270 |
+
+<Note>The H2D's bed is 350 mm wide, but one nozzle reaches only 325 mm of it. Fillet uses 325 mm, so a part that fits can be printed with either nozzle.</Note>
+
+## Read the Print check
+
+When nothing is selected, the inspector on the right shows the **Print check**. It updates after every change, so you can keep an eye on it while you model.
+
+To see it, tap an empty part of the view, or tap **Clear selection** in the inspector.
+
+<Tour src="/screens/print-check-and-export/overhangs.png" width={1600} height={1005}
+  alt="A shelf bracket seen from below, with the underside of its shelf tinted red. The bed is labelled Bambu Lab A1 mini. The Print check in the inspector reads Fits the bed, 50 × 30 × 60 mm; Overhangs, 1200 mm² past 45°, with Show; Watertight, Safe to slice; and Material: Volume 30 cm³, PLA, solid 37.2 g, Bodies 1."
+  caption="A shelf bracket, printed upright. The shelf's flat underside would need supports."
+  pins={[
+    { x: 90.6, y: 15.2, label: "Fits the bed", text: "The part's size, checked against your printer." },
+    { x: 90.6, y: 23.8, label: "Overhangs", text: "How much area hangs over thin air. Show tints it red." },
+    { x: 90.6, y: 32.3, label: "Watertight", text: "The surface is closed, so the slicer can fill it." },
+    { x: 87, y: 41.3, label: "Material", text: "Volume and the weight of a solid PLA print." },
+    { x: 37.5, y: 32, label: "Overhang", text: "Faces that need supports turn red." },
+  ]} />
+
+A green tick means the check passed. An amber triangle is a warning: the part prints, but not as well as it could. A red cross is a problem to fix before you export.
+
+| Check | What it tells you |
+| --- | --- |
+| **Fits the bed** | The size of everything you can see, in mm. If the part only fits turned 90° on the bed, it says **Rotate 90° in the slicer** in place of the size. If it doesn't fit either way, the size is followed by **is too big**. |
+| **Overhangs** | The area that tilts past the overhang angle, such as **1200 mm² past 45°**. With none, it says **No overhangs**, which means it prints without supports. |
+| **Watertight** | **Safe to slice** when every surface is closed. Otherwise it says **Not watertight** and counts the open or non-manifold edges. This mostly happens with imported STEP files. |
+| **Steps failed** | Only shown when a step on the timeline failed. Tap **Show** to open it. |
+| **Material** | The volume, the weight in PLA if printed solid, and the number of bodies. |
+
+<Note>The weight assumes a solid print at 1.24 g/cm³. Your slicer's estimate will be lower, because it uses infill. Hidden bodies are left out of the size, overhang, watertight, volume and weight checks, but **Bodies** counts them too.</Note>
+
+<Callout guide="timeline" hash="fix-a-step-that-failed" text="A failed step is left out of the model. Fix it before you export." />
+
+## Find overhangs
+
+An overhang is a face that points down and leans out further than your printer can bridge. Turn on **Overhangs** to see them on the model.
+
+1. Tap <Ui>Overhangs</Ui> in the tool strip, or press <Keys combo="⇧⌘O" />. You can also tap **Show** in the Print check.
+2. Turn the view so you can see the part from below. Overhangs are tinted red.
+3. Tap **Overhangs** again to turn the tint off.
+
+Faces that rest on the bed never count. Walls never count either, however tall they are.
+
+<Note>On the Mac, **Design › Show Overhangs** and **Design › Lay Flat on Face** are in the menu bar too.</Note>
+
+### Change the overhang angle
+
+A face counts as an overhang when it leans more than the overhang angle away from vertical. A wall is 0°, and a flat ceiling is 90°. The default is 45°, which most printers manage without supports.
+
+1. Tap the printer button in the toolbar.
+2. Scroll down to the angles, below **Show overhangs**.
+3. Choose an angle from 35° to 60°. Pick a lower angle to be stricter.
+
+<Figure src="/screens/print-check-and-export/printer-menu.png" width={742} height={1060} maxWidth={440}
+  alt="The printer menu scrolled down: Bambu Lab X1E, H2D, Prusa MK4 and Prusa Core One with their bed sizes, then Show overhangs with a tick, then the angles 35° to 60° with 45° ticked."
+  caption="Show overhangs and the overhang angle sit below the printers." />
+
+<Note>The overhang angle and the red tint aren't saved with the design. When you open it again, both start over: tint off, 45°.</Note>
+
+## Lay the part flat
+
+The side that touches the bed decides what needs supports. The bracket above has a shelf that hangs out in mid-air. Laid on its side, every face is a wall or rests on the bed, and it prints without supports.
+
+1. Select the flat face that should touch the bed.
+2. Tap **Lay flat on the bed** in the inspector, or tap <Ui>Lay flat</Ui> in the tool strip.
+
+<Figure src="/screens/print-check-and-export/lay-flat-select.png" width={1600} height={1005}
+  alt="The side face of the shelf bracket selected in blue. The inspector names it Flat face, Area 1000 mm², and lists Next actions: Sketch on this face, Drill holes in this face, Lay flat on the bed, Press Pull these faces, and Shell, removing these faces."
+  caption="Select a face, then pick Lay flat on the bed from the Next list." />
+
+The part turns over and lands on the bed. To try another side, tap a different flat face. When it's right, tap **Done**.
+
+<Figure src="/screens/print-check-and-export/laid-flat.png" width={1600} height={989}
+  alt="The shelf bracket lying on its side on the bed, with no red faces. The Print check reads Fits the bed, 50 × 60 × 30 mm; No overhangs, Prints without supports; and Watertight, Safe to slice. The timeline at the bottom shows Profile, Bracket and Lay Flat 1."
+  caption="On its side, the bracket prints without supports. Lay Flat 1 is now a step on the timeline." />
+
+Lay flat is a step on the timeline, like any other. Tap its station to choose another face, or delete it to stand the part back up. Only a flat face can go on the bed.
+
+<Callout guide="selecting" text="Tap a face to select it. The Next list shows what you can do with it." />
+
+## Export for your slicer
+
+When the Print check looks good, export the part. Tap the Export button in the toolbar, next to the printer button, and choose a format.
+
+<Figure src="/screens/print-check-and-export/export-menu.png" width={742} height={290} maxWidth={440}
+  alt="The Export menu open with three choices: 3MF (Bambu Studio, PrusaSlicer…), STL, and STEP (other CAD apps)."
+  caption="Choose 3MF for your slicer." />
+
+| Format | Use it for |
+| --- | --- |
+| **3MF** | Bambu Studio, PrusaSlicer, OrcaSlicer and most other slicers. The file is in mm and the part sits in the middle of your printer's bed. Several bodies arrive as one object with a part per body, just as you modelled them. |
+| **STL** | Older slicers and tools that don't read 3MF. Every body goes into one mesh, in mm. |
+| **STEP** | Other CAD apps. It keeps the exact shapes, not a mesh. |
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap the Export button and choose a format.
+    2. In the save sheet, pick a folder in **On My iPad** or **iCloud Drive**, then tap **Save**.
+    3. Open the file in your slicer from the Files app. Save it to iCloud Drive to pick it up in Bambu Studio on your computer.
+  </Platform>
+  <Platform name="Mac">
+    1. Click the Export button and choose **Open in Bambu Studio**. Fillet makes a 3MF and opens it in Bambu Studio. Without Bambu Studio, the file opens in your Mac's usual app for 3MF files. The Export button shows no spinner for this, so a large part can take a moment to appear.
+    2. To keep a file instead, choose a format and pick where to save it.
+  </Platform>
+</Platforms>
+
+Only bodies you can see are exported. To export one part on its own, hide the others in the browser first.
+
+Curves are exported finely, to within 0.01 mm, so holes and fillets come out smooth. A large part can take a moment. After you choose a format, the Export button shows a spinner until you can pick where to save the file.
+
+<Callout guide="bodies" text="Hide a body with its eye in the browser to leave it out of the export." />
+
+## Tips for a clean print
+
+<Tip title="Chamfer the bottom edges">The lowest part of a fillet on a bottom edge faces almost straight down, so it prints as an overhang. A 45° chamfer prints cleanly, and hides the slight bulge of the first layers.</Tip>
+
+<Tip title="Make walls 2–3 nozzle widths thick">With a 0.4 mm nozzle, that's 0.8–1.2 mm. Thinner walls can print with gaps, or not at all.</Tip>
+
+<CardGrid>
+  <Callout guide="fillet-chamfer-shell" />
+  <Callout guide="section-view" text="Cut the part open to check wall thickness inside." />
+</CardGrid>
+
+## Questions and answers
+
+<FAQ>
+  <QA q="Why does the Print check say Rotate 90° in the slicer?">The part is longer than the bed in one direction but fits the other way round. Turn it 90° on the bed in your slicer.</QA>
+  <QA q="Why is my slicer's weight lower than Fillet's?">Fillet weighs the part as if it were printed solid. Your slicer prints the inside as infill, which uses less filament.</QA>
+  <QA q="Why don't I see the Print check?">Something is selected, or a step is open. Tap **Done** or **Cancel**, then tap an empty part of the view.</QA>
+  <QA q="Why is a body missing from my export?">It's hidden. Show it with its eye in the browser, then export again.</QA>
+  <QA q="Does the printer I choose change the export?">Only where the part lands. A 3MF puts the part in the middle of that printer's bed. The part's size never changes.</QA>
+  <QA q="Why is my part Not watertight?">Its surface has gaps, which mostly happens with imported STEP files. Most slicers can repair small gaps. If yours can't, fix the file in the app that made it.</QA>
+</FAQ>

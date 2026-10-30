@@ -1,0 +1,7 @@
+---
+/** An app control named in running text: <Ui icon="holes">Hole</Ui>. Reads like the UI. */
+import Glyph from './Glyph.astro';
+interface Props { icon?: string }
+const { icon } = Astro.props;
+---
+<strong class="ui">{icon && <Glyph name={icon} tile={false} size="inline" />}<slot /></strong>

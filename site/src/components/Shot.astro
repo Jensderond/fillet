@@ -1,0 +1,33 @@
+---
+/**
+ * One screenshot as a <picture>: AVIF and WebP srcsets with a PNG/JPEG fallback (see screens.ts).
+ *   <Shot src="/screens/parameters/add-p1.png" alt="…" />
+ * `phoneSrc` swaps in a tighter crop on phones (≤640px). `width`/`height` are ignored: the
+ * intrinsic size always comes from the file, so it can't drift from it.
+ */
+import { sources, sizesFor } from './screens';
+
+interface Props {
+  src: string;
+  alt?: string;
+  phoneSrc?: string;
+  /** CSS px the picture is shown at, at most (for `sizes`); defaults to the wide figure column. */
+  maxWidth?: number;
+  class?: string;
+  style?: string;
+  width?: number | string;
+  height?: number | string;
+}
+const { src, alt = '', phoneSrc, maxWidth, class: className = 'fig-media', style } = Astro.props;
+const main = await sources(src);
+const phone = phoneSrc ? await sources(phoneSrc) : undefined;
+const sizes = sizesFor(maxWidth);
+const PHONE = '(max-width: 640px)';
+---
+<picture>
+  {phone && <source media={PHONE} type="image/avif" srcset={phone.avif} sizes="100vw" width={phone.width} height={phone.height} />}
+  {phone && <source media={PHONE} type="image/webp" srcset={phone.webp} sizes="100vw" width={phone.width} height={phone.height} />}
+  <source type="image/avif" srcset={main.avif} sizes={sizes} />
+  <source type="image/webp" srcset={main.webp} sizes={sizes} />
+  <img class={className} style={style} src={main.src} alt={alt} width={main.width} height={main.height} loading="lazy" decoding="async" />
+</picture>

@@ -1,0 +1,125 @@
+---
+title: "Repeat with patterns"
+short: "Patterns"
+group: "Sketch & Model"
+order: 6
+blurb: "Repeat bodies or features in a row or around an axis."
+lede: "Make one hole, then let Fillet make the rest. A pattern repeats a step or a whole body in a row or around a circle, and it stays live: change the count and the copies follow."
+summary: "Pattern has two kinds of Objects. Bodies repeats whole bodies (the selected ones, or the newest). Features repeats timeline steps, so a cut repeats as more cuts, like Fusion. Type: Linear (Axis X/Y/Z, Count, Spacing) or Circular (Axis, Count, Angle, 360 by default). For a feature pattern, tap timeline stations to add or remove steps. Only earlier extrude, revolve, primitive, loft or hole steps can join, and refused ones explain why in a toast. The picked steps are listed in the inspector, each with an x to remove it. Or long-press a step on the timeline and choose Pattern. Count and Spacing accept parameters, so a count can follow a length (for example 'floor(width / 20)' if available; check ExprFunctions for what exists)."
+related: ["holes","parameters","timeline","bodies"]
+---
+
+## Repeat a hole or a cut
+
+Make the first hole, then let the pattern drill the rest.
+
+1. Make the first hole or cut.
+2. Tap <Ui icon="patterns">Pattern</Ui> in the tool strip, then tap **Features**.
+3. On the timeline, tap the step to repeat. It turns blue with a check.
+4. Set **Count** and **Spacing**, then tap **Done**.
+
+<Figure caption="Count 4 is the hole you made plus three copies, 20 mm apart along X.">
+  <div class="fig-duo" style="--duo: 1.064fr 0.565fr">
+    <Shot src="/screens/patterns/linear-result.png" width="1100" height="1034" alt="An 80 mm plate with four round holes in a row along its length." />
+    <Shot src="/screens/patterns/linear-inspector.png" width="614" height="1086" alt="The Pattern 1 inspector: Objects set to Features, 1 step picked with Extrude 2 listed, Type Linear, Axis X, Count 4, Spacing 20 mm." />
+  </div>
+</Figure>
+
+Each copy does what the step did: a cut cuts again, a hole drills again, a join adds material again.
+
+## Pick the steps to repeat
+
+While a feature pattern is open, the timeline picks steps instead of opening them.
+
+1. Tap a step to add it. It turns blue with a check.
+2. Tap it again, or its **×** in the inspector, to take it out.
+3. Tap **Clear** to start over.
+
+<Figure src="/screens/patterns/timeline-picker.png" width={575} height={150} maxWidth={460} alt="The timeline while Pattern 1 is open. Extrude 1 looks normal, Sketch 2 is greyed out, and Extrude 2 is blue with a check." caption="Extrude 2 is picked. Extrude 1 can join. Sketch 2 is greyed out because it can't." />
+
+Only extrudes, revolves, primitives, lofts and holes that come before the pattern can join. Tap a greyed-out step and Fillet says why.
+
+## Start a pattern from the timeline
+
+The fastest way in: start from the step itself, and it opens already picked.
+
+1. Touch and hold the step on the timeline.
+2. Tap **Pattern**.
+3. Set **Count** and **Spacing**, then tap **Done**.
+
+<Figure src="/screens/patterns/station-menu.png" width={745} height={758} maxWidth={440} alt="The menu of the Extrude 2 step on the timeline: Edit, Pattern, Rename…, Suppress, Roll back to here and Delete." caption="Touch and hold a step. Pattern is second in its menu." />
+
+## Repeat a whole body
+
+Repeat a body when you want the whole shape again, fillets and all, like a row of rounded pegs.
+
+1. Select the body. With nothing selected, Fillet uses the newest one.
+2. Tap <Ui icon="patterns">Pattern</Ui>. **Objects** starts on **Bodies**.
+3. Tap bodies in the view to add or remove them.
+4. Set **Count** and **Spacing**, then tap **Done**.
+
+<Figure caption="One filleted peg, repeated four times, 18 mm apart. Picked bodies show in blue.">
+  <div class="fig-duo" style="--duo: 1.053fr 0.629fr">
+    <Shot src="/screens/patterns/bodies-result.png" width="1100" height="1045" alt="Four blue pegs with rounded tops in a row, under the hint Tap bodies to add or remove them." />
+    <Shot src="/screens/patterns/bodies-inspector.png" width="614" height="976" alt="The Pattern 1 inspector: Objects set to Bodies, 1 body picked, Type Linear, Axis X, Count 4, Spacing 18 mm." />
+  </div>
+</Figure>
+
+The copies become part of the body you repeated, so the browser still shows one body.
+
+## Go around in a circle
+
+Turn copies around an axis for bolt holes on a flange.
+
+1. Make the first hole away from the centre, and pick it as above.
+2. Under **Type**, tap **Circular**.
+3. Under **Axis**, tap **Z** for a part lying on the bed.
+4. Set **Count**, then tap **Done**.
+
+<Figure caption="Six holes around Z. Angle 360° spreads them evenly round the whole circle.">
+  <div class="fig-duo" style="--duo: 1.064fr 0.565fr">
+    <Shot src="/screens/patterns/circular-result.png" width="1100" height="1034" alt="A round 60 mm flange with six holes evenly spaced around it." />
+    <Shot src="/screens/patterns/circular-inspector.png" width="614" height="1086" alt="The Pattern 1 inspector: Objects Features with Extrude 2 picked, Type Circular, Axis Z, Count 6, Angle 360 degrees." />
+  </div>
+</Figure>
+
+The axis runs through the origin, so centre round parts on the origin.
+
+## Let a parameter set the count
+
+Drive the plate and the pattern from the same parameter, and a longer plate gets more holes by itself.
+
+1. In the browser, add a parameter `length` set to `80` and one called `pitch` set to `20`.
+2. Open the plate's sketch, tap **Select**, then tap the rectangle and type `length` in its **Width**.
+3. Tap the pattern's step on the timeline. In **Count**, type `floor(length / pitch)`, and in **Spacing**, type `pitch`.
+
+<Figure src="/screens/patterns/parameter-count.png" width={620} height={300} maxWidth={420} alt="The Count field reads floor(length / pitch) with = 4 under it. The Spacing field reads pitch mm with = 20 mm under it." caption="Each field shows what its expression works out to: 80 / 20 makes four holes." />
+
+Now set `length` to `120` in the browser. The plate grows to 120 mm, Count works out to 6, and two more holes appear. Type a new size into the sketch instead, and the count stays at 4: Count follows `length`, not the plate.
+
+<Figure caption="length is 120 now, so the same pattern makes six holes, still 20 mm apart.">
+  <div class="fig-duo" style="--duo: 0.757fr 1.574fr">
+    <Shot style="max-width: 260px; margin-inline: auto" maxWidth={260} src="/screens/patterns/parameter-grow-values.png" width="482" height="637" alt="The browser's Parameters: length = 120 mm and pitch = 20 mm." />
+    <Shot src="/screens/patterns/parameter-grow-result.png" width="1100" height="699" alt="A 120 mm plate with six round holes in a row along its length." />
+  </div>
+</Figure>
+
+<Callout guide="parameters" />
+
+## Questions
+
+<FAQ>
+  <QA q="How do I change a pattern later?">Tap its step on the timeline. The inspector opens with its settings, and for a feature pattern the timeline picks steps again.</QA>
+  <QA q="Does Count include the original?">Yes. A count of 4 gives the original and three copies. Count can be anything from 1 to 1000.</QA>
+  <QA q="I'm on a Mac. What's different?">Click wherever this guide says tap, and Control-click a step where it says touch and hold. **Pattern** is also in the **Design** menu.</QA>
+  <QA q="What does a smaller Angle do?">With less than 360°, the first and last copies sit at the two ends of the angle. Count 3 over 90° puts copies at 0°, 45° and 90°.</QA>
+  <QA q="Which functions can Count use?">`floor` rounds down, so you never get one hole too many. `ceil`, `round`, `min` and `max` work too. A count that isn't a whole number is rounded to the nearest one.</QA>
+  <QA q="Why does Count show an error?">The units don't match. Type both parameters as plain numbers, `80` rather than `80 mm`, so `length / pitch` is a plain count. If one has `mm`, give the other `mm` too.</QA>
+  <QA q="Why does it say “The patterned cut doesn't touch any body”?">All the copies of a cut landed outside the part. Check the **Axis** and the **Spacing**. A negative spacing goes the other way along the axis.</QA>
+  <QA q="Why can't I repeat a fillet?">A feature pattern repeats only extrudes, revolves, primitives, lofts and holes. To repeat a filleted shape, pattern the whole body instead.</QA>
+  <QA q="Why is a step after the pattern greyed out?">A pattern can only repeat steps that come before it on the timeline. Drag the pattern after that step, or start a new pattern.</QA>
+  <QA q="Why won't a step's menu start a pattern?">A rolled-back step can't start one: move the [caliper](/guides/timeline/#roll-back-to-an-earlier-step) past it first. Steps that can't be repeated have no **Pattern** item. While a pattern is open, the menu reads **Add to Pattern 1** or **Remove from Pattern 1** instead.</QA>
+  <QA q="How do I join the copies to another body?">The copies join only the body you repeated. To join the row to another body, use <Ui>Combine</Ui> afterwards.</QA>
+  <QA q="Why did my picks disappear?">Switching **Objects** between Bodies and Features clears what you picked. Pick again in the new mode.</QA>
+  <QA q="Why does Axis say Edge?">A pattern made by an AI agent can turn around an edge of a body instead of X, Y or Z. The inspector then shows **Edge**.</QA>
+</FAQ>

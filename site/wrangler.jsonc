@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // The Fillet Guide: the static Astro build (pnpm build → dist/), served as Worker static assets.
+  "name": "fillet-docs",
+  "compatibility_date": "2026-10-30",
+  "assets": {
+    "directory": "./dist",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  "routes": [{ "pattern": "fillet.jsdr.dev", "custom_domain": true }],
+  "workers_dev": false,
+  "preview_urls": false
+}

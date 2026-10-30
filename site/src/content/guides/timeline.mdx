@@ -1,0 +1,134 @@
+---
+title: "Change your design with the timeline"
+short: "Timeline"
+group: "Select & Change"
+order: 3
+blurb: "Edit, reorder, suppress or roll back any step."
+lede: "Every sketch and feature you add is a step on the timeline at the bottom of the window. Change any step and every step after it is rebuilt to match."
+summary: "Each step is a numbered station on the ruler at the bottom of the window. Tap a station to edit the step in the inspector, then Done or Cancel; later steps replay. On the Mac, hovering a step highlights the body it made. Long-press a station for Edit, Pattern, Rename…, Suppress/Unsuppress, Roll back to here and Delete, plus the failure or warning text when there is one. Press, hold and drag a station to reorder it; a move before a step it depends on is refused with a message. The orange caliper is the rollback marker: drag it to see the model at an earlier step, or use the playback buttons (start, step back, step forward, play to end). Steps past the marker are hatched, the viewport shows 'Showing step N of M' with Play to end, and new steps go in at the marker. Failed steps turn red with the kernel's reason and later steps still run. The Print check lists '1 step failed' with Show. A warning badge means a step still works but its edges or faces were found somewhere else. Edit a sketch from the browser or its station, for example widening the plate from 60 to 80 mm, and every later step follows. Undo and Redo are in the toolbar (⌘Z/⇧⌘Z with a keyboard)."
+related: ["parameters","sketching","patterns","print-check-and-export"]
+---
+
+## Read the timeline
+
+The timeline is a ruler. Each step is a station on it, in the order Fillet builds them, from left to right. The orange caliper marks where the model ends. The four buttons on the left move that caliper.
+
+<Figure src="/screens/timeline/ruler.png" alt="The timeline of a pen holder: playback buttons, then Sketch 1, Plate, Fillet, Pen hole and Pattern, with the orange caliper after the last step" caption="A pen holder in five steps. The caliper sits after the last step, so you see the whole design." width={1240} height={162} />
+
+Each station shows the step's icon and name. When you open a step, its number appears under it on the ruler.
+
+<Platforms>
+  <Platform name="iPad">
+    Tap a station to open the step. Touch and hold a station for its menu.
+  </Platform>
+  <Platform name="Mac">
+    Click a station to open the step. Control-click it for its menu. Hold the pointer over a station to highlight the body it made, and to see its number.
+  </Platform>
+</Platforms>
+
+## Change a step
+
+Any step can be changed at any time. Fillet rebuilds every step after it, so a change early on carries through the whole design.
+
+1. Tap the step's station on the timeline.
+2. Change it in the inspector, such as the **Radius** of a fillet or the **Distance** of an extrude.
+3. The model, and every step after this one, updates to show the change.
+4. Tap **Done** to keep the change, or **Cancel** to put the step back as it was.
+
+<Note>Opening another step keeps the changes to the one that's open, as if you'd tapped Done. With a keyboard, <Keys combo="↩" /> is Done and <Keys combo="Esc" /> is Cancel.</Note>
+
+## Change a sketch
+
+A sketch is a step too. Change a dimension in it, and every extrude, fillet and hole built on it follows. For example, to widen a 60 mm plate to 80 mm:
+
+1. Tap the sketch's station, or tap the sketch under **Sketches** in the browser.
+2. Tap the rectangle.
+3. Set **Width** to `80` in the inspector.
+4. Tap **Finish sketch**, or press <Keys combo="⌘↩" />.
+
+The plate is now 80 mm wide. Its fillets and holes are rebuilt on the wider plate.
+
+<Callout guide="parameters" text="Name the width once and use it in any field, so one change resizes the whole part." />
+
+## Use the step menu
+
+Rename, suppress or delete a step from its menu. On iPad, touch and hold the station until the menu appears. On the Mac, Control-click it.
+
+<Figure src="/screens/timeline/station-menu.png" alt="The menu of the Pen hole step: Edit, Pattern, Rename…, Suppress, Roll back to here and Delete" caption="The menu of a hole step. Pattern appears for steps that can be repeated." width={1400} height={1119} />
+
+| Command | What it does |
+| --- | --- |
+| **Edit** | Opens the step in the inspector, like a tap. |
+| **Pattern** | Starts a [pattern](/guides/patterns/) that repeats this step. It's offered for extrudes, revolves, primitives, lofts and holes. |
+| **Rename…** | Gives the step a name you'll recognise later, such as "Pen hole". You can also tap the name at the top of the inspector. |
+| **Suppress** | Leaves the step out of the model but keeps it on the timeline, dashed and crossed out. Choose **Unsuppress** to bring it back. Steps that build on it can fail while it's suppressed. |
+| **Roll back to here** | Moves the caliper to just after this step. |
+| **Delete** | Removes the step. Steps that used it stay, and turn red until you fix or delete them. |
+
+<Tip title="Try it before you delete it">Suppress a step to see the part without it. If you like the result, delete the step. If not, unsuppress it.</Tip>
+
+## Reorder steps
+
+Drag a station along the timeline to change when its step happens. Fillet rebuilds the design in the new order.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Touch and hold the station until it lifts.
+    2. Drag it along the timeline. An orange line shows where it will land.
+    3. Lift your finger.
+  </Platform>
+  <Platform name="Mac">
+    1. Click and hold the station.
+    2. Drag it along the timeline. An orange line shows where it will land.
+    3. Let go.
+  </Platform>
+</Platforms>
+
+A step can't move before a step it uses, such as an extrude before its sketch. It can't move after a step that uses it, either. Fillet refuses the move and says why: "Plate can't move there: it uses an earlier step".
+
+## Roll back to an earlier step
+
+Roll back to see the design as it was a few steps ago, or to add a step earlier in the timeline.
+
+1. Drag the orange caliper to the left. It snaps to the gaps between steps, and the model follows once it rests.
+2. Or use the buttons on the left: **Roll back to start**, **Step back**, **Step forward** and **Play to end**.
+
+Steps past the caliper are hatched and left out of the model. A pill over the viewport says **Showing step 2 of 5**.
+
+<Figure src="/screens/timeline/rolled-back.png" alt="The pen holder rolled back to step 2: a plain plate, the Fillet, Pen hole and Pattern stations hatched, and the pill Showing step 2 of 5 with Play to end" caption="Rolled back to step 2. The fillet, hole and pattern are still there, just not built yet." width={1600} height={1326} />
+
+A new step goes in at the caliper, not at the end. The caliper moves past it, and the hatched steps are rebuilt on top of it when you play to the end.
+
+To get back to the whole design, tap **Play to end** in the pill or on the timeline.
+
+<Note>Fillet saves the caliper with the design. If a design opens looking unfinished, look for the pill and tap **Play to end**.</Note>
+
+## Fix a step that failed
+
+A step fails when it can't be built, such as a fillet whose radius is bigger than the plate is thick. Its station turns red, and a banner names it with the reason. The failed step is left out of the model. Every other step still runs, so you never lose the rest of your design.
+
+<Figure src="/screens/timeline/failed.png" alt="The Fillet station in red, a banner saying Fillet failed: Fillet radius too large for the selected edges, with Show, and 1 step failed in the Print check" caption="The fillet is too big for a 12 mm plate. The holes and pattern are still built." width={1600} height={1199} />
+
+1. Tap **Show** in the banner, or in the **1 step failed** row of the Print check. You can also tap the red station.
+2. Read the reason in the red card at the top of the inspector.
+3. Change the step until the card goes away, such as setting **Radius** back to `3`.
+4. Tap **Done**.
+
+<Figure src="/screens/timeline/failed-inspector.png" alt="The Fillet step open: its four picked edges dashed blue in the viewport, and the inspector's red card saying Fillet radius too large for the selected edges, with Radius set to 20 mm" caption="Open the step to read why it failed and change it." width={1200} height={922} />
+
+A station with an amber triangle still works. The triangle means one of its faces or edges was found again after a change, but Fillet wasn't sure it found the right one. Open the step and check its picks in the viewport. Tap an edge or face to add it or drop it, then tap **Done**.
+
+## Undo a change
+
+Undo and Redo are the arrows at the top right of the window. With a keyboard, press <Keys combo="⌘Z" /> to undo and <Keys combo="⇧⌘Z" /> to redo.
+
+Each change to the timeline is one undo step: an edit after **Done**, a rename, a reorder, a delete, and each move of the caliper.
+
+## Questions and answers
+
+<FAQ>
+  <QA q="Why do some of my steps look hatched?">The caliper is rolled back. Hatched steps come after it and aren't built. Tap **Play to end** to build them.</QA>
+  <QA q="Why can't I move a step?">It would land before a step it uses, or after a step that uses it. Move the other step first, or pick a different spot.</QA>
+  <QA q="Why did my new step appear in the middle?">New steps go in at the caliper. If you'd rolled back, the step lands there. Tap **Play to end** first to add steps at the end.</QA>
+  <QA q="What happens to later steps when I delete one?">They stay. Any that used the deleted step turn red. Fix them, delete them, or undo the delete.</QA>
+</FAQ>

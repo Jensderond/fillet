@@ -1,0 +1,133 @@
+---
+title: "Measure"
+short: "Measure"
+group: "Inspect & Print"
+order: 1
+blurb: "Read lengths, areas, distances and angles off the model."
+summary: "Start Measure (I, or the ruler on the tool strip). Choose to pick 'Faces & edges' (vertices included) or 'Bodies'. You can pick up to two things; a third pick starts over, and tapping a pick again drops it. Readouts: an edge gives its length (plus radius and diameter if it's circular); a face gives its area (and radius if curved); a vertex gives X, Y and Z; a body gives its volume and size. Between two picks you get the shortest distance with ΔX, ΔY and ΔZ and, where it applies, the angle, drawn as a dimension line on the model. Every value can be copied. Clear and Done sit at the bottom, and Escape or another tool ends it. Measuring is never a step and never part of undo. Picks are dropped if the model changes (undo, an agent). Quick check without the tool: select two things and the inspector shows the distance between them."
+lede: "Tap an edge or a face to read its size, or two things to get the distance and angle between them. Measuring never changes your design."
+related: ["selecting","section-view","print-check-and-export","parameters"]
+---
+
+## Start Measure
+
+Measure reads sizes straight off the model. It works on any body you can see.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap <Ui icon="measure">Measure</Ui> on the tool strip, or press <Keys combo="I" /> on a keyboard.
+    2. Tap a face, an edge or a corner of the model.
+  </Platform>
+  <Platform name="Mac">
+    1. Click <Ui icon="measure">Measure</Ui> on the tool strip, choose **Design › Measure**, or press <Keys combo="I" />.
+    2. Click a face, an edge or a corner of the model.
+  </Platform>
+</Platforms>
+
+The inspector shows a card for what you picked. The hint over the model says what the next tap does.
+
+<Note>Measure needs a body. If a step is open, tap **Done** or **Cancel** first. An open sketch is finished for you.</Note>
+
+## Read a size
+
+Each pick gets a card that names what it is, such as **Circular edge** or **Flat face**, and lists its sizes.
+
+| You pick | You get |
+| --- | --- |
+| A straight edge | Length |
+| A round edge, such as a hole's rim | Length, Radius and Diameter |
+| A flat face | Area |
+| A cylindrical or spherical face, such as a hole's wall | Area, Radius and Diameter |
+| A corner (vertex) | Its X, Y and Z position |
+
+Lengths are in mm and areas in mm², rounded to two decimals.
+
+## Measure between two things
+
+Pick a second thing to get the shortest distance between the two. Fillet draws it on the model as a dimension line.
+
+1. Tap the first thing, for example the rim of a hole.
+2. Tap the second, for example the end face.
+3. Read **Distance** in the **Between** card. Scroll the inspector to see the rest of the card.
+
+<Tour src="/screens/measure/between.png" width={1600} height={1199}
+  alt="Measure with a hole's rim and the block's end face picked. A dashed line labelled 53 mm joins them, and the inspector shows a Circular edge card, a Flat face card and a Between card with Distance 53 mm."
+  caption="From the hole's rim to the end of the block: 53 mm, all of it along X."
+  pins={[
+    { x: 37.6, y: 18.5, label: "Hint", text: "Says what the next tap does." },
+    { x: 32.8, y: 42.4, label: "Your picks", text: "Picked edges and faces turn blue." },
+    { x: 57.5, y: 49.7, label: "Dimension line", text: "The shortest distance, between the closest points." },
+    { x: 76.4, y: 34.4, label: "One card per pick", text: "What each pick is, with its sizes." },
+    { x: 76.4, y: 67.2, label: "Between", text: "Distance, ΔX, ΔY, ΔZ and, where it applies, Angle." },
+  ]} />
+
+The **Between** card holds:
+
+- **Distance**: the shortest gap between the two picks.
+- **ΔX**, **ΔY** and **ΔZ**: how far apart the two closest points are along each axis.
+- **Angle**: only when both picks are flat faces or straight edges. Two faces give the angle between the ways they face, so the top and bottom of a plate read 180°.
+
+A third tap starts over with that pick. Tap a picked thing again to drop it. The two picks can be on different bodies.
+
+<Note>When the two picks touch, Distance reads 0 mm and no line is drawn.</Note>
+
+## Measure whole bodies
+
+Switch to bodies to get a part's volume and outer size.
+
+1. In the inspector, set **Pick** to **Bodies**.
+2. Tap a body.
+
+The card shows its **Volume** in cm³ and its **Size**: width × depth × height of the box around it, in mm. Tap a second body to get the gap between the two, such as between a box and its lid.
+
+<Note>Switching between **Faces & edges** and **Bodies** clears your picks.</Note>
+
+## Copy a value
+
+Every value has a copy button on its right. It copies the value as shown, such as `53 mm` or `90°`.
+
+Paste a length or an angle into any size field and Fillet reads the unit. On the Mac you can also select the text and copy it.
+
+## Start over or finish
+
+- **Clear** drops your picks and keeps Measure on.
+- <Keys combo="Esc" /> clears your picks. Press it again to leave Measure.
+- **Done** ends Measure. So do tapping <Ui icon="measure">Measure</Ui> again and starting another tool.
+
+Measuring is never a step. It doesn't change your design and isn't part of undo.
+
+If the model changes while you measure, because you undo or an agent adds a step, picks on that body are dropped. Pick them again.
+
+<Tip title="Measure inside a part">A [section view](/guides/section-view/) stays cut while you measure. What the cut hides can't be picked, so you can reach faces inside the part, such as the two sides of a wall.</Tip>
+
+## Check a distance without Measure
+
+For a quick number you don't need the tool. Select two things and the inspector shows the distance between them.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap a face or an edge.
+    2. Tap a second one. It's added to the selection.
+    3. Read **Distance** in the inspector.
+  </Platform>
+  <Platform name="Mac">
+    1. Click a face or an edge.
+    2. Shift-click a second one.
+    3. Read **Distance** in the inspector.
+  </Platform>
+</Platforms>
+
+<Figure src="/screens/measure/quick-check.png" width={632} height={456} maxWidth={460}
+  alt="The inspector with 2 selected: a circular edge of Ø 14 mm, a flat face of 480 mm², and Distance 53 mm."
+  caption="Two things selected: their sizes, and the distance between them." />
+
+Need ΔX, ΔY, ΔZ or the angle? Press <Keys combo="I" />: your two picks carry over into Measure.
+
+## Questions
+
+<FAQ>
+  <QA q="Why is there no Angle?">Angle shows only when both picks are flat faces or straight edges. A round edge or a curved face has no single direction.</QA>
+  <QA q="Why did my picks disappear?">The body changed: you undid a step, or an agent added one. Measure drops picks rather than read them off a different shape.</QA>
+  <QA q="Can I measure a sketch?">No. Measure picks the faces, edges and corners of bodies, not sketch lines.</QA>
+  <QA q="Can I measure a hidden body?">No. Show it in the browser first. Measure picks only what you can see.</QA>
+</FAQ>

@@ -1,0 +1,80 @@
+{
+  "start": {
+    "open": "Wall bracket.fillet"
+  },
+  "fixture": "fixtures/Wall bracket.fillet",
+  "appPort": true,
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/agents-mcp",
+  "launchArguments": [
+    "-agentConnectionToken",
+    "Xq7mR2vKp9TzLw4sHn8cYb3E"
+  ],
+  "steps": [
+    {
+      "do": "idle"
+    },
+    {
+      "do": "wait",
+      "seconds": 5
+    },
+    {
+      "do": "tap",
+      "label": "Agents"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.2
+    },
+    {
+      "do": "tap",
+      "x": 1301,
+      "y": 114
+    },
+    {
+      "do": "wait",
+      "seconds": 1.0
+    },
+    {
+      "do": "tap",
+      "x": 700,
+      "y": 1000
+    },
+    {
+      "do": "wait",
+      "seconds": 2.5
+    },
+    {
+      "do": "screenshot",
+      "path": "clip-turn-on-0.png",
+      "settle": false
+    },
+    {
+      "do": "tap",
+      "label": "Agents"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.6
+    },
+    {
+      "do": "screenshot",
+      "path": "clip-turn-on-1.png",
+      "settle": false
+    },
+    {
+      "do": "tap",
+      "x": 1301,
+      "y": 114
+    },
+    {
+      "do": "wait",
+      "seconds": 4.0
+    },
+    {
+      "do": "screenshot",
+      "path": "clip-turn-on-2.png",
+      "settle": false
+    }
+  ]
+}

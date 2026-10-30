@@ -1,0 +1,191 @@
+---
+title: "Work with bodies: primitives, combine, move and mirror"
+short: "Bodies"
+group: "Sketch & Model"
+order: 5
+blurb: "Add primitives, combine bodies, and move or mirror them."
+lede: "A body is one solid in your design. Drop in a box or a cylinder, cut one body with another, and move or mirror bodies by exact values."
+summary: "What a body is (each New-body step makes one). Bodies are listed in the browser: tap a row to select its body, the eye hides or shows it (hidden bodies are left out of the print check and exports), and long-press a row for Color with 12 swatches. The Primitive menu offers Box, Cylinder, Sphere, Cone or Torus, with Operation, sizes, Plane (XY bed, XZ front, YZ side) and Position X/Y. Combine has a Target picker; tap tool bodies, choose Join, Cut or Intersect, and optionally Keep tool bodies. Move (⇧⌘M) defaults to every body or the selected ones: Translate X/Y/Z and Rotate about an axis (X/Y/Z) by an Angle. Values are typed; there is no drag gizmo. Mirror defaults to the newest or selected bodies, with Plane XY/XZ/YZ and Merge with original. Scale and Loft steps can only be made by an AI agent, but their values can be edited in the inspector. Imported STEP geometry is a body like any other (link to the Files guide)."
+related: ["patterns","files-and-icloud","selecting","print-check-and-export"]
+---
+
+## Your bodies in the browser
+
+Every step set to **New** makes a body: an extrude, a revolve or a primitive. Fillet numbers them **Body 1**, **Body 2** and so on. Tap <Ui>Browser</Ui> at the left end of the tool strip to see them.
+
+<Figure src="/screens/bodies/body-row-menu.png" width={1400} height={1167} alt="The browser lists Body 1 with a teal icon, Body 2 greyed out with a crossed-out eye, and Body 3 lifted with its menu open: Color, with a tick on Slate, then Red, Orange, Yellow, Green, Teal, Blue, Purple, Pink, Brown, White and Black, each with its own dot. In the view, a teal plate holds a grey ball." caption="Body 1 is teal, Body 2 is hidden, and Body 3's colours are open." />
+
+- **Tap a row** to select the body. Tap it again to let go.
+- **Tap the eye** to hide or show the body. The Print check and exports leave hidden bodies out.
+- **Touch and hold a row** to give the body a colour.
+
+## Colour a body
+
+Colours tell bodies apart on screen, so you can see which one is which when they overlap.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Touch and hold the body's row in the browser.
+    2. Tap a colour. **Slate** is the default grey.
+  </Platform>
+  <Platform name="Mac">
+    1. Control-click the body's row in the browser.
+    2. Choose a colour. **Slate** is the default grey.
+  </Platform>
+</Platforms>
+
+The row's icon and the body in the view take the colour. Colours stay on screen and don't go into exported files.
+
+## Add a primitive
+
+A primitive is a ready-made solid. You don't need a sketch for it.
+
+1. Tap <Ui>Primitive</Ui> in the tool strip.
+2. Choose **Box**, **Cylinder**, **Sphere**, **Cone** or **Torus**.
+3. Type its sizes and its **Position** on the plane.
+4. Tap **Done**.
+
+<Figure caption="A new cylinder stands on the bed at the origin. Type a size and it changes as you go.">
+  <div class="fig-duo" style="--duo: 1.032fr 0.596fr">
+    <Shot src="/screens/bodies/primitive-result.png" width="1100" height="1066" alt="A grey cylinder standing on the cream bed." />
+    <Shot src="/screens/bodies/primitive-inspector.png" width="635" height="1066" alt="The Cylinder 1 inspector: Shape Cylinder, Operation New, Diameter 20 mm, Height 20 mm, Plane XY (bed), Position X 0 mm and Y 0 mm." />
+  </div>
+</Figure>
+
+| Shape | Sizes | Where it sits |
+| --- | --- | --- |
+| Box | Width, Depth, Height | Stands on the plane |
+| Cylinder | Diameter, Height | Stands on the plane |
+| Cone | Bottom Diameter, Top Diameter, Height | Stands on the plane. A top of 0 makes a point. |
+| Sphere | Diameter | Centred on the plane |
+| Torus | Major Diameter, Minor Diameter | Centred on the plane |
+
+**Plane** is **XY (bed)**, **XZ (front)** or **YZ (side)**. **Operation** works as it does for [an extrude](/guides/extrude-revolve-press-pull/#choose-what-the-extrude-does): **Cut** with a cylinder makes a quick round hole in every body it passes through.
+
+<Tip title="Half under the bed?">A sphere or torus is centred on its plane, so on the bed half of it sits below zero. Lift it with **Move**, Z set to half its height.</Tip>
+
+## Combine bodies
+
+Combine cuts one body with another, or joins them. The **target** is the body that stays. The **tool** is the body that cuts or joins it.
+
+1. Tap <Ui>Combine</Ui>.
+2. Under **Target**, choose the body to keep.
+3. In the view, tap the tool body. Tap it again to take it out.
+4. Choose **Join**, **Cut** or **Intersect**, then tap **Done**.
+
+<Figure caption="Target Body 1 (the plate), tool Body 2 (the cylinder), Operation Cut. The cylinder is used up and leaves its hole.">
+  <div class="fig-duo">
+    <div class="fig-anno">
+      <Shot src="/screens/bodies/combine-before.png" width="1038" height="683" alt="Before: a grey plate with a blue cylinder standing through it." />
+      <svg viewBox="0 0 1038 683" aria-hidden="true">
+        <rect x="24" y="24" width="182" height="66" rx="33" fill="#fff" fill-opacity="0.92" stroke="#1d2638" stroke-opacity="0.12" />
+        <text x="115" y="71" font-size="40" text-anchor="middle" fill="#1d2638">Before</text>
+        <rect x="87" y="290" width="426" height="80" rx="40" fill="#1d2638" />
+        <text x="300" y="345" font-size="44" text-anchor="middle" fill="#fff">Target · Body 1</text>
+        <path d="M 770 108 L 738 176" stroke="#1d2638" stroke-width="4" stroke-linecap="round" />
+        <rect x="650" y="30" width="376" height="80" rx="40" fill="#1d2638" />
+        <text x="838" y="85" font-size="44" text-anchor="middle" fill="#fff">Tool · Body 2</text>
+      </svg>
+    </div>
+    <div class="fig-anno">
+      <Shot src="/screens/bodies/combine-after.png" width="1038" height="683" alt="After: the plate alone, with a round hole where the cylinder stood." />
+      <svg viewBox="0 0 1038 683" aria-hidden="true">
+        <rect x="24" y="24" width="250" height="66" rx="33" fill="#fff" fill-opacity="0.92" stroke="#1d2638" stroke-opacity="0.12" />
+        <text x="149" y="71" font-size="40" text-anchor="middle" fill="#1d2638">After Cut</text>
+      </svg>
+    </div>
+  </div>
+</Figure>
+
+| Operation | Result |
+| --- | --- |
+| Join | The target and the tools become one body. |
+| Cut | The tools are cut out of the target. |
+| Intersect | Only the parts where they overlap are kept. |
+
+To keep the tool as well, for a pin that also cuts its own hole, turn on **Keep tool bodies**.
+
+<Note>Select bodies before you tap Combine, and the first one becomes the target and the rest become tools.</Note>
+
+## Move and rotate bodies
+
+Move places bodies by exact distances and angles. You type every value.
+
+1. Select the bodies to move. With nothing selected, Move takes every body.
+2. Tap <Ui>Move</Ui>, or press <Keys combo="⇧⌘M" />.
+3. Under **Translate**, type the **X**, **Y** and **Z** distances in millimetres.
+4. Under **Rotate**, pick an **Axis** and type an **Angle**, then tap **Done**.
+
+<Figure caption="Rotate turns about the origin, not about the body. Angle 90° about Z swings this box, seen from above, from the X axis round to the Y axis.">
+  <div class="fig-duo" style="--duo: 1.185fr 0.605fr">
+    <div class="fig-anno">
+      <Shot src="/screens/bodies/move-result.png" width="1243" height="1049" alt="Top view: a blue box sits on the Y axis, 40 mm above the origin. A dashed outline on the X axis shows where it started, and an orange arc around the origin joins the two." />
+      <svg viewBox="0 0 1243 1049" aria-hidden="true">
+        <defs>
+          <marker id="bodies-arrow" viewBox="0 0 12 12" refX="7" refY="6" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+            <path d="M 0 0 L 12 6 L 0 12 Z" fill="#f26419" />
+          </marker>
+        </defs>
+        <path d="M 418 762 L 835 762 M 418 762 L 418 346" stroke="#1d2638" stroke-opacity="0.45" stroke-width="3" stroke-dasharray="10 10" />
+        <rect x="835" y="673" width="319" height="180" rx="4" fill="#fff" fill-opacity="0.55" stroke="#1d2638" stroke-opacity="0.7" stroke-width="4" stroke-dasharray="14 10" />
+        <text x="994" y="778" font-size="44" text-anchor="middle" fill="#1d2638" fill-opacity="0.75">Before</text>
+        <path d="M 979 632 A 576 576 0 0 0 548 201" fill="none" stroke="#f26419" stroke-width="7" stroke-linecap="round" marker-end="url(#bodies-arrow)" />
+        <rect x="830" y="240" width="380" height="84" rx="42" fill="#f26419" />
+        <text x="1020" y="297" font-size="48" text-anchor="middle" fill="#fff">90° about Z</text>
+        <circle cx="418" cy="762" r="11" fill="#1d2638" stroke="#fff" stroke-width="4" />
+        <text x="396" y="830" font-size="44" text-anchor="end" fill="#1d2638" stroke="#f5efe0" stroke-width="8" paint-order="stroke">Origin</text>
+      </svg>
+    </div>
+    <Shot src="/screens/bodies/move-inspector.png" width="635" height="1049" alt="The Move 1 inspector: 1 body picked, Translate X, Y and Z all 0 mm, Rotate Axis Z, Angle 90 degrees." />
+  </div>
+</Figure>
+
+Rotation comes before the move. To turn a body in place, rotate it while it sits on the origin, and move it in a second Move. Tap a body in the view to add it or take it out while Move is open.
+
+## Mirror bodies
+
+Mirror copies bodies to the other side of a plane through the origin. Draw one half beside the origin, and Mirror makes the other.
+
+1. Select the bodies to mirror. With nothing selected, Mirror takes the newest body.
+2. Tap <Ui>Mirror</Ui>.
+3. Choose the **Plane**. **YZ (side)**, the default, mirrors left to right.
+4. Tap **Done**.
+
+<Figure caption="One L-shaped half against the origin, mirrored across YZ (side), makes a cradle.">
+  <div class="fig-duo">
+    <div class="fig-anno">
+      <Shot src="/screens/bodies/mirror-before.png" width="1229" height="1025" alt="Before: one L-shaped half, with its inner end on the origin." />
+      <svg viewBox="0 0 1229 1025" aria-hidden="true">
+        <rect x="28" y="28" width="216" height="76" rx="38" fill="#fff" fill-opacity="0.92" stroke="#1d2638" stroke-opacity="0.12" />
+        <text x="136" y="82" font-size="46" text-anchor="middle" fill="#1d2638">Before</text>
+      </svg>
+    </div>
+    <div class="fig-anno">
+      <Shot src="/screens/bodies/mirror-after.png" width="1229" height="1025" alt="After: the half and its mirror image joined into one U-shaped cradle." />
+      <svg viewBox="0 0 1229 1025" aria-hidden="true">
+        <rect x="28" y="28" width="376" height="76" rx="38" fill="#fff" fill-opacity="0.92" stroke="#1d2638" stroke-opacity="0.12" />
+        <text x="216" y="82" font-size="46" text-anchor="middle" fill="#1d2638">After Mirror</text>
+      </svg>
+    </div>
+  </div>
+</Figure>
+
+**Merge with original** is on, so the copy joins the half and you get one body. Turn it off to get the copy as a body of its own.
+
+## Bodies from elsewhere
+
+A STEP file you import arrives as a body named after the file. Fillet it, cut it, combine, move and mirror it like a body you drew. An AI agent can also add **Scale** and **Loft** steps. Tap one in the timeline to change its values.
+
+<CardGrid>
+  <Callout guide="files-and-icloud" hash="import-a-step-file" title="Import a STEP file" text="Bring in a part from another CAD app as a body." />
+  <Callout guide="agents-mcp" />
+</CardGrid>
+
+## Questions
+
+<FAQ>
+  <QA q="Why is Combine greyed out?">It needs two bodies. Add another one, a primitive for example, and try again.</QA>
+  <QA q="Where did my tool body go?">Combine uses it up. Tap the Combine step in the timeline and turn on **Keep tool bodies**.</QA>
+  <QA q="Why does my export miss a part?">The part is probably hidden. Tap its eye in the browser to show it.</QA>
+  <QA q="Can I drag a body into place?">No. Move takes typed values, so every position is exact and you can change it later in the timeline. Fields take parameters too, like `wall * 2`.</QA>
+</FAQ>

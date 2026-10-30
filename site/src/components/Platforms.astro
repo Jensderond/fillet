@@ -1,0 +1,21 @@
+---
+/**
+ * A segmented iPad | Mac switch over alternative content. All switches on a page stay in sync
+ * and the choice is remembered.
+ *   <Platforms>
+ *     <Platform name="iPad">…</Platform>
+ *     <Platform name="Mac">…</Platform>
+ *   </Platforms>
+ */
+interface Props { options?: string[] }
+const { options = ['iPad', 'Mac'] } = Astro.props;
+const id = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+---
+<div class="platforms" data-platforms>
+  <div class="seg" role="tablist" aria-label="Platform">
+    {options.map((o, i) => (
+      <button type="button" role="tab" class="seg-btn" data-platform-btn={id(o)} aria-selected={i === 0 ? 'true' : 'false'}>{o}</button>
+    ))}
+  </div>
+  <slot />
+</div>

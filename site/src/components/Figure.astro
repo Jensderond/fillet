@@ -1,0 +1,75 @@
+---
+/**
+ * A screenshot or video on a graph-paper backdrop with a short caption.
+ * iPad landscape screenshots are the default (src under /screens/<guide>/).
+ *   <Figure src="/screens/holes/preset-menu.png" alt="…" caption="…" />
+ *   <Figure video="/screens/holes/place.mp4" poster="/screens/holes/place.png" … />
+ * `device="mac"` puts a Mac window shot on the deep blue desk instead.
+ * Paths point into src/assets/screens/; images become AVIF/WebP srcsets (see Shot.astro), and a
+ * still's own file sets its size. `width`/`height` matter only for videos (space to reserve).
+ */
+import Shot from './Shot.astro';
+import { clip, poster as posterOf } from './screens';
+
+interface Props {
+  src?: string;
+  video?: string;
+  poster?: string;
+  alt?: string;
+  caption?: string;
+  device?: 'ipad' | 'mac' | 'plain';
+  width?: number;
+  height?: number;
+  /** Stay inside the text column instead of widening on large screens. */
+  narrow?: boolean;
+  /** Cap the width in CSS px and centre it (small crops that would blur at full width). */
+  maxWidth?: number;
+  /** A tighter crop shown on phones (≤640px) instead of `src`, with its own size. */
+  phoneSrc?: string;
+  phoneWidth?: number;
+  phoneHeight?: number;
+  /** A cut-out with its own transparent corners and shadow (a popover, a menu): no frame of its own. */
+  cutout?: boolean;
+  /** A short silent clip that plays on its own and repeats, with no controls (paused, with
+   *  controls, for reduced motion). With `video`; `phoneSrc` is then a phone cut of the clip. */
+  loop?: boolean;
+  /** With `loop` and `phoneSrc`: the poster for the phone cut. */
+  phonePoster?: string;
+}
+const { src, video, poster, alt = '', caption, device = 'ipad', width = 2388, height = 1668, narrow = false, maxWidth, phoneSrc, phoneWidth, phoneHeight, cutout = false, loop = false, phonePoster } = Astro.props;
+const posterUrl = poster ? await posterOf(poster) : undefined;
+const phonePosterUrl = phonePoster ? await posterOf(phonePoster) : undefined;
+const loopRatio = `--ar: ${width} / ${height};` + (phoneSrc && phoneWidth && phoneHeight ? ` --ar-phone: ${phoneWidth} / ${phoneHeight};` : '');
+---
+<figure class:list={['fig', `fig-${device}`, { 'fig-narrow': narrow || maxWidth, 'fig-cutout': cutout }]}
+  style={maxWidth ? `max-width: ${maxWidth}px; margin-inline: auto;` : undefined}>
+  <div class="fig-stage">
+    {video && loop ? (
+      <video class="fig-media fig-loop" poster={posterUrl} data-phone-poster={phonePosterUrl} width={width} height={height} style={loopRatio}
+        autoplay muted loop playsinline preload="auto" aria-label={alt}>
+        {phoneSrc && <source media="(max-width: 640px)" src={clip(phoneSrc)} type="video/mp4" />}
+        <source src={clip(video)} type="video/mp4" />
+      </video>
+    ) : video ? (
+      <video class="fig-media" src={clip(video)} poster={posterUrl} width={width} height={height}
+        controls playsinline preload="none" aria-label={alt}></video>
+    ) : src ? (
+      <Shot src={src} alt={alt} phoneSrc={phoneSrc} maxWidth={maxWidth} />
+    ) : <slot />}
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+</figure>
+{loop && (
+  <script is:inline>
+    // A phone cut's own poster.
+    if (matchMedia('(max-width: 640px)').matches) {
+      for (const v of document.querySelectorAll('video.fig-loop[data-phone-poster]')) v.poster = v.dataset.phonePoster;
+    }
+    // Reduced motion: no clip plays on its own; it waits, with controls, for a tap.
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      for (const v of document.querySelectorAll('video.fig-loop')) {
+        v.pause(); v.autoplay = false; v.controls = true;
+      }
+    }
+  </script>
+)}

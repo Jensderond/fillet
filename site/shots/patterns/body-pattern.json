@@ -1,0 +1,20 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/patterns",
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Pegs"}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"plane": "xy", "shapes": [
+      {"type": "circle", "center": [0, 0], "diameter": 10}]}},
+    {"do": "mcp", "tool": "extrude", "arguments": {"sketch": "Sketch 1", "distance": 16}},
+    {"do": "mcp", "tool": "fillet", "arguments": {"body": "Body 1", "edges": {"type": "circle", "near": [5, 0, 16], "limit": 1}, "radius": 3}},
+    {"do": "mcp", "tool": "pattern", "arguments": {"bodies": ["Body 1"], "layout": "linear", "axis": "x", "count": 4, "spacing": 18}},
+    {"do": "idle"},
+    {"do": "tap", "labelContains": "Pattern 1", "type": "button"},
+    {"do": "idle"},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+    {"do": "idle"},
+    {"do": "screenshot", "path": "body-pattern-full.png"},
+    {"do": "dump", "path": "body-pattern-tree.txt"}
+  ]
+}

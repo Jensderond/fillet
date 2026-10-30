@@ -1,0 +1,103 @@
+---
+title: "See inside with Section view"
+short: "Section view"
+group: "Inspect & Print"
+order: 2
+blurb: "Cut through a part to check its walls, holes and pockets."
+lede: "Cut your part open to check a wall, a counterbore or a screw's fit. A section only changes what you see, never your design."
+summary: "Turn it on with Section on the tool strip (⇧⌘X, View > Section View). With a flat face selected it cuts on that face. Otherwise pick an origin plane or a flat face (a bar with XY/XZ/YZ and Cancel). The side facing you is cut away, and an origin plane that misses the part cuts through its middle instead. The blue arrow slides the cut, and its offset pill can be tapped to type a value. Two curved grips tilt the plane in whole degrees around the handles' point. The round button flips which side is cut away. Pressed handles show a halo and guide line. The panel holds the Plane (Change), 2D section view, Section only, typed Offset and tilts, Flip side, Untilt and Look at the cut. 2D section view is an orthographic, square-on drawing: hatched caps outlined, the rest as lines, no bed. Section only shows the caps alone. Caps take a colour and hatch angle per part, so nested parts stay distinct. Done or Escape puts the handles away and keeps the cut, with a pill (Section view | Edit | Turn off). Other tools keep the cut. Turning it off and on again returns to the same plane, and Delete forgets it. It's a view only: not a step, not saved, not in undo."
+related: ["measure","print-check-and-export","fillet-chamfer-shell","keyboard-shortcuts"]
+---
+
+## Cut the part open
+
+Pick a plane, and Fillet slices the part along it. The half facing you is taken away.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap <Ui icon="tool-section">Section</Ui> at the right end of the tool strip.
+    2. Tap **XY**, **XZ** or **YZ** in the bar at the top, or tap a flat face of the part.
+  </Platform>
+  <Platform name="Mac">
+    1. Click <Ui icon="tool-section">Section</Ui> on the tool strip, choose **View › Section View**, or press <Keys combo="⇧⌘X" />.
+    2. Click **XY**, **XZ** or **YZ** in the bar at the top, or click a flat face of the part.
+  </Platform>
+</Platforms>
+
+<Figure src="/screens/section-view/plane-bar.png" width={600} height={136} maxWidth={380} alt="The plane buttons in the bar at the top of the view: XY, XZ and YZ, then Cancel." caption="The bar at the top asks where to cut." />
+
+Solid material is filled with hatching, so holes, pockets and thin walls stand out as gaps.
+
+<Figure src="/screens/section-view/cut.png" width={1236} height={840} maxWidth={680} alt="A plate cut open along XZ through two M3 counterbored holes. The cut face is red and hatched, and each counterbore shows as a stepped gap. Blue handles sit on the cut, with a 0 mm value beside them." caption="Cut along XZ, through both screw holes. Each counterbore shows as a step." />
+
+<Note>Already selected a flat face? Section cuts right on it, without asking.</Note>
+
+## Move, tilt or flip the cut
+
+Drag the blue handles on the cut. Blue means they change the view, not your design.
+
+<Tour src="/screens/section-view/handles-closeup.png" width={765} height={409} maxWidth={620}
+  alt="Close-up of the handles on the cut face: a blue arrow pointing out of the cut, a 0 mm value, two curved blue grips on either side, and a round button with two arrows."
+  pins={[
+    { x: 33, y: 49, label: "Arrow", text: "Drag to slide the cut. It points at the side that's cut away." },
+    { x: 12.5, y: 76.5, label: "Value", text: "How far the cut is from its plane. Tap it to type a distance." },
+    { x: 38.5, y: 22, label: "Curved grips", text: "Drag to tilt the cut, in whole degrees." },
+    { x: 69.5, y: 61, n: 3 },
+    { x: 63.5, y: 40, label: "Round button", text: "Keeps the other half instead." },
+  ]} />
+
+<Figure narrow device="plain" video="/screens/section-view/film.mp4" poster="/screens/section-view/film-poster.jpg" width={1280} height={720} alt="A 40-second film of Section view on a rotor printed inside its housing: the cut opens, the arrow slides it, a grip tilts it, then 2D section view and Section only." caption="Slide, tilt, 2D section view and Section only, on a rotor printed inside its housing." />
+
+## Type exact values
+
+The Section view panel in the inspector does the same with numbers, and a little more.
+
+<Tour side src="/screens/section-view/panel.png" width={712} height={1209} maxWidth={340}
+  alt="The Section view panel: Cutting along XZ plane, Plane XZ plane with a Change button, 2D section view and Section only switches, Offset 0 mm, Tilt about X and Tilt about Z at 0°, Flip side, Untilt and Look at the cut."
+  pins={[
+    { x: 6.5, y: 17, label: "Plane", text: "Change picks another plane or face." },
+    { x: 6.5, y: 28.5, label: "2D section view", text: "Looks straight at the cut, like a drawing." },
+    { x: 6.5, y: 38.3, label: "Section only", text: "Hides everything but the cut faces." },
+    { x: 6.5, y: 62.4, label: "Offset and tilts", text: "Type an exact distance or angle." },
+    { x: 6.5, y: 82.9, label: "Flip side, Untilt", text: "Keep the other half, or square the cut up again." },
+    { x: 6.5, y: 94.1, label: "Look at the cut", text: "Turns the view to face the cut head-on." },
+  ]} />
+
+## See the cut as a drawing
+
+Turn on **2D section view** to see the cut flat and square-on, like a section on a technical drawing.
+
+<Figure src="/screens/section-view/2d.png" width={1612} height={376} alt="The plate in 2D section view: a hatched red strip with two T-shaped gaps where the counterbored holes are, a 0 mm value and the round flip button." caption="The counterbores at their true shape, ready to check against a screw." />
+
+- The bed goes away, and the rest of the part is drawn as lines.
+- Move the cut with the value on it, or with the panel. The arrow and grips hide in 2D.
+- **Section only** shows the cut faces alone, in 2D or 3D.
+- Turn 2D off to get your old view back.
+
+<Note>On a Mac, the **View** menu has **2D Section View**, **Section Only** and **Flip Section Side** while a cut is on.</Note>
+
+## Put the handles away or turn it off
+
+Tap **Done** or press <Keys combo="Esc" />. The handles go away, the part stays cut, and this pill shows at the top of the view.
+
+<Figure src="/screens/section-view/pill.png" width={680} height={118} maxWidth={380} alt="A pill reading Section view, with Edit and Turn off buttons." caption="Your reminder that the part is cut, not broken." />
+
+- **Edit** brings the handles and the panel back.
+- **Turn off** shows the whole part. So do <Ui icon="tool-section">Section</Ui> and <Keys combo="⇧⌘X" />.
+- **Delete** in the panel forgets the plane. Otherwise Section opens on the same cut next time.
+
+<Tip title="Printing tip">Before you print, slide the cut through each screw hole and switch to 2D. You see at a glance whether the counterbore is deep enough for the head and how much wall is left around it.</Tip>
+
+## Questions
+
+<FAQ>
+  <QA q="Does a section change my design?">No. It isn't a step, it isn't saved with the file and it isn't in undo. Exports and the Print check always use the whole part.</QA>
+  <QA q="Why is half my part missing?">Section view is on. Tap **Turn off** on the pill at the top of the view, or press <Keys combo="⇧⌘X" />.</QA>
+  <QA q="Which plane is which?">**XY** is the bed and cuts the part level. **XZ** is the front plane and **YZ** the side plane. Both cut straight down.</QA>
+  <QA q="What if the plane misses the part?">The cut moves to the middle of the part instead. The value on the cut says how far that is from the plane.</QA>
+  <QA q="Why doesn't tapping the model move the cut?">While the handles are up, taps on the model do nothing, so a stray tap can't move the cut. To cut somewhere else, tap **Change** in the panel.</QA>
+  <QA q="Can I type a sum or a parameter?">Yes. Like every field in Fillet, Offset and the tilts take sums and parameter names.</QA>
+  <QA q="Why are the cut faces different colours?">Each part gets its own colour and hatch angle (red, then slate, plum, ochre, teal and olive), so parts nested inside each other stay apart. A part with a colour of its own keeps it.</QA>
+  <QA q="Can I keep working with the cut on?">Yes. [Measure](/guides/measure/), a sketch or any other tool keeps the cut, and the handles make way. Faces on the cut-away side can't be picked, so you can reach faces inside the part.</QA>
+  <QA q="Why is Section greyed out?">There's no body to cut yet, or a step is open. Make a body first, or finish the step with **Done** or **Cancel**.</QA>
+</FAQ>

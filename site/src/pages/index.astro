@@ -1,0 +1,96 @@
+---
+import Base from '../layouts/Base.astro';
+import Search from '../components/Search.astro';
+import GuideCard from '../components/GuideCard.astro';
+import Glyph from '../components/Glyph.astro';
+import { guidesByGroup, guideHref } from '../data/guides';
+import { clip, poster } from '../components/screens';
+
+// Agents get their own band under "Your first part", so their card leaves the grid below.
+const FEATURED = 'agents-mcp';
+const groups = (await guidesByGroup())
+  .map((group) => ({ ...group, guides: group.guides.filter((g) => g.id !== FEATURED) }))
+  .filter((group) => group.guides.length > 0);
+const agentClip = {
+  video: clip('/screens/agents-mcp/agent-work.mp4'),
+  poster: await poster('/screens/agents-mcp/agent-work-poster.jpg'),
+  phoneVideo: clip('/screens/agents-mcp/agent-work-phone.mp4'),
+  phonePoster: await poster('/screens/agents-mcp/agent-work-phone-poster.jpg'),
+};
+const firstPart = [
+  { name: 'Sketch', line: 'Draw a profile on the bed.', slug: 'sketching' },
+  { name: 'Extrude', line: 'Pull it up into a solid.', slug: 'extrude-revolve-press-pull' },
+  { name: 'Fillet', line: 'Round off the sharp edges.', slug: 'fillet-chamfer-shell' },
+  { name: 'Hole', line: 'Drill holes for screws.', slug: 'holes' },
+  { name: 'Export', line: 'Send a 3MF to your slicer.', slug: 'print-check-and-export' },
+];
+const popular = [
+  ['Holes for M3 screws', 'holes'],
+  ['Export a 3MF', 'print-check-and-export'],
+  ['Parameters', 'parameters'],
+  ['Shortcuts', 'keyboard-shortcuts'],
+];
+---
+<Base title="Fillet Guide" current="hub" description="Learn to design 3D-printable parts with Fillet, the offline parametric CAD app for iPad and Mac.">
+  <div class="column hub-col">
+    <section class="hub-hero">
+      <img class="hub-icon" src="/brand/icon-128.png" alt="" width="76" height="76" />
+      <h1>Fillet Guide</h1>
+      <p class="hub-sub">Design 3D-printable parts on iPad and Mac. Sketch, add features, change anything later.</p>
+      <Search size="lg" placeholder="How can we help?" />
+      <nav class="popular" aria-label="Popular guides">
+        <span class="popular-label">Popular:</span>
+        {popular.map(([label, slug]) => <a href={guideHref(slug)}>{label}</a>)}
+      </nav>
+    </section>
+
+    <section class="first-part" aria-labelledby="first-part-title">
+      <h2 id="first-part-title">Your first part</h2>
+      <p>Five steps from an empty bed to a file your printer understands.</p>
+      <ol class="stations">
+        {firstPart.map((s, i) => (
+          <li><a href={guideHref(s.slug)}>
+            <span class="station-dot">{i + 1}</span>
+            <span class="station-name">{s.name}</span>
+            <span class="station-line">{s.line}</span>
+          </a></li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="agents-band" aria-labelledby="agents-title">
+      <div class="agents-copy">
+        <p class="agents-eyebrow"><Glyph name={FEATURED} size="sm" /> Design with AI agents</p>
+        <h2 id="agents-title">Ask for a part. Watch it appear.</h2>
+        <p>Connect Claude Code or another MCP client and describe what you need. The agent sketches, extrudes and fillets in your open design. Every step lands on your timeline, and you can edit or undo it like your own.</p>
+        <a class="button" href={guideHref(FEATURED)}>Connect an agent
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h9.5M8.5 3.5 13 8l-4.5 4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+      <div class="agents-media">
+        <video class="agents-video" poster={agentClip.poster} data-phone-poster={agentClip.phonePoster} width="1256" height="1200"
+          autoplay muted loop playsinline preload="metadata"
+          aria-label="Claude builds a wall bracket on iPad: a pill reads Claude is designing, and Profile, Bracket, Inner fillet and Screw holes appear on the timeline one by one while the bracket grows on the bed.">
+          <source media="(max-width: 640px)" src={agentClip.phoneVideo} type="video/mp4" />
+          <source src={agentClip.video} type="video/mp4" />
+        </video>
+      </div>
+    </section>
+
+    {groups.map((group) => (
+      <section class="hub-section" id={group.id} aria-labelledby={`${group.id}-title`}>
+        <h2 id={`${group.id}-title`}>{group.name}</h2>
+        <div class:list={['hub-grid', { two: group.guides.length % 3 !== 0 && group.guides.length % 2 === 0 }]}>
+          {group.guides.map((g) => <GuideCard guide={g} />)}
+        </div>
+      </section>
+    ))}
+  </div>
+  <script is:inline>
+    // The phone cut's own poster; with reduced motion the clip waits, with controls, for a tap.
+    for (const v of document.querySelectorAll('video.agents-video')) {
+      if (matchMedia('(max-width: 640px)').matches) v.poster = v.dataset.phonePoster;
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) { v.pause(); v.autoplay = false; v.controls = true; }
+    }
+  </script>
+</Base>

@@ -1,0 +1,187 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/agents-mcp",
+  "clientName": "claude-code",
+  "steps": [
+    {
+      "do": "idle"
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "wait",
+      "seconds": 1.0
+    },
+    {
+      "do": "screenshot",
+      "path": "clip-work-0.png",
+      "settle": false
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Wall bracket"
+      }
+    },
+    {
+      "do": "wait",
+      "seconds": 1.2
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Profile",
+        "plane": "xz",
+        "shapes": [
+          {
+            "type": "polyline",
+            "closed": true,
+            "vertices": [
+              [
+                -30,
+                0
+              ],
+              [
+                30,
+                0
+              ],
+              [
+                30,
+                6
+              ],
+              [
+                -24,
+                6
+              ],
+              [
+                -24,
+                40
+              ],
+              [
+                -30,
+                40
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "do": "wait",
+      "seconds": 1.6
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "name": "Bracket",
+        "sketch": "Profile",
+        "distance": 40,
+        "symmetric": true
+      }
+    },
+    {
+      "do": "wait",
+      "seconds": 1.2
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso"
+      }
+    },
+    {
+      "do": "wait",
+      "seconds": 1.6
+    },
+    {
+      "do": "mcp",
+      "tool": "fillet",
+      "arguments": {
+        "name": "Inner fillet",
+        "body": "Bracket",
+        "edges": {
+          "type": "line",
+          "near": [
+            -24,
+            0,
+            6
+          ],
+          "limit": 1
+        },
+        "radius": 6
+      }
+    },
+    {
+      "do": "wait",
+      "seconds": 1.6
+    },
+    {
+      "do": "mcp",
+      "tool": "hole",
+      "arguments": {
+        "name": "Screw holes",
+        "body": "Bracket",
+        "face": {
+          "type": "plane",
+          "normal": [
+            0,
+            0,
+            1
+          ],
+          "near": [
+            10,
+            0,
+            6
+          ]
+        },
+        "points": [
+          [
+            12,
+            -10,
+            6
+          ],
+          [
+            12,
+            10,
+            6
+          ]
+        ],
+        "preset": "m4-counterbore",
+        "through_all": true
+      }
+    },
+    {
+      "do": "wait",
+      "seconds": 0.6
+    },
+    {
+      "do": "screenshot",
+      "path": "clip-work-1.png",
+      "settle": false
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "screenshot",
+      "path": "clip-work-2.png",
+      "settle": false
+    }
+  ]
+}

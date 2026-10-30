@@ -1,0 +1,59 @@
+{
+  "start": "new",
+  "fixtures": [
+    "fixtures/Motor mount.step"
+  ],
+  "outDir": "../../../build/docs-shots/files-and-icloud",
+  "steps": [
+    {
+      "do": "tap",
+      "label": "Import"
+    },
+    {
+      "do": "wait",
+      "seconds": 3
+    },
+    {
+      "do": "tap",
+      "x": 408,
+      "y": 464
+    },
+    {
+      "do": "wait",
+      "seconds": 2.5
+    },
+    {
+      "do": "tap",
+      "x": 697,
+      "y": 314
+    },
+    {
+      "do": "wait",
+      "seconds": 2.5
+    },
+    {
+      "do": "tap",
+      "x": 697,
+      "y": 314
+    },
+    {
+      "do": "wait",
+      "seconds": 3
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Step 1, Motor mount"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "screenshot",
+      "path": "import-step.png"
+    }
+  ]
+}

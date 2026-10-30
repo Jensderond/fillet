@@ -1,0 +1,71 @@
+---
+import Base from './Base.astro';
+import Search from '../components/Search.astro';
+import Glyph from '../components/Glyph.astro';
+import { allGuides, glyphOf, guideHref, type Guide } from '../data/guides';
+import { GROUPS } from '../data/groups';
+
+interface Props {
+  guide: Guide;
+  headings: { depth: number; slug: string; text: string }[];
+  stub: boolean;
+}
+const { guide, headings, stub } = Astro.props;
+const d = guide.data;
+const group = GROUPS.find((g) => g.name === d.group)!;
+const sections = headings.filter((h) => h.depth === 2);
+const showToc = d.toc !== false && sections.length >= 2;
+
+// Related: the guide's own list, topped up from its group, then the rest of the hub.
+const all = await allGuides();
+const bySlug = new Map(all.map((g) => [g.id, g]));
+const related: Guide[] = [];
+for (const s of d.related ?? []) { const g = bySlug.get(s); if (g && g.id !== guide.id) related.push(g); }
+for (const g of [...all.filter((x) => x.data.group === d.group), ...all]) {
+  if (related.length >= 4) break;
+  if (g.id !== guide.id && !related.includes(g)) related.push(g);
+}
+---
+<Base title={d.title} description={d.lede ?? d.blurb} current={guide.id} noindex={d.hidden} image={`/og/${guide.id}.png`}>
+  <article class="column">
+    <div class="guide-top"><Search /></div>
+    <header class="guide-head">
+      <a class="eyebrow" href={`/#${group.id}`}>{d.group}</a>
+      <div class="title-row">
+        <Glyph name={glyphOf(guide)} size="lg" />
+        <h1>{d.title}</h1>
+      </div>
+      {d.lede && <p class="lede">{d.lede}</p>}
+    </header>
+
+    {stub ? (
+      <section class="draft">
+        <p class="draft-label">Being written</p>
+        <p>{d.summary ?? d.blurb}</p>
+      </section>
+    ) : (
+      <>
+        {showToc && (
+          <nav class="toc" aria-label="In this guide">
+            <p class="toc-title">In this guide</p>
+            <ol>{sections.map((h) => <li><a href={`#${h.slug}`}>{h.text}</a></li>)}</ol>
+          </nav>
+        )}
+        <div class:list={['prose', { numbered: showToc }]}><slot /></div>
+      </>
+    )}
+
+    <section class="related" aria-labelledby="related-title">
+      <h2 id="related-title">Related guides</h2>
+      <div class="related-grid">
+        {related.slice(0, 4).map((g) => (
+          <a class="rel" href={guideHref(g.id)}>
+            <Glyph name={glyphOf(g)} size="sm" />
+            <span>{g.data.title}</span>
+            <svg class="chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 L6.5 7 L1.5 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+        ))}
+      </div>
+    </section>
+  </article>
+</Base>

@@ -1,0 +1,89 @@
+---
+/**
+ * An iPad screenshot with numbered pins and a legend that names each pinned region.
+ *   <Tour src="/screens/getting-started/window.png" alt="…" width={1600} height={1200}
+ *     pins={[{ x: 50, y: 4, label: "Tool strip", text: "Every tool, grouped by job." }]} />
+ * `x` and `y` are percentages of the image, measured from its top-left corner.
+ * Optional:
+ *   maxWidth  caps the figure (CSS px) for a small crop, legend included.
+ *   side      puts a narrow crop beside its legend (stacked on phones); maxWidth is then the crop's width.
+ *   pin.n     repeats an earlier pin's number on a second spot; that pin gets no legend row.
+ */
+import Shot from './Shot.astro';
+
+interface Pin { x: number; y: number; label?: string; text?: string; n?: number }
+interface Props {
+  src: string;
+  alt?: string;
+  caption?: string;
+  width?: number;
+  height?: number;
+  pins: Pin[];
+  maxWidth?: number;
+  side?: boolean;
+}
+const { src, alt = '', caption, width = 2388, height = 1668, pins, maxWidth, side = false } = Astro.props;
+let next = 0;
+const numbered = pins.map((p) => ({ ...p, num: p.n ?? ++next }));
+const legend = numbered.filter((p) => p.n === undefined);
+const style = side
+  ? `--shot: ${maxWidth ?? 300}px`
+  : maxWidth ? `max-width: ${maxWidth}px; margin-inline: auto;` : undefined;
+---
+<figure class:list={['fig fig-ipad tour', { 'fig-narrow': side || maxWidth, 'tour-side': side }]} style={style}>
+  <div class="fig-stage">
+    <div class="tour-shot">
+      <Shot src={src} alt={alt} maxWidth={side ? (maxWidth ?? 300) : maxWidth} />
+      {numbered.map((p) => (
+        <span class="tour-pin" style={`left:${p.x}%;top:${p.y}%`} aria-hidden="true">{p.num}</span>
+      ))}
+    </div>
+  </div>
+  {caption && <figcaption>{caption}</figcaption>}
+  <ol class="tour-legend">
+    {legend.map((p) => (
+      <li><span class="tour-name">{p.label}</span>{p.text && <span class="tour-text">{p.text}</span>}</li>
+    ))}
+  </ol>
+</figure>
+
+<style>
+  .tour-shot { position: relative; }
+  .tour .tour-pin {
+    position: absolute; translate: -50% -50%;
+    width: 30px; height: 30px; border-radius: 50%;
+    display: grid; place-items: center;
+    font: 600 14px/1 var(--mono);
+    color: #fff; background: #1d2638;
+    box-shadow: 0 0 0 2.5px #fff, 0 3px 10px rgba(22, 32, 54, 0.35);
+  }
+  .tour .tour-legend {
+    list-style: none; counter-reset: pin; margin: 24px auto 0; padding: 0;
+    max-width: var(--col);
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px 32px;
+  }
+  .tour .tour-legend > li { counter-increment: pin; position: relative; margin: 0; padding-left: 38px; font-size: 15px; line-height: 1.45; color: var(--text); }
+  .tour .tour-legend > li::before {
+    content: counter(pin); position: absolute; left: 0; top: 0;
+    width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+    font: 600 13px/1 var(--mono); color: var(--button-text); background: var(--button); box-shadow: none;
+  }
+  .tour-name { display: block; font-weight: 650; color: var(--ink); }
+  .tour-text { display: block; color: var(--muted); }
+
+  /* Side by side: a narrow crop on the left, its legend on the right. */
+  .tour.tour-side {
+    display: grid; grid-template-columns: var(--shot) minmax(0, 1fr); column-gap: 36px; align-items: center;
+  }
+  .tour.tour-side > .fig-stage { grid-column: 1; grid-row: 1; padding: 18px; border-radius: 16px; }
+  .tour.tour-side > figcaption { grid-column: 1; grid-row: 2; }
+  .tour.tour-side > .tour-legend { grid-column: 2; grid-row: 1; margin: 0; grid-template-columns: 1fr; gap: 16px; }
+
+  @media (max-width: 640px) {
+    .tour .tour-pin { width: 20px; height: 20px; font-size: 11px; box-shadow: 0 0 0 1.5px #fff, 0 2px 6px rgba(22, 32, 54, 0.35); }
+    .tour .tour-legend { grid-template-columns: 1fr; gap: 12px; padding: 0 4px; }
+    .tour.tour-side { display: block; }
+    .tour.tour-side > .fig-stage { max-width: var(--shot); margin-inline: auto; }
+    .tour.tour-side > .tour-legend { margin-top: 20px; }
+  }
+</style>

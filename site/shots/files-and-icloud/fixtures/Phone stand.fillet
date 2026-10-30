@@ -1,0 +1,90 @@
+{
+  "features" : [
+    {
+      "id" : "772FE20A-40B8-4719-9277-9DEC4B8D887F",
+      "kind" : {
+        "plane" : {
+          "offset" : "0",
+          "plane" : "yz",
+          "type" : "standard"
+        },
+        "shapes" : [
+          {
+            "construction" : false,
+            "id" : "ECFD0646-4134-4729-9999-E88B9E6CE1EF",
+            "kind" : {
+              "closed" : true,
+              "type" : "polyline",
+              "vertices" : [
+                {
+                  "x" : "0",
+                  "y" : "0"
+                },
+                {
+                  "x" : "80",
+                  "y" : "0"
+                },
+                {
+                  "x" : "80",
+                  "y" : "6"
+                },
+                {
+                  "x" : "20",
+                  "y" : "6"
+                },
+                {
+                  "x" : "52",
+                  "y" : "70"
+                },
+                {
+                  "x" : "46",
+                  "y" : "73"
+                },
+                {
+                  "x" : "10",
+                  "y" : "6"
+                },
+                {
+                  "x" : "0",
+                  "y" : "6"
+                }
+              ]
+            }
+          }
+        ],
+        "type" : "sketch"
+      },
+      "name" : "Side",
+      "suppressed" : false
+    },
+    {
+      "id" : "F8F3499B-17D4-4AAB-BD65-68414B52619A",
+      "kind" : {
+        "distance" : "70",
+        "operation" : "newBody",
+        "regions" : [
+          {
+            "x" : 15,
+            "y" : 4.5625
+          }
+        ],
+        "sketch" : "772FE20A-40B8-4719-9277-9DEC4B8D887F",
+        "symmetric" : true,
+        "taper" : "0",
+        "targets" : [
+
+        ],
+        "type" : "extrude"
+      },
+      "name" : "Stand",
+      "suppressed" : false
+    }
+  ],
+  "formatVersion" : 1,
+  "name" : "Phone stand",
+  "parameters" : [
+
+  ],
+  "printer" : "bambu-a1-mini",
+  "units" : "mm"
+}

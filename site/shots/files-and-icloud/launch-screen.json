@@ -1,0 +1,32 @@
+{
+  "start": "none",
+  "fixtures": [
+    "fixtures/Bracket.fillet",
+    "fixtures/Phone stand.fillet",
+    "fixtures/Knob.fillet"
+  ],
+  "outDir": "../../../build/docs-shots/files-and-icloud",
+  "steps": [
+    {
+      "do": "rotate",
+      "to": "landscape"
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "tap",
+      "label": "Browse"
+    },
+    {
+      "do": "wait",
+      "seconds": 3
+    },
+    {
+      "do": "screenshot",
+      "path": "launch-screen.png",
+      "settle": false
+    }
+  ]
+}

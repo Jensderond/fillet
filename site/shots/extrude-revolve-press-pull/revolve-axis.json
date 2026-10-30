@@ -1,0 +1,121 @@
+{
+  "start": "new",
+  "outDir": "../../../build/docs-shots/extrude-revolve-press-pull",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Knob"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Knob profile",
+        "plane": "xz",
+        "shapes": [
+          {
+            "type": "polyline",
+            "closed": true,
+            "vertices": [
+              [
+                0,
+                0
+              ],
+              [
+                20,
+                0
+              ],
+              [
+                20,
+                4
+              ],
+              [
+                16,
+                10
+              ],
+              [
+                8,
+                10
+              ],
+              [
+                8,
+                24
+              ],
+              [
+                0,
+                24
+              ]
+            ]
+          },
+          {
+            "type": "line",
+            "a": [
+              0,
+              -4
+            ],
+            "b": [
+              0,
+              30
+            ],
+            "construction": true
+          }
+        ]
+      }
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          -12,
+          -12,
+          12
+        ],
+        "size": 84
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Revolve"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          -12,
+          -12,
+          12
+        ],
+        "size": 84
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "revolve-axis.png"
+    },
+    {
+      "do": "dump",
+      "path": "revolve-axis.txt"
+    }
+  ]
+}

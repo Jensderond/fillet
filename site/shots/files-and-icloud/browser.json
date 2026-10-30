@@ -1,0 +1,89 @@
+{
+  "start": "none",
+  "fixtures": [
+    "fixtures/Bracket.fillet",
+    "fixtures/Phone stand.fillet",
+    "fixtures/Knob.fillet"
+  ],
+  "outDir": "../../../build/docs-shots/files-and-icloud",
+  "steps": [
+    {
+      "do": "rotate",
+      "to": "landscape"
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "tap",
+      "label": "Browse"
+    },
+    {
+      "do": "wait",
+      "seconds": 3
+    },
+    {
+      "do": "dump",
+      "path": "browser-root-tree.txt"
+    },
+    {
+      "do": "tap",
+      "id": "Fillet, Container",
+      "type": "cell"
+    },
+    {
+      "do": "wait",
+      "seconds": 2.5
+    },
+    {
+      "do": "screenshot",
+      "path": "browse-folder.png",
+      "settle": false
+    },
+    {
+      "do": "dump",
+      "path": "browser-tree.txt"
+    },
+    {
+      "do": "longPress",
+      "labelContains": "Bracket.fillet",
+      "type": "cell",
+      "duration": 1
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "screenshot",
+      "path": "file-menu.png",
+      "settle": false
+    },
+    {
+      "do": "dump",
+      "path": "file-menu-tree.txt"
+    },
+    {
+      "do": "tap",
+      "label": "Move"
+    },
+    {
+      "do": "wait",
+      "seconds": 2.5
+    },
+    {
+      "do": "screenshot",
+      "path": "move.png",
+      "settle": false
+    },
+    {
+      "do": "dump",
+      "path": "move-tree.txt"
+    },
+    {
+      "do": "wait",
+      "seconds": 3
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "start": {"open": "Bracket.fillet"},
+  "fixture": "fixtures/Bracket.fillet",
+  "outDir": "../../../build/docs-shots/files-and-icloud",
+  "steps": [
+    {"do": "idle"},
+    {"do": "dump", "path": "title-tree.txt"},
+    {"do": "screenshot", "path": "title-bar.png"},
+    {"do": "tap", "label": "Bracket", "type": "button"},
+    {"do": "wait", "seconds": 1.5},
+    {"do": "screenshot", "path": "title-menu.png", "settle": false},
+    {"do": "dump", "path": "title-menu-tree.txt"}
+  ]
+}

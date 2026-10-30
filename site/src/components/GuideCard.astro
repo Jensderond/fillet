@@ -1,0 +1,14 @@
+---
+import Glyph from './Glyph.astro';
+import { glyphOf, guideHref, type Guide } from '../data/guides';
+interface Props { guide: Guide }
+const { guide } = Astro.props;
+---
+<a class="card" href={guideHref(guide.id)}>
+  <Glyph name={glyphOf(guide)} size="md" />
+  <span class="card-text">
+    <span class="card-title">{guide.data.title}</span>
+    <span class="card-line">{guide.data.blurb}</span>
+  </span>
+  <svg class="chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 L6.5 7 L1.5 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</a>

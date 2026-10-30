@@ -1,0 +1,136 @@
+{
+ "start": "new",
+ "orientation": "landscape",
+ "outDir": "../../../build/docs-shots/timeline",
+ "steps": [
+  {
+   "do": "mcp",
+   "tool": "rename_design",
+   "arguments": {
+    "name": "Pen holder"
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "create_sketch",
+   "arguments": {
+    "name": "Sketch 1",
+    "plane": "xy",
+    "shapes": [
+     {
+      "type": "polyline",
+      "closed": true,
+      "vertices": [
+       [
+        -30,
+        -20
+       ],
+       [
+        30,
+        -20
+       ],
+       [
+        30,
+        20
+       ],
+       [
+        -30,
+        20
+       ]
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "extrude",
+   "arguments": {
+    "name": "Plate",
+    "sketch": "Sketch 1",
+    "distance": 12
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "fillet",
+   "arguments": {
+    "name": "Fillet",
+    "body": "Plate",
+    "edges": {
+     "type": "line",
+     "extreme": "+z"
+    },
+    "radius": 3
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "hole",
+   "arguments": {
+    "name": "Pen hole",
+    "body": "Plate",
+    "face": {
+     "type": "plane",
+     "extreme": "+z"
+    },
+    "points": [
+     [
+      -20,
+      0,
+      12
+     ]
+    ],
+    "diameter": 12,
+    "depth": 10
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "pattern",
+   "arguments": {
+    "name": "Pattern",
+    "features": [
+     "Pen hole"
+    ],
+    "layout": "linear",
+    "axis": "x",
+    "count": 3,
+    "spacing": 20
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso"
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "label": "Step back"
+  },
+  {
+   "do": "tap",
+   "label": "Step back"
+  },
+  {
+   "do": "tap",
+   "label": "Step back"
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "screenshot",
+   "path": "rolled-back.png"
+  },
+  {
+   "do": "dump",
+   "path": "rolled-back-tree.txt"
+  }
+ ]
+}

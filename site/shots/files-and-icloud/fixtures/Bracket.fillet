@@ -1,0 +1,187 @@
+{
+  "features" : [
+    {
+      "id" : "90386BA0-C7DE-45B7-B4D6-B10A602CEE2F",
+      "kind" : {
+        "plane" : {
+          "offset" : "0",
+          "plane" : "xz",
+          "type" : "standard"
+        },
+        "shapes" : [
+          {
+            "construction" : false,
+            "id" : "D033F3A3-161F-4D70-8F46-57D24A8C3F28",
+            "kind" : {
+              "closed" : true,
+              "type" : "polyline",
+              "vertices" : [
+                {
+                  "x" : "-30",
+                  "y" : "0"
+                },
+                {
+                  "x" : "30",
+                  "y" : "0"
+                },
+                {
+                  "x" : "30",
+                  "y" : "6"
+                },
+                {
+                  "x" : "-24",
+                  "y" : "6"
+                },
+                {
+                  "x" : "-24",
+                  "y" : "40"
+                },
+                {
+                  "x" : "-30",
+                  "y" : "40"
+                }
+              ]
+            }
+          }
+        ],
+        "type" : "sketch"
+      },
+      "name" : "Profile",
+      "suppressed" : false
+    },
+    {
+      "id" : "04472969-33CA-4465-8A46-CDB5852BEAD5",
+      "kind" : {
+        "distance" : "40",
+        "operation" : "newBody",
+        "regions" : [
+          {
+            "x" : -26.25,
+            "y" : 4.166666666666667
+          }
+        ],
+        "sketch" : "90386BA0-C7DE-45B7-B4D6-B10A602CEE2F",
+        "symmetric" : true,
+        "taper" : "0",
+        "targets" : [
+
+        ],
+        "type" : "extrude"
+      },
+      "name" : "Bracket",
+      "suppressed" : false
+    },
+    {
+      "id" : "ACE804B0-B78B-40E3-AC62-6C0E59FCC7AE",
+      "kind" : {
+        "body" : "04472969-33CA-4465-8A46-CDB5852BEAD5",
+        "edges" : [
+          {
+            "body" : "04472969-33CA-4465-8A46-CDB5852BEAD5",
+            "signature" : {
+              "curve" : "line",
+              "end" : {
+                "x" : -24,
+                "y" : -20,
+                "z" : 6
+              },
+              "length" : 40,
+              "mid" : {
+                "x" : -24,
+                "y" : 0,
+                "z" : 6
+              },
+              "radius" : 0,
+              "start" : {
+                "x" : -24,
+                "y" : 20,
+                "z" : 6
+              },
+              "tangent" : {
+                "x" : -0,
+                "y" : -1,
+                "z" : -0
+              }
+            }
+          }
+        ],
+        "size" : "6",
+        "type" : "fillet"
+      },
+      "name" : "Inner fillet",
+      "suppressed" : false
+    },
+    {
+      "id" : "7E676E85-8CF5-4CD0-A982-3E79F02DC747",
+      "kind" : {
+        "plane" : {
+          "offset" : "0",
+          "plane" : "xy",
+          "type" : "standard"
+        },
+        "shapes" : [
+          {
+            "construction" : false,
+            "id" : "5360EE55-DD7C-4F72-A7BF-F451C1D66D06",
+            "kind" : {
+              "center" : {
+                "x" : "12",
+                "y" : "-10"
+              },
+              "diameter" : "5.5",
+              "type" : "circle"
+            }
+          },
+          {
+            "construction" : false,
+            "id" : "BF6C12A4-51D2-4B4C-B4B0-FD0D11C17541",
+            "kind" : {
+              "center" : {
+                "x" : "12",
+                "y" : "10"
+              },
+              "diameter" : "5.5",
+              "type" : "circle"
+            }
+          }
+        ],
+        "type" : "sketch"
+      },
+      "name" : "Holes",
+      "suppressed" : false
+    },
+    {
+      "id" : "BBB0F5DE-C4B1-4EC9-89C0-016EF96F0BD1",
+      "kind" : {
+        "distance" : "6",
+        "operation" : "cut",
+        "regions" : [
+          {
+            "x" : 11.885416666666666,
+            "y" : -9.885737064906323
+          },
+          {
+            "x" : 11.885416666666666,
+            "y" : 9.885737064906323
+          }
+        ],
+        "sketch" : "7E676E85-8CF5-4CD0-A982-3E79F02DC747",
+        "symmetric" : false,
+        "taper" : "0",
+        "targets" : [
+          "04472969-33CA-4465-8A46-CDB5852BEAD5"
+        ],
+        "type" : "extrude"
+      },
+      "name" : "Holes cut",
+      "suppressed" : false
+    }
+  ],
+  "formatVersion" : 1,
+  "name" : "Bracket",
+  "parameters" : [
+
+  ],
+  "printer" : "bambu-a1-mini",
+  "units" : "mm"
+}

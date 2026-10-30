@@ -1,0 +1,17 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/holes",
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Plate"}},
+    {"do": "mcp", "tool": "primitive", "arguments": {"name": "Plate", "kind": "box", "dimensions": {"width": 60, "depth": 30, "height": 12}}},
+    {"do": "mcp", "tool": "hole", "arguments": {"body": "Body 1", "face": {"type": "plane", "extreme": "+z"}, "centers": [[0, 0]], "diameter": 5, "depth": 8, "tip_angle": 118, "hole_type": "simple"}},
+    {"do": "idle"},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso", "zoom": 1}},
+    {"do": "idle"},
+    {"do": "tap", "labelContains": "Hole 1", "type": "button"},
+    {"do": "idle"},
+    {"do": "wait", "seconds": 1},
+    {"do": "screenshot", "path": "sizes-full.png"}
+  ]
+}

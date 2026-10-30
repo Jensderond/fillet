@@ -1,0 +1,19 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/sketching",
+  "launchArguments": ["-fingerDraws", "YES"],
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Plate"}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"name": "Sketch 1", "plane": "xy", "shapes": [
+      {"type": "rectangle", "anchor": "corner", "position": [0, 0], "width": 60, "height": 30, "angle": 0},
+      {"type": "circle", "center": [45, 15], "diameter": 14}]}},
+    {"do": "panel", "name": "browser", "show": false},
+    {"do": "tap", "labelContains": "Sketch 1", "type": "button"},
+    {"do": "wait", "seconds": 1.5},
+    {"do": "tap", "label": "Center Rectangle"},
+    {"do": "screenshot", "path": "pre-drag.png"},
+    {"do": "drag", "from": {"x": 378.5, "y": 595.25}, "to": {"x": 494.1, "y": 508.6}, "press": 0.2, "velocity": 200, "hold": 25},
+    {"do": "screenshot", "path": "drawing-after.png"}
+  ]
+}

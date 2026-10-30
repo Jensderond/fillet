@@ -1,0 +1,21 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/sketching",
+  "launchArguments": ["-fingerDraws", "YES"],
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Bracket"}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"name": "Sketch 1", "plane": "xy", "shapes": [
+      {"type": "line", "a": [0, 0], "b": [40, 0]},
+      {"type": "line", "a": [40, 0], "b": [40, 30]},
+      {"type": "line", "a": [5, -10], "b": [15, 20]},
+      {"type": "point", "position": [-25, 45]}]}},
+    {"do": "panel", "name": "browser", "show": false},
+    {"do": "tap", "labelContains": "Sketch 1", "type": "button"},
+    {"do": "wait", "seconds": 1.5},
+    {"do": "tap", "label": "Line"},
+    {"do": "screenshot", "path": "pre-guides.png"},
+    {"do": "drag", "from": {"x": 316.7, "y": 710.3}, "to": {"x": 458, "y": 485}, "press": 0.2, "velocity": 200, "hold": 25},
+    {"do": "screenshot", "path": "guides-after.png"}
+  ]
+}

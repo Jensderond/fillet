@@ -1,0 +1,74 @@
+---
+title: "Page kit"
+short: "Page kit"
+group: "Discover More"
+order: 99
+glyph: "getting-started"
+hidden: true
+blurb: "Every building block a guide can use, with the MDX that makes it."
+lede: "Every building block a guide page can use. Copy the MDX from src/content/guides/styleguide.mdx. Not linked from the hub."
+related: ["holes", "keyboard-shortcuts", "getting-started", "sketching"]
+---
+
+## Sections and steps
+
+Each section opens with one short paragraph that says what the reader will get. Then come numbered steps, no more than five, each one imperative line. Name app controls the way the app shows them: <Ui icon="holes">Hole</Ui>, <Ui icon="extrude-revolve-press-pull">Extrude</Ui>, or plain **Done**.
+
+1. Select the top face of the plate.
+2. Tap <Ui icon="holes">Hole</Ui> in the tool strip, or press <Keys combo="H" />.
+3. Choose **Socket head counterbore** › **M3** from the preset menu.
+4. Tap the face where each screw goes.
+5. Tap **Done**.
+
+<Figure src="/screens/sample-viewport.png" alt="Four parts on the print bed" caption="A filleted block, a T-section, a cylinder and a plate with a hole, on the A1 mini bed." width={1600} height={1120} />
+
+<Note>One Hole step drills one face. To drill another face, start a new Hole step.</Note>
+
+## Tips, notes and callouts
+
+<Tip title="Printing tip">A 0.5–1 mm fillet on the bottom edges helps a part come off the plate cleanly.</Tip>
+
+Short asides go in a `Note`: small grey text, no box.
+
+<Callout guide="parameters" />
+
+<CardGrid>
+  <Callout guide="holes" />
+  <Callout guide="patterns" />
+</CardGrid>
+
+## iPad and Mac
+
+<Platforms>
+  <Platform name="iPad">
+    1. Touch the station with one finger.
+    2. Hold, then drag it along the timeline.
+  </Platform>
+  <Platform name="Mac">
+    1. Click and hold the station.
+    2. Drag it along the timeline.
+  </Platform>
+</Platforms>
+
+### Key caps
+
+Undo with <Keys combo="⌘Z" /> and redo with <Keys combo="⇧⌘Z" />. Finish a sketch with <Keys combo="⌘↩" />.
+
+<Shortcuts>
+  <Shortcut keys="⇧⌘K">New Sketch</Shortcut>
+  <Shortcut keys="E">Extrude</Shortcut>
+  <Shortcut keys="⇧⌘M">Move</Shortcut>
+  <Shortcut keys="Esc" note="Steps back one level: stops typing, cancels the stroke, leaves the sketch.">Cancel</Shortcut>
+</Shortcuts>
+
+## Questions and answers
+
+<FAQ>
+  <QA q="Do I need an account?">No. Fillet never asks you to sign in and never needs a network.</QA>
+  <QA q="Where are my designs?">Wherever you save them: On My iPad, iCloud Drive or any Files location. Each design is one `.fillet` file.</QA>
+</FAQ>
+
+| Preset | M3 diameter |
+| --- | --- |
+| Clearance | 3.4 mm + clearance |
+| Heat-set insert | 4.0 mm |

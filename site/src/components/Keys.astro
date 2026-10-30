@@ -1,0 +1,32 @@
+---
+/**
+ * Key caps. <Keys combo="⇧⌘M" /> draws "⇧ Shift" "⌘ Cmd" "M".
+ * Separate alternatives with " / " or spaces: <Keys combo="⌘Z / ⇧⌘Z" />.
+ * Use `names={false}` for symbol-only caps in tight spots.
+ */
+interface Props { combo: string; names?: boolean }
+const { combo, names = true } = Astro.props;
+const NAMES: Record<string, string> = {
+  '⌘': 'Cmd', '⇧': 'Shift', '⌥': 'Option', '⌃': 'Control', '↩': 'Return', '⌫': 'Delete',
+  '⎋': 'Esc', '⇥': 'Tab', '␣': 'Space', '→': '', '←': '', '↑': '', '↓': '',
+};
+const WORDS = ['Esc', 'Return', 'Tab', 'Delete', 'Space', 'Shift', 'Cmd', 'Option', 'Control'];
+// Split into alternatives, then each into caps: modifier symbols one by one, the rest as one key.
+const alts = combo.split(/\s+\/\s+|\s+or\s+/).map((alt) => {
+  const caps: { sym: string; name: string }[] = [];
+  for (const part of alt.trim().split(/\s+|\+/)) {
+    if (WORDS.includes(part)) { caps.push({ sym: '', name: part }); continue; }
+    let rest = part;
+    while (rest.length > 1 && '⌘⇧⌥⌃'.includes(rest[0])) {
+      caps.push({ sym: rest[0], name: NAMES[rest[0]] }); rest = rest.slice(1);
+    }
+    if (rest) caps.push({ sym: rest, name: NAMES[rest] ?? '' });
+  }
+  return caps;
+});
+---
+<span class="keys">{alts.map((caps, i) => (
+  <>{i > 0 && <span class="keys-or">or</span>}<span class="keys-combo">{caps.map((c) => (
+    <kbd class="key">{c.sym && <span class="key-sym">{c.sym}</span>}{names && c.name && <span class="key-name">{c.name}</span>}</kbd>
+  ))}</span></>
+))}</span>

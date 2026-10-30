@@ -1,0 +1,136 @@
+---
+title: "Round, bevel and hollow: Fillet, Chamfer and Shell"
+short: "Fillet, chamfer & shell"
+group: "Sketch & Model"
+order: 3
+blurb: "Round edges, bevel corners and hollow out a part."
+lede: "Fillet rounds edges, Chamfer bevels them and Shell hollows a part out. One tap picks a whole outline, and you can change the size at any time."
+summary: "Fillet (F) and Chamfer can start from edges you've already picked (the selection's Next list has 'Fillet edges' and 'Chamfer edges'), or you start the tool and tap edges. Tangent chain is on by default: one tap picks every edge joined smoothly to it, and the count reads 'In N tangent chains'. Turning it off splits the chains into single edges without changing what gets rounded. A double tap picks a face's loop. A Pencil box picks many edges at once. Radius (fillet) or Distance (chamfer) accept expressions. Printing tips: a 0.5-1 mm fillet on bottom edges helps parts release, and chamfers print without supports. When a size is too big, the step fails with the kernel's reason in a red card in the inspector and a red timeline station. Shell: pick faces to remove (none gives a closed hollow) and set Thickness; an opening can't be tapped again, so Clear in the blue card closes every opening and you pick again; opening a side that meets a rounded corner makes Shell fail; walls of 0.8-1.2 mm on a 0.4 mm nozzle print cleanly. 'Shell, removing these faces' is in the selection's Next list."
+related: ["selecting","print-check-and-export","extrude-revolve-press-pull","timeline"]
+---
+
+## Round or bevel edges
+
+Fillet rounds an edge and Chamfer cuts it off at an angle. Both work the same way.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap <Ui icon="fillet-chamfer-shell">Fillet</Ui> in the tool strip, or press <Keys combo="F" />. For a bevel, tap **Chamfer**.
+    2. Tap an edge. The edges that run on smoothly from it light up too.
+    3. Type a size in **Radius**, or **Distance** for a chamfer.
+    4. Tap **Done**.
+  </Platform>
+  <Platform name="Mac">
+    1. Click <Ui icon="fillet-chamfer-shell">Fillet</Ui> in the tool strip, or press <Keys combo="F" />. For a bevel, click **Chamfer**.
+    2. Click an edge. The edges that run on smoothly from it light up too.
+    3. Type a size in **Radius**, or **Distance** for a chamfer.
+    4. Press <Keys combo="↩" />, or click **Done**.
+  </Platform>
+</Platforms>
+
+<Figure loop video="/screens/fillet-chamfer-shell/fillet-round.mp4" poster="/screens/fillet-chamfer-shell/fillet-round.jpg" phonePoster="/screens/fillet-chamfer-shell/fillet-round-phone.jpg" width={1600} height={902} phoneSrc="/screens/fillet-chamfer-shell/fillet-round-phone.mp4" phoneWidth={720} phoneHeight={1130} alt="A rounded plate on iPad. A tap on Fillet opens the Fillet inspector. A tap on the front top edge lights up the whole top outline, and the inspector reads 8 edges picked, In 1 tangent chain. Radius changes from 1 to 3 mm, and the outline rounds over." caption="One tap on the front edge picks all 8 edges of the top outline. At 3 mm the round shows before you tap Done." />
+
+The part shows the round as you type, so you see the size before you commit. A new fillet starts at 1 mm and a new chamfer at 0.5 mm.
+
+Edges already selected? Tap **Fillet edges** or **Chamfer edges** under **Next** in the inspector, and the step opens with them picked.
+
+<Note>One step rounds edges on one body. For a second body, make a second step.</Note>
+
+## Pick the edges you want
+
+Each tap adds an edge, and a tap on a picked edge drops it. The blue card counts what you have.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap one edge of an outline. The whole smooth run lights up: "8 edges picked, In 1 tangent chain".
+    2. Tap <Ui>Box select</Ui>, or press <Keys combo="W" />.
+    3. Drag from right to left across more edges. Everything the box touches is added.
+  </Platform>
+  <Platform name="Mac">
+    1. Click one edge of an outline. The whole smooth run lights up: "8 edges picked, In 1 tangent chain".
+    2. Hold <Keys combo="⇧" /> and drag from right to left across more edges. Everything the box touches is added.
+  </Platform>
+</Platforms>
+
+<Figure loop video="/screens/fillet-chamfer-shell/pick-edges.mp4" poster="/screens/fillet-chamfer-shell/pick-edges.jpg" phonePoster="/screens/fillet-chamfer-shell/pick-edges-phone.jpg" width={1600} height={902} phoneSrc="/screens/fillet-chamfer-shell/pick-edges-phone.mp4" phoneWidth={720} phoneHeight={1130} alt="Fillet open on the rounded plate. One tap picks the top outline: 8 edges picked, In 1 tangent chain. Then a box dragged from right to left touches one bottom edge, and the whole bottom outline lights up too: 16 edges picked, In 2 tangent chains." caption="One tap picks the top outline. Then a box dragged right to left touches one bottom edge, and Tangent chain adds the rest of that outline: 16 edges in 2 chains." />
+
+A few more ways to pick:
+
+- **One edge out of a run:** turn **Tangent chain** off, then tap the edge to drop it. The other edges stay picked.
+- **Every edge around a face:** double-tap an edge, on the side of that face.
+- **Only what's inside the box:** drag from left to right instead.
+- **Without Box select:** draw the box with Apple Pencil.
+- **Start over:** tap **Clear** in the blue card.
+
+<Tip title="Leave Tangent chain on when you can">Fillet then finds the whole run again each time the part changes. Round more corners earlier in the timeline, and the outline still gets rounded all the way round.</Tip>
+
+<Callout guide="selecting" hash="select-many-at-once-with-a-box" />
+
+## Choose the size
+
+**Radius** and **Distance** take a number in millimetres, or an expression such as `wall / 2`. With a parameter in the field, the round follows when the parameter changes.
+
+To change the size later, tap the step in the timeline, type the new size and tap **Done**.
+
+<Tip title="Printing tip">Chamfer the bottom edges rather than round them. The lowest part of a fillet there faces almost straight down and prints as an overhang. A 45° chamfer prints without supports.</Tip>
+
+<Callout guide="parameters" />
+
+## Hollow a part with Shell
+
+Shell turns a solid into walls of one thickness. The faces you pick are taken away and leave the part open there.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap the face you want open, such as the top.
+    2. Under **Next** in the inspector, tap **Shell, removing these faces**.
+    3. Type the wall thickness in **Thickness**.
+    4. Tap **Done**.
+  </Platform>
+  <Platform name="Mac">
+    1. Click the face you want open, such as the top.
+    2. Under **Next** in the inspector, click **Shell, removing these faces**.
+    3. Type the wall thickness in **Thickness**.
+    4. Press <Keys combo="↩" />, or click **Done**.
+  </Platform>
+</Platforms>
+
+<Figure loop video="/screens/fillet-chamfer-shell/shell.mp4" poster="/screens/fillet-chamfer-shell/shell.jpg" phonePoster="/screens/fillet-chamfer-shell/shell-phone.jpg" width={1600} height={902} phoneSrc="/screens/fillet-chamfer-shell/shell-phone.mp4" phoneWidth={720} phoneHeight={1488} alt="A tap on the top face of the rounded plate turns it blue, and the inspector lists Next steps. A tap on Shell, removing these faces opens Shell 1 with 1 open face picked and Thickness 2 mm, and the plate becomes an open tray." caption="Tap the top face, then Shell, removing these faces. The top becomes the opening, with 2 mm walls." />
+
+The walls grow inward, so the outside keeps its size.
+
+- **Open another side:** tap the outside of that face. This works on a box with sharp corners. On a part with rounded corners, like this plate, an open side makes the step fail, so open only the top.
+- **Close an opening:** an opening is a hole now, so there's nothing there to tap. Tap **Clear** in the blue card. That closes every opening, so tap the faces you still want open again.
+- **No opening at all:** tap **Shell** in the tool strip with nothing selected, and pick no faces. You get a closed box with a hollow inside.
+
+<Tip title="Printing tip">Make walls 2–3 nozzle widths thick. On a 0.4 mm nozzle, 0.8–1.2 mm walls print cleanly.</Tip>
+
+## When a step fails
+
+A size can be too big for the part. A round can't be bigger than the faces beside its edge, and a wall can't be thicker than the part.
+
+<Figure src="/screens/fillet-chamfer-shell/fail.png" width={1600} height={840} phoneSrc="/screens/fillet-chamfer-shell/fail-phone.png" phoneWidth={720} phoneHeight={1288} alt="Fillet with Radius 14 mm on the top outline of a plate 12 mm tall. A red card in the inspector reads Fillet radius too large for the selected edges, and the plate keeps its sharp top edges." caption="A 14 mm round can't fit on a plate 12 mm tall, so the edges stay sharp." />
+
+When that happens, the part stays as it was and a red card at the top of the inspector says why. The step also turns red in the timeline, with a red dot on its corner.
+
+<Figure src="/screens/fillet-chamfer-shell/fail-timeline.png" width={760} height={144} maxWidth={420} alt="The timeline: Outline, Plate, Corners, and Fillet 1 with a red label and a red dot." />
+
+To fix it:
+
+1. Make the size smaller until the red card goes away.
+2. If one edge is the trouble, drop it and round it in a step of its own with a smaller size.
+3. If Shell says the wall is too thick and a thinner wall doesn't help, an open side runs into a rounded corner. Tap **Clear** and pick only the top.
+
+You can tap **Done** with the error still there. The step stays red in the timeline until you open it and fix it.
+
+<Callout guide="timeline" />
+
+## Questions and answers
+
+<FAQ>
+  <QA q="Why did one tap pick so many edges?">**Tangent chain** is on. It picks every edge joined smoothly to the one you tapped. Turn it off to drop single edges.</QA>
+  <QA q="Fillet or chamfer on the bottom of a part?">A chamfer. The lowest part of a fillet on a bottom edge faces almost straight down, so it prints as an overhang. A small 45° chamfer prints cleanly. Keep fillets for the top and the upright edges.</QA>
+  <QA q="Can I round edges on two parts in one step?">No. A Fillet or Chamfer step works on one body. Make a second step for the other one.</QA>
+  <QA q="How do I close a Shell opening again?">Open the Shell step from the timeline and tap **Clear** in the blue card. Every opening closes, and you can tap the faces you still want open again. The opening itself can't be tapped, because that face is gone.</QA>
+  <QA q="How do I make a closed box with no opening?">Start Shell from the tool strip with nothing selected, and don't pick a face. You get walls on every side and an empty space inside.</QA>
+</FAQ>

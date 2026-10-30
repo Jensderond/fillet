@@ -1,0 +1,21 @@
+---
+/** A light card that sends the reader to a deeper guide. Pass a guide slug or an href. */
+import { getEntry } from 'astro:content';
+import Glyph from './Glyph.astro';
+interface Props { guide?: string; href?: string; title?: string; text?: string; glyph?: string; hash?: string }
+const p = Astro.props;
+let { href, title, text, glyph } = p;
+if (p.guide) {
+  const g = await getEntry('guides', p.guide);
+  if (!g) throw new Error(`Callout: no guide "${p.guide}"`);
+  href = `/guides/${p.guide}/${p.hash ? '#' + p.hash : ''}`;
+  title ??= g.data.title;
+  text ??= g.data.blurb;
+  glyph ??= g.data.glyph ?? p.guide;
+}
+---
+<a class="callout" href={href}>
+  <Glyph name={glyph} size="md" />
+  <span class="callout-text"><span class="callout-title">{title}</span>{text && <span class="callout-line">{text}</span>}</span>
+  <svg class="chev" viewBox="0 0 8 14" aria-hidden="true"><path d="M1.5 1.5 L6.5 7 L1.5 12.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+</a>

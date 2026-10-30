@@ -1,0 +1,63 @@
+{
+  "features" : [
+    {
+      "id" : "B3DE9F90-1A46-472F-A7C6-58F3BFA38795",
+      "kind" : {
+        "dimensions" : [
+          "30",
+          "16"
+        ],
+        "kind" : "cylinder",
+        "operation" : "newBody",
+        "plane" : {
+          "offset" : "0",
+          "plane" : "xy",
+          "type" : "standard"
+        },
+        "position" : {
+          "x" : "0",
+          "y" : "0"
+        },
+        "targets" : [
+
+        ],
+        "type" : "primitive"
+      },
+      "name" : "Knob",
+      "suppressed" : false
+    },
+    {
+      "id" : "186916A1-837C-4E1E-85CD-F4FAFABEC143",
+      "kind" : {
+        "dimensions" : [
+          "6.2",
+          "10"
+        ],
+        "kind" : "cylinder",
+        "operation" : "cut",
+        "plane" : {
+          "offset" : "0",
+          "plane" : "xy",
+          "type" : "standard"
+        },
+        "position" : {
+          "x" : "0",
+          "y" : "0"
+        },
+        "targets" : [
+          "B3DE9F90-1A46-472F-A7C6-58F3BFA38795"
+        ],
+        "type" : "primitive"
+      },
+      "name" : "Shaft hole",
+      "suppressed" : false
+    }
+  ],
+  "formatVersion" : 1,
+  "name" : "Knob",
+  "parameters" : [
+
+  ],
+  "printer" : "bambu-a1-mini",
+  "units" : "mm"
+}

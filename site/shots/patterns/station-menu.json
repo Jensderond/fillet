@@ -1,0 +1,21 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/patterns",
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Pattern Plate"}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"plane": "xy", "shapes": [
+      {"type": "rectangle", "anchor": "corner", "position": [0, 0], "width": 80, "height": 30}]}},
+    {"do": "mcp", "tool": "extrude", "arguments": {"sketch": "Sketch 1", "distance": 10}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"plane": "xy", "shapes": [
+      {"type": "circle", "center": [10, 15], "diameter": 8}]}},
+    {"do": "mcp", "tool": "extrude", "arguments": {"sketch": "Sketch 2", "distance": 10, "operation": "cut", "targets": "Extrude 1"}},
+    {"do": "idle"},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+    {"do": "idle"},
+    {"do": "longPress", "labelContains": "Step 4, Extrude 2", "duration": 1.2},
+    {"do": "wait", "seconds": 1.5},
+    {"do": "screenshot", "path": "station-menu-full.png", "settle": false},
+    {"do": "dump", "path": "station-menu-tree.txt"}
+  ]
+}

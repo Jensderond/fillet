@@ -1,0 +1,20 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/sketching",
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Plate"}},
+    {"do": "mcp", "tool": "set_parameter", "arguments": {"name": "hole_d", "expression": "14 mm", "comment": "Hole diameter"}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"name": "Sketch 1", "plane": "xy", "shapes": [
+      {"type": "rectangle", "anchor": "corner", "position": [0, 0], "width": 60, "height": 30, "angle": 0},
+      {"type": "circle", "center": [45, 15], "diameter": "hole_d"}]}},
+    {"do": "panel", "name": "browser", "show": false},
+    {"do": "tap", "labelContains": "Sketch 1", "type": "button"},
+    {"do": "wait", "seconds": 1.5},
+    {"do": "tap", "label": "Select"},
+    {"do": "tap", "x": 840.9, "y": 595.25},
+    {"do": "wait", "seconds": 1},
+    {"do": "screenshot", "path": "shape-dimensions.png"},
+    {"do": "dump", "path": "shape-dimensions-tree.txt"}
+  ]
+}

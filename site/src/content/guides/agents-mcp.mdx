@@ -1,0 +1,132 @@
+---
+title: "Design with AI agents"
+short: "AI agents"
+group: "Discover More"
+order: 1
+blurb: "Let Claude Code or another MCP client build while you watch."
+lede: "Allow agent connections, paste one command, then ask Claude for a part. You watch it build in your open design, one step at a time, and you can undo any step you don't want."
+summary: "Agents such as Claude Code or any other MCP client can build in the open design while you watch. Every step lands on the timeline and undoes like your own. Turn it on with the ✦ toolbar button or Design > Allow Agent Connections. The popover has an Allow agent connections switch (a checkbox on the Mac), a status line ('Waiting for agents at …' or '<agent> connected'), Copy command for Claude Code (on iPad it includes a bearer token; run it on a Mac on the same network) and Copy Claude Desktop config. While an agent works, a pill over the viewport names it and the step it's on. What agents can do: sketch, extrude, revolve, loft, primitives, fillet/chamfer, shell, holes with presets, booleans, move/scale/mirror, pattern, parameters, colours and visibility, print check, export, render_view to look at their work, and set_view to turn your view. Steps that fail are refused with the kernel's reason, and agents never undo your own changes unless they name them. Scale and Loft steps come only from agents and are editable in the inspector. Ports: 7878, falling back to 7879-7888. On the Mac it listens on 127.0.0.1 only; on iPad it listens on the network and needs the token, and fillet-mcp --connect finds an iPad over Bonjour. Headless on the Mac: the fillet-mcp helper inside the app saves to a file after every step. Privacy: everything stays local."
+related: ["timeline","parameters","files-and-icloud","keyboard-shortcuts"]
+---
+
+## Turn on agent connections
+
+Fillet speaks [MCP](https://modelcontextprotocol.io), the protocol AI agents use to work in other apps. It stays off until you turn it on.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Open the design you want the agent to work in.
+    2. Tap <Ui icon="agents-mcp">Agents</Ui>, the sparkle at the right end of the toolbar, and turn on **Allow agent connections**.
+  </Platform>
+  <Platform name="Mac">
+    1. Open the design you want the agent to work in.
+    2. Choose **Design › Allow Agent Connections**, or click <Ui icon="agents-mcp">Agents</Ui>, the sparkle in the toolbar, and select the **Allow agent connections** checkbox.
+  </Platform>
+</Platforms>
+
+<Figure video="/screens/agents-mcp/turn-on.mp4" poster="/screens/agents-mcp/turn-on-poster.jpg" loop width={1432} height={1110} phoneSrc="/screens/agents-mcp/turn-on-phone.mp4" phonePoster="/screens/agents-mcp/turn-on-phone-poster.jpg" phoneWidth={866} phoneHeight={718} alt="The top right of the iPad editor. A tap on the sparkle button opens the Agents popover with Allow agent connections off. A tap on the switch turns it green, and the popover adds Waiting for agents at an address, the Connect Claude Code command and Copy command." caption="The green line says where agents connect, and Fillet remembers the setting for next time. On the Mac, the switch is a checkbox." />
+
+## Connect Claude Code
+
+The popover writes the one command Claude Code needs. You only do this once.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap **Copy command**.
+    2. On a Mac on the same Wi-Fi, paste it into Terminal and press Return. Universal Clipboard or AirDrop gets it there.
+  </Platform>
+  <Platform name="Mac">
+    1. Click **Copy command**, or choose **Design › Copy Agent Setup Command**.
+    2. Paste it into Terminal and press Return.
+  </Platform>
+</Platforms>
+
+On iPad the command ends in a token, `Authorization: Bearer …`, which tells your iPad the Mac is yours. Keep it to yourself. If the iPad gets a new address, copy the command again.
+
+<details class="ref">
+  <summary>Use Claude Desktop or another MCP client</summary>
+
+  Claude Desktop starts its own tools, so it uses a small helper inside Fillet for the Mac. The helper finds the running app by itself.
+
+  1. In the **Agents** popover on the Mac, click **Copy Claude Desktop config**.
+  2. In Claude Desktop, choose **Settings › Developer › Edit Config**.
+  3. Paste the entry into `claude_desktop_config.json`, inside `mcpServers` if it's already there, then quit and reopen Claude Desktop.
+
+  ```json
+  {
+    "mcpServers": {
+      "fillet": {
+        "command": "/Applications/Fillet.app/Contents/Helpers/fillet-mcp",
+        "args": ["--connect"]
+      }
+    }
+  }
+  ```
+
+  Other clients connect the same way: give them the address from the popover if they speak HTTP, or the helper if they only start commands.
+</details>
+
+## Ask for a part
+
+Ask Claude in plain words, with the design open in Fillet:
+
+```text
+> In Fillet, make a wall bracket with two M4 screw holes.
+```
+
+The agent names the design, then adds one step at a time. A pill over the view names the agent and the step it's on.
+
+<Figure video="/screens/agents-mcp/agent-work.mp4" poster="/screens/agents-mcp/agent-work-poster.jpg" loop width={1256} height={1200} phoneSrc="/screens/agents-mcp/agent-work-phone.mp4" phonePoster="/screens/agents-mcp/agent-work-phone-poster.jpg" phoneWidth={806} phoneHeight={852} alt="Claude builds a wall bracket on iPad. The title changes from Untitled to Wall bracket, a dark pill reads Claude is designing with the current step, such as Hole · Screw holes, and Profile, Bracket, Inner fillet and Screw holes appear on the timeline one by one while the bracket grows on the bed." caption="The pill reads “Claude is designing”, then the step: here “Hole · Screw holes”. Each step lands on the timeline as it's made, and the pill goes when Claude is done." />
+
+With several designs open, the agent works in the one you used last.
+
+## Undo an agent's step
+
+Agent steps go into the same undo history as yours.
+
+1. Tap **Undo** at the top right, or press <Keys combo="⌘Z" />, to take back the agent's last step.
+2. Tap **Redo**, or press <Keys combo="⇧⌘Z" />, to put it back.
+
+<Figure caption="The agent's last step was Wall holes. Undo takes the holes off the upright and the step off the timeline.">
+  <div class="fig-duo" style="grid-template-columns: 1fr 1fr">
+    <div class="fig-anno">
+      <Shot src="/screens/agents-mcp/undo-before.png" width="930" height="1110" alt="Before: the wall bracket with two holes in its upright, and Wall holes last on the timeline. Both are circled." />
+      <svg viewBox="0 0 930 1110" aria-hidden="true">
+        <ellipse cx="278" cy="256" rx="168" ry="92" transform="rotate(-24 278 256)" fill="none" stroke="#f26419" stroke-width="7" />
+        <rect x="420" y="998" width="96" height="98" rx="20" fill="none" stroke="#f26419" stroke-width="7" />
+        <rect x="700" y="24" width="206" height="76" rx="38" fill="#fff" fill-opacity="0.94" stroke="#1d2638" stroke-opacity="0.12" />
+        <text x="803" y="77" font-size="46" text-anchor="middle" fill="#1d2638">Before</text>
+      </svg>
+    </div>
+    <div class="fig-anno">
+      <Shot src="/screens/agents-mcp/undo-after.png" width="930" height="1110" alt="After Undo: the same bracket with a plain upright, and Screw holes last on the timeline." />
+      <svg viewBox="0 0 930 1110" aria-hidden="true">
+        <rect x="604" y="24" width="302" height="76" rx="38" fill="#1d2638" />
+        <text x="755" y="77" font-size="46" text-anchor="middle" fill="#fff">After Undo</text>
+      </svg>
+    </div>
+  </div>
+</Figure>
+
+To change an agent's step, tap it on the [timeline](/guides/timeline/). To remove it, touch and hold it (on the Mac, Control-click it), then choose **Delete**. The agent can undo its own steps, but never one of yours unless it names it.
+
+## Questions and answers
+
+<FAQ>
+  <QA q="What can an agent do?">Almost everything you can: sketch, extrude, revolve, fillet, chamfer, shell, [holes](/guides/holes/) with the same screw presets, combine, move, mirror, pattern, parameters, colours, print check and export. It looks at a picture of its work, and can turn your view to show you. A step that fails, such as a fillet too big for its edge, never lands in your design: the agent gets the reason and tries again.</QA>
+  <QA q="What are Scale and Loft steps?">Steps only an agent can make. Tap one on the timeline to change it in the inspector, like any other step.</QA>
+  <QA q="Can an agent build with Fillet closed?">
+    On the Mac, yes. Add the helper inside the app with a file name:
+
+    ```sh
+    claude mcp add fillet-headless -- \
+      /Applications/Fillet.app/Contents/Helpers/fillet-mcp \
+      ~/Designs/bracket.fillet
+    ```
+
+    It makes the file if needed and saves after every step. Open it in Fillet when the agent is done.
+  </QA>
+  <QA q="Does my design leave my device?">Not through Fillet. A Mac only accepts programs on that Mac, and an iPad only devices with the token. The agent itself may send what it reads to its own service.</QA>
+  <QA q="The popover says “Can't listen”.">Another app holds the ports. Fillet tries 7878, then 7879 to 7888. Quit the other app, then turn **Allow agent connections** off and on again.</QA>
+  <QA q="The agent can't reach my iPad.">Keep Fillet open on the iPad with the design showing, put the Mac on the same Wi-Fi, and copy the command again.</QA>
+</FAQ>

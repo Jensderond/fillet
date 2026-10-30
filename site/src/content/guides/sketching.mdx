@@ -1,0 +1,148 @@
+---
+title: "Sketch a profile"
+short: "Sketching"
+group: "Sketch & Model"
+order: 1
+blurb: "Draw profiles with Apple Pencil, snap to geometry and type exact sizes."
+lede: "Every part starts as a flat sketch. Pick a plane, draw with Apple Pencil, let points snap to what's already there, then type the exact sizes."
+summary: "Starting a sketch. Tap Sketch: with a flat face selected it opens on that face. Otherwise three translucent origin planes appear (XY is the bed and blue, XZ is the front and green, YZ is the side and red) and only flat faces respond. Tap a plane or face, or use the bar's XY/XZ/YZ buttons, or Cancel. Long-pressing Sketch gives a menu: On XY (bed), On XZ (front), On YZ (side), plus On selected face when a flat face is selected. The camera turns square to the plane. The sketch bar groups the tools: Select | Line, Arc, Spline, Point | Rectangle, Center Rectangle, Circle, Polygon, Slot | Offset. Tools fold into 'More tools' when space is short. Outside a sketch, a drawing tool's key (L, A, B, ., R, T, C, P, S, O) starts a new sketch with that tool; V (Select) does nothing there. Draw with Apple Pencil. Fingers keep orbiting unless 'Draw with finger' (the hand button) is on, and after two missed finger attempts Fillet offers to turn it on. A Pencil double tap or squeeze switches between Select and the last drawing tool. Each tool accepts taps or a drag (for example corner to corner for a rectangle), and the hint pill names the next point. Line and Spline end with Done or by tapping the first point. Snapping: endpoints, centres, crossings, midpoints, quadrants, horizontal and vertical alignment guides (dashed orange), extensions of straight lines, and the grid. Edges of visible bodies that lie in the plane snap as well. Marker shapes tell you the kind of snap: square for an endpoint, triangle for a midpoint, x for a crossing, diamond for a quadrant, ring for a centre. iPad gives a haptic tick when a snap engages. The inspector offers Snap to grid (Off, 0.1, 0.5, 1 or 5 mm), Draw construction lines, and a Sides stepper for polygons. With Select, tap a shape to type its dimensions; fields take expressions and parameters. Drag a shape to move every selected shape. Drag a vertex to move just that point, and joined ends follow along. The Construction and Delete buttons act on the selection. Offset: pick a curve and its whole chain comes along, then tap where the offset goes; if it would collapse, Fillet says why. Closed shapes become profiles (filled regions). Finish with Finish sketch: on the floating bar at full width, in the inspector footer on narrower layouts, or ⌘↩. Reopen a sketch from the browser's Sketches list or its timeline step. There are no geometric constraints: each shape keeps its own numeric or expression dimensions. Typing sizes on the canvas with Tab while drawing works on the Mac only; on iPad, type them in the inspector."
+related: ["extrude-revolve-press-pull","parameters","selecting","keyboard-shortcuts"]
+---
+
+## Start a sketch
+
+A sketch lies on a flat plane: the bed, one of the two upright planes, or a flat face of a part you've already made.
+
+1. Tap <Ui icon="sketching">Sketch</Ui> in the tool strip, or press <Keys combo="⇧⌘K" />.
+2. Tap a plane or a flat face. The bed is **XY** (blue), the front is **XZ** (green) and the side is **YZ** (red).
+3. The view turns square to the plane, and the sketch tools appear.
+
+<Figure src="/screens/sketching/choose-plane.png" alt="A plate on the bed with three translucent planes around it and a bar reading Tap a plane or a flat face, XY, XZ, YZ, Cancel" caption="While you choose, only planes and flat faces respond. The bar's XY, XZ and YZ buttons reach a plane hidden behind the part." width={1600} height={1172} />
+
+To sketch on a face, select the face first, then tap **Sketch**. It opens straight on that face.
+
+<Note>Touch and hold **Sketch** for a menu of planes: On XY (bed), On XZ (front) and On YZ (side). With a flat face selected, the menu also offers **On selected face**. Tap **Cancel** to stop choosing.</Note>
+
+## Draw shapes
+
+The sketch bar sits at the top left of the view. Its tools come in four groups: Select, then lines and curves, then closed shapes, then Offset.
+
+<Figure src="/screens/sketching/sketch-bar.png" alt="The sketch bar: Select; Line, Arc, Spline, Point; Rectangle, Center Rectangle, Circle, Polygon, Slot; Offset; the hand button; Finish sketch" caption="Select | Line, Arc, Spline, Point | Rectangle, Center Rectangle, Circle, Polygon, Slot | Offset. Then Draw with finger and Finish sketch." width={1530} height={124} />
+
+1. Tap a tool.
+2. Draw on the plane. Tap each point, or drag from the first point to the last.
+3. Follow the pill under the bar. It names the tool and the next point to tap.
+
+<Platforms>
+  <Platform name="iPad">
+    Draw with Apple Pencil. Your finger still turns the view, so a stray touch never draws. To draw with your finger, tap the hand button, **Draw with finger**. Then one finger draws, two fingers pan and a pinch zooms.
+  </Platform>
+  <Platform name="Mac">
+    Click each point, or drag from the first point to the last.
+  </Platform>
+</Platforms>
+
+<Figure src="/screens/sketching/drawing.png" alt="A sketch seen from above: a 60 by 30 mm rectangle with a circle, and a smaller rectangle being drawn with 14 mm and 12 mm sizes beside it" caption="A Center Rectangle on its way. Its size shows as you drag. The shapes that are closed are shaded: they're profiles." width={1600} height={1072} />
+
+| Tool | How to draw it | Key |
+| --- | --- | --- |
+| Select | Tap shapes to select them, drag to move them. | <Keys combo="V" /> |
+| Line | Tap each point. Tap **Done**, or tap the first point again to close the outline. | <Keys combo="L" /> |
+| Arc | Tap the start, then the end, then a point the arc passes through. | <Keys combo="A" /> |
+| Spline | Tap the points the curve passes through, then tap **Done**. | <Keys combo="B" /> |
+| Point | Tap once. A point is something to snap to; it makes no profile. | <Keys combo="." /> |
+| Rectangle | Tap two opposite corners. | <Keys combo="R" /> |
+| Center Rectangle | Tap the centre, then a corner. | <Keys combo="T" /> |
+| Circle | Tap the centre, then a point on the circle. | <Keys combo="C" /> |
+| Polygon | Tap the centre, then a corner. Set **Sides** in the inspector first. | <Keys combo="P" /> |
+| Slot | Tap the centre of one end, then the other, then tap to set the width. | <Keys combo="S" /> |
+| Offset | See [Offset a shape](#offset-a-shape). | <Keys combo="O" /> |
+
+Line, Rectangle, Center Rectangle, Circle and Polygon also draw with one drag, from the first point to the last.
+
+<Tip title="Pencil tip">Double-tap or squeeze Apple Pencil to switch between Select and the tool you used last.</Tip>
+
+<Note>When the bar runs out of room, for example in portrait or with the browser open, the less-used tools move into **More tools** (…). With a keyboard, a drawing tool's key also works outside a sketch: it starts a new sketch with that tool. <Keys combo="Esc" /> drops the shape you're drawing.</Note>
+
+## Snap to what's already there
+
+As you draw, the point under your Pencil jumps to nearby geometry, so lines meet exactly and shapes line up. Fillet snaps, in this order, to:
+
+- the ends and centres of shapes, sketch points, and places where two shapes cross
+- midpoints of lines and arcs, and the quarter points of circles
+- a dashed orange guide, level with or straight above any point
+- the line a straight edge would make if it went on
+- the grid
+
+Edges of parts that lie in the sketch's plane snap too. Sketch on the top of a plate and you can snap to its outline and the centres of its holes.
+
+<Figure src="/screens/sketching/snapping-guides.png" alt="A line being drawn whose end sits where a dashed horizontal guide and a dashed vertical guide cross" caption="Two guides cross under the Pencil: the end is level with the upright's top and straight above the base's start." width={1500} height={1196} />
+
+The marker on the snapped point says what it caught:
+
+| Marker | Snapped to |
+| --- | --- |
+| Square | An end or a sketch point |
+| Triangle | A midpoint |
+| × | A crossing |
+| Diamond | A quarter point of a circle |
+| Ring | A centre |
+
+The grid step is in the inspector under **Snap to grid**: Off, 0.1, 0.5, 1 or 5 mm. It starts at 1 mm.
+
+## Type exact sizes
+
+Fillet has no constraints. Each shape keeps its own sizes, and you type them in the inspector.
+
+1. Tap <Ui>Select</Ui>, the arrow at the start of the bar.
+2. Tap a shape.
+3. Type its sizes in the inspector. A size applies when you press Return or leave the field.
+
+<Figure src="/screens/sketching/shape-dimensions.png" alt="A selected circle and the inspector showing Diameter hole_d with = 14 mm under it, Center X 45 and Y 15, and Construction and Delete buttons" caption="Fields take numbers, sums and parameter names. Here the diameter is the parameter hole_d, which is 14 mm." width={1300} height={984} />
+
+Any field takes an expression, such as `40 / 2 + 3` or a parameter name. Change the parameter later and the shape follows.
+
+<Tip title="Size as you go">A shape you've just drawn is already selected, so its sizes are in the inspector. Draw it roughly, then type the real numbers.</Tip>
+
+<Callout guide="parameters" />
+
+## Move and change shapes
+
+With <Ui>Select</Ui>:
+
+- Tap shapes to add them to the selection. Tap one again to drop it, or tap empty space to clear the selection.
+- Drag a shape to move all the selected shapes. They snap as they move.
+- Drag the end of a line to move only that point. Lines that meet there follow, so a closed outline stays closed. The points of a spline drag the same way.
+- Tap **Delete** in the inspector, or press <Keys combo="⌘⌫" />, to remove the selected shapes.
+
+**Construction lines** are dashed. They help you place things and they snap, but they never make a profile. Use them for centre lines and for the axis of a [revolve](/guides/extrude-revolve-press-pull/#revolve-a-profile).
+
+- To draw them, turn on **Draw construction lines** in the inspector.
+- To change shapes you've drawn, select them and tap **Construction**, or press <Keys combo="X" />.
+
+## Offset a shape
+
+Offset draws a copy of an outline a set distance away, like the wall of a box.
+
+1. Tap <Ui>Offset</Ui>, the last tool on the bar.
+2. Tap a line, arc or shape. Every shape joined to it end to end comes along.
+3. Tap where the offset should pass. The distance shows as you drag.
+
+You can also drag away from a curve to pick it and set the distance in one go. If the offset would fold over or shrink to nothing, the pill says so and nothing is placed.
+
+## Finish the sketch
+
+Tap **Finish sketch** at the end of the sketch bar, or press <Keys combo="⌘↩" />. When the window is narrow, the button sits at the foot of the inspector instead.
+
+The closed shapes are now profiles, ready to extrude or revolve. To change the sketch later, tap it in the browser's **Sketches** list or tap its step in the timeline. Steps made from it update to match.
+
+<Callout guide="extrude-revolve-press-pull" />
+
+## Questions
+
+<FAQ>
+  <QA q="Why doesn't my finger draw?">Fingers turn the view unless **Draw with finger** is on. Tap the hand button on the sketch bar. If you try to draw with your finger twice, Fillet offers to turn it on for you.</QA>
+  <QA q="Why isn't my shape shaded?">Only closed outlines become profiles. Check that the ends meet (drawing onto an end snaps to it), and that the shape isn't a construction line.</QA>
+  <QA q="Can I type a size while I draw?">On the Mac, yes: press <Keys combo="Tab" /> with a shape in progress and type the size. On iPad, draw the shape, then type its sizes in the inspector.</QA>
+  <QA q="Can I make two lines stay parallel?">Not yet. Fillet has no constraints. Snapping lines things up as you draw, and expressions keep sizes in step.</QA>
+</FAQ>

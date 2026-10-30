@@ -1,0 +1,133 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/bodies",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Pin plate"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Plate sketch",
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "rectangle",
+            "anchor": "center",
+            "position": [
+              0,
+              0
+            ],
+            "width": 60,
+            "height": 40
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "sketch": "Plate sketch",
+        "distance": 6
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "primitive",
+      "arguments": {
+        "kind": "cylinder",
+        "dimensions": {
+          "diameter": 10,
+          "height": 30
+        },
+        "at": [
+          12,
+          0,
+          -8
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_body_color",
+      "arguments": {
+        "bodies": "Cylinder 1",
+        "color": "blue"
+      }
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          -28,
+          -28,
+          3
+        ],
+        "size": 125
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "combine-before-full.png"
+    },
+    {
+      "do": "tap",
+      "label": "Combine",
+      "type": "button"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "x": 837,
+      "y": 530
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Cut"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "combine-cut-full.png"
+    },
+    {
+      "do": "tap",
+      "label": "Done"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "combine-after-full.png"
+    },
+    {
+      "do": "dump",
+      "path": "combine-cut-tree.txt"
+    }
+  ]
+}

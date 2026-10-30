@@ -1,0 +1,136 @@
+---
+title: "Select edges, faces and bodies"
+short: "Selecting"
+group: "Select & Change"
+order: 1
+blurb: "Pick exactly the edges, faces and bodies you need."
+lede: "Tap what you want to work on. Fillet tells you what it is, measures it, and suggests the next step. Loops, chains and boxes pick many edges at once."
+summary: "Touch rules: a tap picks, more taps add, tapping a picked item again drops it, and a tap on empty space clears. With a hardware keyboard, Shift or ⌘ toggles; a Mac click replaces. While a step is picking, every tap toggles. Selecting is never an undo step. A double tap on an edge picks the loop of the face beside it. 'Select more' in the inspector grows the last picked edge with Tangent chain or Loop. Box select (W, or the tool-strip toggle) shows a bar: choose Edges, Faces or Bodies outside a step; inside a step the step decides. Drag right to take what's wholly inside (window) or left to take anything the box touches (crossing). A live count tag shows what the box will take. Apple Pencil draws a box at any time without the mode. On iPad a finger box ends Box select so one finger orbits again. Only visible geometry is taken. The inspector names what's picked: 'Flat face' with its area, 'Circular edge' with diameter and length, a body with its size. With two items picked it shows the distance between them. The Next list offers the jobs that fit: Fillet/Chamfer edges, Sketch on this face, Drill holes, Lay flat, Press Pull, Shell. Bodies can also be picked from the browser."
+related: ["fillet-chamfer-shell","measure","holes","keyboard-shortcuts"]
+---
+
+## Pick edges and faces
+
+A tap picks one thing. Picked edges and faces turn blue.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap a face or an edge to select it.
+    2. Tap more to add them to the selection.
+    3. Tap a picked one again to drop it.
+    4. Tap empty space to clear the selection.
+  </Platform>
+  <Platform name="Mac">
+    1. Click a face or an edge. A click replaces what was selected.
+    2. Shift-click or ⌘-click to add more, or to drop one.
+    3. Click empty space to clear the selection.
+  </Platform>
+</Platforms>
+
+<Figure src="/screens/selecting/selection-next.png" width={1600} height={1097} alt="The top face of a rounded plate shown in blue. The inspector says Flat face, Area 3908.75 mm², and lists Sketch on this face, Drill holes in this face, Lay flat on the bed, Press Pull these faces and Shell, removing these faces." caption="One tap on the top face. The inspector names it and lists what you can do with it." />
+
+A tap close to an edge picks the edge. To pick the face, tap further inside it.
+
+<Note>Selecting is never an undo step. Undo takes back your last change to the design, not your last pick.</Note>
+
+## See what you picked
+
+The inspector on the right describes each picked item:
+
+- **A face:** its shape and area, such as "Flat face, Area 3908.75 mm²".
+- **An edge:** its shape and length. A circular edge also shows its diameter.
+- **A body:** its name and size, such as "80 × 50 × 8 mm".
+
+Pick exactly two things and the inspector shows the shortest **Distance** between them. With more than four picked, it lists four and counts the rest.
+
+<Figure src="/screens/selecting/selection-distance.png" width={1600} height={1097} alt="Two hole rims picked on the plate. The inspector lists two circular edges of Ø 3.4 mm and a distance of 56.6 mm." caption="Two hole rims picked: 56.6 mm apart." />
+
+<Callout guide="measure" />
+
+## Go on to the next step
+
+Under **Next**, the inspector lists the steps that fit your selection. Tap one to start it on what you picked.
+
+| You picked | Next offers |
+| --- | --- |
+| Edges | **Fillet edges**, **Chamfer edges** |
+| A flat face | **Sketch on this face**, **Drill holes in this face**, **Lay flat on the bed** |
+| Any faces | **Press Pull these faces**, **Shell, removing these faces** |
+
+To start over, tap **Clear selection** at the bottom of the list.
+
+## Pick a whole loop or chain
+
+You can pick a row of edges without tapping each one.
+
+- **Double-tap an edge** to select the loop of the face beside it: the face's whole outline. Tap on the side of the face you mean. On a Mac, double-click.
+- **Select more › Tangent chain** adds every edge joined smoothly to the last edge you picked. On a plate with rounded corners, one top edge grows into the whole rounded outline.
+- **Select more › Loop** adds the loop around the face of the last edge you picked, on the face turned most towards you.
+
+**Select more** shows in the inspector whenever an edge is picked. On a Mac, the same commands are in the **Design** menu.
+
+## Select many at once with a box
+
+A box picks everything in an area in one drag.
+
+1. Tap <Ui>Box select</Ui> in the tool strip, or press <Keys combo="W" />. A bar appears over the model.
+2. In the bar, choose **Edges**, **Faces** or **Bodies**.
+3. Drag with one finger. Drag **right** to take only what is wholly inside the box. Drag **left** to take anything the box touches.
+4. Check what lights up and the count on the box's tag, then lift your finger.
+
+<Figure src="/screens/selecting/box-select-crossing.png" width={1584} height={1286} alt="A dashed selection box dragged leftwards over one end of the plate. A tag on the box reads Touching 7, and the edges it touches are lit blue, including the long edges that run out of the box." caption="Dragged left, the box takes every edge it touches, even edges that run out of it." />
+
+The box shows which kind it is. A box dragged right has a solid rim and its tag says **Inside**. A box dragged left has a dashed rim and says **Touching**.
+
+On iPad, what a box takes is added to the selection. When you lift your finger, Box select turns off, so one finger orbits again. To turn it off without boxing, tap **Done** or press <Keys combo="W" /> or <Keys combo="Esc" />.
+
+<Tip title="Apple Pencil">Apple Pencil draws a box any time, without turning on Box select. Your fingers keep turning the view.</Tip>
+
+A box takes only what you can see. It skips hidden bodies and anything behind a face. To get the back of a part, turn the view first.
+
+Box select isn't available in a sketch, while choosing a plane, while placing holes or while measuring.
+
+**On a Mac,** Shift-drag or ⌘-drag draws a box any time. A plain box replaces the selection, a Shift box adds to it, and a ⌘ box adds or drops. With Box select on, a left-drag draws a box and Box select stays on. Right-drag to orbit.
+
+## Pick bodies
+
+A tap in the view picks faces and edges, never a whole body. To pick a body:
+
+- Tap its row under **Bodies** in the browser. This picks that body alone. Tap the row again to drop it.
+- Or draw a box with **Bodies** chosen in the box bar.
+
+The inspector shows the body's name and its size.
+
+## Pick for a step
+
+Steps such as Fillet, Chamfer, Shell and Press Pull ask you to pick edges or faces. While a step picks, the rules change a little:
+
+- Every tap adds or drops, on iPad and on Mac.
+- A box takes the kind of thing the step needs. The bar names it, such as "Drag across edges", and has no Edges, Faces or Bodies choice.
+- A box adds to the step's picks. Hold <Keys combo="⌘" /> while you drag to box picks out again.
+- A double tap on an edge picks its loop for the step.
+
+Fillet and Chamfer start with **Tangent chain** on, so one tap picks every edge joined smoothly to the one you tapped.
+
+What you pick in a step belongs to that step. **Cancel** throws it away with the step.
+
+<Callout guide="fillet-chamfer-shell" />
+
+## Keys
+
+<Shortcuts>
+  <Shortcut keys="W" note="Off again with W, Esc or Done.">Box select</Shortcut>
+  <Shortcut keys="Esc" note="Turns Box select off. With nothing else open, clears the selection.">Stop or clear</Shortcut>
+  <Shortcut keys="Shift / ⌘" note="Held while you tap or click: adds or drops. A tap on empty space then keeps the selection.">Add or drop</Shortcut>
+</Shortcuts>
+
+On iPad with a trackpad or mouse, a click replaces the selection, as on a Mac. Finger and Pencil taps add.
+
+## Questions
+
+<FAQ>
+  <QA q="Why does a tap add instead of starting over?">On iPad, taps add, because touch has no Shift key. Tap empty space or **Clear selection** first.</QA>
+  <QA q="Why didn't my box take the edges at the back?">A box only takes what you can see. Turn the view so those edges face you, then box again.</QA>
+  <QA q="Why does one finger turn the view again after my box?">A finger box turns Box select off when you lift your finger. Press <Keys combo="W" /> or tap <Ui>Box select</Ui> to draw another.</QA>
+  <QA q="Can I undo a selection?">No. Selecting isn't an undo step, so Undo skips it and takes back your last change to the design.</QA>
+</FAQ>

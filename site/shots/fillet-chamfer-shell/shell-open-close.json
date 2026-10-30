@@ -1,0 +1,176 @@
+{
+ "start": "new",
+ "orientation": "landscape",
+ "outDir": "../../../build/docs-shots/fillet-chamfer-shell/r3",
+ "steps": [
+  {
+   "do": "mcp",
+   "tool": "new_design",
+   "arguments": {
+    "name": "Rounded plate",
+    "replace_current": true
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "create_sketch",
+   "arguments": {
+    "name": "Outline",
+    "plane": "xy",
+    "shapes": [
+     {
+      "type": "rectangle",
+      "anchor": "corner",
+      "position": [
+       0,
+       0
+      ],
+      "width": 80,
+      "height": 40
+     }
+    ]
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "extrude",
+   "arguments": {
+    "name": "Plate",
+    "sketch": "Outline",
+    "distance": 12
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "fillet",
+   "arguments": {
+    "name": "Corners",
+    "body": "Plate",
+    "edges": {
+     "type": "line",
+     "parallel_to": [
+      0,
+      0,
+      1
+     ]
+    },
+    "radius": 8
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "panel",
+   "name": "browser",
+   "show": false
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso",
+    "target": [
+     52.8,
+     -41.2,
+     6
+    ],
+    "size": 105
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "screenshot",
+   "path": "shell-start.png",
+   "settle": false
+  },
+  {
+   "do": "wait",
+   "seconds": 2.0
+  },
+  {
+   "do": "tap",
+   "x": 747,
+   "y": 348
+  },
+  {
+   "do": "wait",
+   "seconds": 2.2
+  },
+  {
+   "do": "tap",
+   "labelContains": "Shell, removing these faces"
+  },
+  {
+   "do": "wait",
+   "seconds": 0.5
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "screenshot",
+   "path": "shell-end.png",
+   "settle": false
+  },
+  {
+   "do": "tap",
+   "x": 649,
+   "y": 400
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "screenshot",
+   "path": "open-side.png",
+   "settle": false
+  },
+  {
+   "do": "tap",
+   "label": "Clear"
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "screenshot",
+   "path": "cleared.png",
+   "settle": false
+  },
+  {
+   "do": "dump",
+   "path": "cleared.txt"
+  }
+ ]
+}

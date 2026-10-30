@@ -1,0 +1,135 @@
+---
+title: "Drill holes for screws"
+short: "Holes"
+group: "Sketch & Model"
+order: 4
+blurb: "Clearance, counterbore, countersink and insert holes from M2 to M6."
+lede: "Tap a flat face where each screw goes, then pick the screw from a menu. Fillet fills in sizes that print well, and one setting tunes them all to your printer."
+summary: "Start Hole (H), or 'Drill holes in this face' from a selected flat face. The first tap on a flat face chooses it and places a hole. More taps add holes, and tapping a hole (or a finger's width around it) removes it. One Hole step drills one face. Centre marks show each hole before it's cut. Preset menu: Clearance, Socket head counterbore, Flat head countersink, Tap (self-tapping) or Heat-set insert, each in M2, M2.5, M3, M4, M5 and M6, plus 'Keep sizes, drop preset'. Clearance fits add the design's 'clearance' parameter (starts at 0.2 mm) to their diameters, so you tune it once under Parameters for your printer. The label shows '(edited)' once you change a preset's sizes. Type (Simple, Counterbore, Countersink) with Diameter, Bore diameter/depth or Sink diameter/angle. Extent is Distance or Through all; for Distance, set Depth and a Drill point (Angled with Point angle, or Flat). Positions are listed as Hole 1, Hole 2… as X/Y on a 0.1 mm grid, measured from the origin seen square-on to the face; type a parameter to tie a hole to it. Holes can be repeated with a feature pattern. Cites the standards behind the sizes (ISO 273, ISO 4762, DIN 974-1, ISO 10642, Ruthex/CNC Kitchen insert sheets)."
+related: ["parameters","patterns","selecting","print-check-and-export"]
+---
+
+## Place the holes
+
+Each tap on a flat face puts a hole there. One Hole step drills one face, with as many holes as you like.
+
+1. Tap <Ui icon="holes">Hole</Ui> in the tool strip, or press <Keys combo="H" />.
+2. Tap the face you want to drill. The first tap chooses the face and places a hole.
+3. Tap again for each hole you want to add. Tap a hole to take it out.
+4. Tap **Done**.
+
+<Figure src="/screens/holes/hole-placing.png" width={1800} height={1098} phoneSrc="/screens/holes/hole-placing-phone.png" phoneWidth={1400} phoneHeight={1020} alt="A 60 by 30 mm plate with two holes on its top face, each marked with a blue cross. The Hole 1 inspector shows 2 holes picked, the M3 socket head counterbore preset and Extent set to Through all." caption="A blue cross marks each hole while the step is open." />
+
+If a flat face is already selected, choose **Drill holes in this face** under **Next** in the inspector instead. To change a hole later, tap its step on the [timeline](/guides/timeline/).
+
+<Note>Holes go into flat faces only. To drill a second face, tap **Done** and start another Hole. On a Mac, click where this guide says tap.</Note>
+
+## Pick a screw
+
+The **Preset** menu has holes for metric screws from M2 to M6. Choose what the hole is for, then the size.
+
+1. Tap the **Preset** menu. A new hole says **Custom sizes**.
+2. Choose a fit, such as **Socket head counterbore**.
+3. Choose the size, such as **M3**.
+
+<Figure src="/screens/holes/preset-menu.png" width={948} height={638} maxWidth={540} alt="The Preset menu open: Clearance, Socket head counterbore, Flat head countersink, Tap (self-tapping), Heat-set insert and Keep sizes, drop preset. Socket head counterbore is expanded to show M2 to M6, with a checkmark on M3." caption="Fit first, then size. The checkmark is the current preset." />
+
+The preset fills in the sizes, and you can still change them. The label then reads **(edited)**. Every size is listed under [Screw sizes](#screw-sizes).
+
+## Tune the fit for your printer
+
+Printed holes come out a little small. So clearance, counterbore and countersink holes add a parameter named `clearance` to their diameters. It starts at 0.2 mm. Tap and insert holes have to grip, so they leave it out.
+
+1. Print a test plate with one hole and try the screw.
+2. In the browser, under **Parameters**, raise `clearance` if the screw binds, or lower it if it wobbles. Go in steps of 0.1 mm. Every hole that uses it updates at once.
+
+<Figure narrow caption="One parameter widens every screw hole in the design.">
+  <div class="fig-duo" style="--duo: 503fr 635fr">
+    <Shot src="/screens/holes/clearance-parameter.png" width="503" height="380" alt="The Parameters list in the browser with clearance set to 0.2 mm." />
+    <Shot src="/screens/holes/clearance-diameter.png" width="635" height="593" alt="The Hole inspector. Diameter reads 3.4 + clearance, which works out to 3.6 mm, and Bore diameter reads 6.5 + clearance, which works out to 6.7 mm." />
+  </div>
+</Figure>
+
+## Set the sizes yourself
+
+Skip the preset, or change any size it filled in. Every field takes a number, an expression or a [parameter](/guides/parameters/).
+
+<div class="split">
+<div>
+
+- **Type**: **Simple**, **Counterbore** (adds a bore for the screw head) or **Countersink** (adds a cone).
+- **Extent**: **Through all** goes out the other side. **Distance** stops at **Depth**.
+- **Drill point**: **Angled** ends in a cone like a twist drill. **Flat** gives a flat bottom.
+
+</div>
+<Figure src="/screens/holes/hole-sizes.png" width={635} height={825} alt="The Hole inspector for a plain hole: Type Simple, Diameter 5 mm, Extent Distance, Depth 8 mm, Drill point Angled and Point angle 118°." caption="A plain 5 mm hole, 8 mm deep, with a drill-bit tip." />
+</div>
+
+## Put holes at exact spots
+
+Taps land on a 0.1 mm grid, so a hole you tap near 20 mm may read 20.1. Type the exact value to fix it.
+
+<div class="split">
+<div>
+
+1. Scroll down the inspector to **Positions**.
+2. Type the hole's **X** and **Y**.
+
+X and Y are measured from the origin, as if you were looking straight at the face.
+
+To tie a hole to a parameter, type an expression such as `width / 2 - 6`. Plain numbers stay put when the part changes size.
+
+</div>
+<Figure src="/screens/holes/positions.png" width={635} height={720} alt="Positions in the Hole inspector: Hole 1 at X -19.8 and Y 0, Hole 2 at X 20.1 and Y -0.1, in mm." caption="Two tapped holes. Type over a value to place one exactly." />
+</div>
+
+## Repeat holes in a pattern
+
+For a row or ring of the same hole, make one hole and repeat its step.
+
+1. Touch and hold the Hole step on the timeline, then tap **Pattern**.
+2. Set **Count** and **Spacing**.
+3. Tap **Done**.
+
+<Figure src="/screens/holes/pattern-row.png" width={1800} height={1009} phoneSrc="/screens/holes/pattern-row-phone.png" phoneWidth={1330} phoneHeight={885} alt="An 80 mm plate with four counterbored holes in a row. The Pattern 1 inspector shows Objects set to Features, Hole 1 picked, Type Linear, Axis X, Count 4 and Spacing 20 mm." caption="One hole, four times: Count 4, 20 mm apart along X." />
+
+Every copy is a real hole, and it follows the first one when you change its size. More in [Repeat with patterns](/guides/patterns/).
+
+## Screw sizes
+
+What each fit is for, and the sizes it uses. All sizes are in mm.
+
+<details class="ref">
+<summary>What each fit is for</summary>
+
+| Fit | Use it for |
+| --- | --- |
+| **Clearance** | A screw that passes through freely. |
+| **Socket head counterbore** | A cap screw whose head sits flush in a flat-bottomed recess. |
+| **Flat head countersink** | A flat head screw whose head sits flush in a 90° cone. |
+| **Tap (self-tapping)** | A screw that cuts its own thread in the plastic. |
+| **Heat-set insert** | A brass insert you press in with a soldering iron. |
+
+</details>
+
+<details class="ref">
+<summary>Sizes from M2 to M6</summary>
+
+<div class="ref-scroll">
+
+| Size | Clearance | Bore | Sink | Tap | Insert |
+| --- | --- | --- | --- | --- | --- |
+| M2 | 2.4 | 4.4 × 2 | 4.7 | 1.8 | 3.2 × 5 |
+| M2.5 | 2.9 | 5.5 × 2.5 | 5.88 | 2.25 | 4 × 6.7 |
+| M3 | 3.4 | 6.5 × 3 | 6.72 | 2.7 | 4 × 6.7 |
+| M4 | 4.5 | 8 × 4 | 8.96 | 3.5 | 5.6 × 9.1 |
+| M5 | 5.5 | 10 × 5 | 11.2 | 4.4 | 6.4 × 10.5 |
+| M6 | 6.6 | 11 × 6 | 13.44 | 5.2 | 8 × 13.7 |
+
+</div>
+
+Bore and insert are diameter × depth. Counterbore and countersink holes also take the clearance diameter, and clearance, bore and sink diameters get `clearance` added. Only the insert preset sets a depth: it switches **Extent** to **Distance**, 1 mm deeper than the insert.
+
+<Note>Clearance holes follow ISO 273. Counterbores follow DIN 974-1 for ISO 4762 cap screws. Countersinks are 90° cones for ISO 10642 heads. Tap holes are the tap drill plus 0.2 mm. Insert holes come from the Ruthex and CNC Kitchen sheets, so check your maker's sheet if you use another brand.</Note>
+
+</details>

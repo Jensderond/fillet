@@ -1,0 +1,116 @@
+{
+ "start": "new",
+ "orientation": "landscape",
+ "outDir": "../../../build/docs-shots/measure",
+ "steps": [
+  {
+   "do": "mcp",
+   "tool": "rename_design",
+   "arguments": {
+    "name": "Pen holder"
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "create_sketch",
+   "arguments": {
+    "name": "Outline",
+    "plane": "xy",
+    "shapes": [
+     {
+      "type": "rectangle",
+      "anchor": "center",
+      "position": [
+       0,
+       0
+      ],
+      "width": 80,
+      "height": 30
+     }
+    ]
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "extrude",
+   "arguments": {
+    "name": "Block",
+    "sketch": "Outline",
+    "distance": 16
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "create_sketch",
+   "arguments": {
+    "name": "Pen",
+    "plane": "xy",
+    "shapes": [
+     {
+      "type": "circle",
+      "center": [
+       -20,
+       0
+      ],
+      "diameter": 14
+     }
+    ]
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "extrude",
+   "arguments": {
+    "name": "Pen hole",
+    "sketch": "Pen",
+    "distance": 16,
+    "operation": "cut",
+    "targets": "Block"
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso"
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "x": 546,
+   "y": 461
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "tap",
+   "x": 883,
+   "y": 673
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "screenshot",
+   "path": "quick-raw.png"
+  },
+  {
+   "do": "tap",
+   "label": "Measure"
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "screenshot",
+   "path": "quick-carry-raw.png"
+  }
+ ]
+}

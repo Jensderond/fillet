@@ -1,0 +1,8 @@
+{
+  "features": [],
+  "formatVersion": 1,
+  "name": "Rounded plate",
+  "parameters": [],
+  "printer": "bambu-a1-mini",
+  "units": "mm"
+}

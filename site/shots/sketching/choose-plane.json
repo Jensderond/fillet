@@ -1,0 +1,86 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/sketching",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Plate"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Plate sketch",
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "rectangle",
+            "anchor": "corner",
+            "position": [
+              8,
+              8
+            ],
+            "width": 60,
+            "height": 30,
+            "angle": 0
+          },
+          {
+            "type": "circle",
+            "center": [
+              53,
+              23
+            ],
+            "diameter": 14
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "name": "Plate",
+        "sketch": "Plate sketch",
+        "regions": [
+          [
+            20,
+            20
+          ]
+        ],
+        "distance": 12
+      }
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "zoom": 0.45
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Sketch"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "screenshot",
+      "path": "choose-plane.png"
+    }
+  ]
+}

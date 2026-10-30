@@ -1,0 +1,19 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/bodies",
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Pen cup"}},
+    {"do": "panel", "name": "browser", "show": false},
+    {"do": "idle"},
+    {"do": "tap", "label": "Primitive", "type": "button"},
+    {"do": "wait", "seconds": 1},
+    {"do": "screenshot", "path": "primitive-menu-full.png", "settle": false},
+    {"do": "tap", "label": "Cylinder"},
+    {"do": "idle"},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso", "target": [0, 0, 8], "size": 70}},
+    {"do": "idle"},
+    {"do": "screenshot", "path": "primitive-full.png"},
+    {"do": "dump", "path": "primitive-tree.txt"}
+  ]
+}

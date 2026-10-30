@@ -1,0 +1,22 @@
+{
+  "start": {"open": "Wall bracket.fillet"},
+  "fixture": "fixtures/Wall bracket.fillet",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/agents-mcp",
+  "clientName": "claude-code",
+  "steps": [
+    {"do": "idle"},
+    {"do": "panel", "name": "browser", "show": false},
+    {"do": "wait", "seconds": 1.0},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+    {"do": "idle"},
+    {"do": "mcp", "tool": "hole", "arguments": {"name": "Wall holes", "body": "Bracket", "face": {"type": "plane", "normal": [1, 0, 0], "near": [-24, 0, 26]}, "points": [[-24, -10, 26], [-24, 10, 26]], "preset": "m4-counterbore", "through_all": true}},
+    {"do": "idle"},
+    {"do": "wait", "seconds": 1.0},
+    {"do": "screenshot", "path": "undo-before.png"},
+    {"do": "tap", "label": "Undo"},
+    {"do": "wait", "seconds": 1.5},
+    {"do": "idle"},
+    {"do": "screenshot", "path": "undo-after.png"}
+  ]
+}

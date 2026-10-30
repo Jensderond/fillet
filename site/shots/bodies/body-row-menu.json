@@ -1,0 +1,118 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/bodies",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Desk tidy"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "primitive",
+      "arguments": {
+        "kind": "box",
+        "dimensions": {
+          "width": 60,
+          "depth": 40,
+          "height": 8
+        },
+        "at": [
+          0,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "primitive",
+      "arguments": {
+        "kind": "cylinder",
+        "dimensions": {
+          "diameter": 24,
+          "height": 40
+        },
+        "at": [
+          -14,
+          0,
+          8
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "primitive",
+      "arguments": {
+        "kind": "sphere",
+        "dimensions": {
+          "diameter": 18
+        },
+        "at": [
+          16,
+          0,
+          17
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_body_color",
+      "arguments": {
+        "bodies": "Box 1",
+        "color": "teal"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_body_visibility",
+      "arguments": {
+        "bodies": "Cylinder 1",
+        "visible": false
+      }
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": true
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          28,
+          -6,
+          8
+        ],
+        "size": 95
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "longPress",
+      "label": "Body 3",
+      "type": "button",
+      "duration": 1.2
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "screenshot",
+      "path": "body-row-menu-full.png",
+      "settle": false
+    },
+    {
+      "do": "dump",
+      "path": "body-row-menu-tree.txt"
+    }
+  ]
+}

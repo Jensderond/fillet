@@ -1,0 +1,135 @@
+---
+title: "Getting started with Fillet"
+short: "Getting started"
+group: "Get Started"
+order: 1
+blurb: "Find your way around the editor and make your first part."
+lede: "Fillet is CAD for the parts you 3D print. In five steps you'll draw a plate, round its corners, drill two screw holes and send it to your slicer."
+summary: "What Fillet is: offline, parametric CAD for 3D-printable parts. No account and no network. You sketch, then add features, and they all sit on an editable timeline. Covers how to start: on iPad, New Design on the launch screen; an empty design shows the bed grid; tap Sketch in the tool strip and pick XY (the bed). In landscape (1100 pt and wider) the inspector also offers a 'Start a sketch on the bed' button; narrower layouts show a hint pill instead. Tours the editor: the tool strip groups tools by job (Browser and Box select | Sketch | Extrude, Revolve, Primitive, Import | Press Pull, Fillet, Chamfer, Shell, Hole, Combine, Move, Mirror, Pattern | Lay flat, Overhangs, Measure, Section). The browser lists Bodies, Sketches and Parameters. The viewport has a view cube, Fit all, a perspective/orthographic toggle and a visual style chip with 6 styles (Shaded, Shaded with Edges, Shaded with Hidden Edges, X-Ray, Wireframe, Hidden Line). The inspector is orange while you edit a step, blue for a selection, and shows Print check when nothing is picked. The timeline runs along the bottom, and the toolbar holds undo/redo, the printer, Export and the agent button. Explains the colour language: orange means a step in progress, blue means selected. A greyed tool explains why it's unavailable when you tap it. Moving around on iPad: one finger orbits, two fingers pan, pinch zooms, a two-finger double tap fits, and flicks coast (not with Reduce Motion). Apple Pencil draws and selects, and a Pencil drag with no tool active draws a selection box. On a trackpad, two-finger scroll pans and pinch zooms; Mac mouse equivalents get one line. In Split View or narrow windows the browser floats and the inspector docks as a drawer under the viewport with three heights. Ends with 'your first part in five steps' (sketch, extrude, fillet, hole, export), linking to each guide. Notes that sketches use typed dimensions, not a constraint solver."
+related: ["sketching","fillet-chamfer-shell","holes","print-check-and-export"]
+---
+
+## Know the editor
+
+This is the plate you're about to make, finished. Every design uses the same seven areas, and the other guides call them by these names.
+
+<Tour src="/screens/getting-started/window-tour.png" alt="The Fillet editor with the finished mounting plate: tool strip along the top, browser on the left listing Body 1, Sketch 1 and the clearance parameter, the plate with rounded corners and two screw holes on the print bed, the view cube top right, Print check on the right, and four steps on the timeline" width={1600} height={1199} pins={[
+  { x: 77, y: 5.3, label: "Toolbar", text: "Undo, redo, printer, Export and agents." },
+  { x: 95.2, y: 11.7, label: "Tool strip", text: "Every modelling tool, grouped by job." },
+  { x: 14.2, y: 17.7, label: "Browser", text: "Bodies, sketches and parameters." },
+  { x: 50, y: 82, label: "Viewport", text: "Your part, on your printer's bed." },
+  { x: 66, y: 20.3, label: "View cube", text: "Standard views, Fit all and visual styles." },
+  { x: 97, y: 18.7, label: "Inspector", text: "Settings for what you're doing or have picked." },
+  { x: 56.5, y: 93.4, label: "Timeline", text: "Every step, in order. Tap one to change it." },
+]} />
+
+Two colours tell you what's going on. **Orange** is the step you're working on. **Blue** is what you've picked.
+
+## Sketch the outline
+
+Every part starts as a flat drawing. Here it's an 80 × 30 mm rectangle on the bed.
+
+<div class="split">
+<div>
+
+1. Open Fillet and tap **New Design**.
+2. Tap <Ui icon="sketching">Sketch</Ui> in the tool strip, then tap **XY** (the bed) in the bar that appears. The view turns to look straight down.
+3. Tap <Ui>Rectangle</Ui> in the sketch bar and drag from corner to corner with Apple Pencil.
+4. Tap <Ui>Select</Ui> (the arrow), tap the rectangle, and type **80** in **Width** and **30** in **Height**.
+5. Tap **Finish sketch**.
+
+In landscape, **Start a sketch on the bed** in the inspector does step 2 in one tap.
+
+No Pencil? Tap the hand button in the sketch bar, just left of **Finish sketch** (in portrait it's the bar's last button). Your finger then draws instead of turning the view.
+
+</div>
+<Figure src="/screens/getting-started/step-sketch.png" width={638} height={830} alt="The sketch inspector for Sketch 1 with the rectangle selected: Rectangle set to Corner, Width 80 mm and Height 30 mm" caption="Draw roughly, then type the real sizes." />
+</div>
+
+<Tip title="Type the sizes">Fillet has no constraint solver. Each shape keeps the sizes you type, and a field also takes a sum or a [parameter](/guides/parameters/), such as `width / 2`.</Tip>
+
+## Make it solid
+
+Extrude pushes the sketch up into a plate.
+
+<div class="split">
+<div>
+
+1. Tap <Ui icon="extrude-revolve-press-pull">Extrude</Ui>. The rectangle is the only shape, so it's picked for you.
+2. Type **6** in **Distance**, or drag the orange arrow on the part.
+3. Tap **Done**.
+
+</div>
+<Figure src="/screens/getting-started/step-extrude.png" width={638} height={560} alt="The Extrude 1 inspector: 1 profile picked, Operation New, Distance 6 mm" caption="The arrow and Distance set the same thing." />
+</div>
+
+## Round the corners
+
+Fillet rounds edges. Round the four upright corners so the plate has no sharp points.
+
+<div class="split">
+<div>
+
+1. Tap <Ui icon="fillet-chamfer-shell">Fillet</Ui>.
+2. Tap each of the four upright corner edges. For the one at the back, drag with one finger to turn the view first.
+3. Type **5** in **Radius**.
+4. Tap **Done**.
+
+The part shows the round as you type, so you see it before you tap **Done**.
+
+</div>
+<Figure src="/screens/getting-started/step-fillet.png" width={638} height={560} alt="The Fillet 1 inspector: 4 edges picked in 4 tangent chains, Tangent chain on, Radius 5 mm" caption="Each tap adds one edge to the count." />
+</div>
+
+## Drill the screw holes
+
+Hole drills holes that fit a real screw. Pick the screw, and Fillet fills in the sizes.
+
+<div class="split">
+<div>
+
+1. Tap <Ui icon="holes">Hole</Ui>.
+2. Tap the top of the plate near each end. The first tap picks the face, and each tap adds a hole.
+3. Tap **Preset** and choose **Socket head counterbore** › **M3**.
+4. Under **Extent**, tap **Through all**.
+5. Tap **Done**.
+
+</div>
+<Figure src="/screens/getting-started/step-hole.png" width={638} height={624} alt="The Hole 1 inspector: 2 holes picked, Preset M3 socket head counterbore, and a hint that it adds the clearance parameter of 0.2 mm" caption="Screw holes get 0.2 mm of clearance." />
+</div>
+
+If your screws bind once printed, raise `clearance` under **Parameters** in the browser, and every hole follows. [Tune the fit for your printer →](/guides/holes/#tune-the-fit-for-your-printer)
+
+## Send it to your slicer
+
+With nothing selected, the inspector shows **Print check**. Three green ticks mean the part is ready to print.
+
+<div class="split">
+<div>
+
+1. Check that Print check says **Fits the bed**, **No overhangs** and **Watertight**.
+2. Tap <Ui>Export</Ui> in the toolbar and choose **3MF**.
+3. Save the file to Files, then open it in Bambu Studio, PrusaSlicer or your slicer of choice.
+
+That's a printable part, about 17 g of PLA. Every step stays on the timeline: tap **Fillet 1** there, type a new radius and tap **Done**, and the steps after it update.
+
+</div>
+<Figure src="/screens/getting-started/step-export.png" width={638} height={1100} alt="The Export menu open over the inspector with 3MF (Bambu Studio, PrusaSlicer…), STL and STEP (other CAD apps). Under it, Print check shows Fits the bed 80 × 30 × 6 mm, No overhangs and Watertight, and Material 17.36 g of PLA" caption="Export sits at the top right. 3MF opens in most slicers." />
+</div>
+
+<CardGrid>
+  <Callout guide="timeline" />
+  <Callout guide="print-check-and-export" />
+</CardGrid>
+
+## Questions and answers
+
+<FAQ>
+  <QA q="How do I move around the model?">Drag with one finger to turn it, drag with two fingers to slide it, and pinch to zoom. Double-tap with two fingers to fit everything in view. With Apple Pencil, you draw and pick, and your fingers keep moving the view. On a keyboard's trackpad, scroll with two fingers to slide and pinch to zoom.</QA>
+  <QA q="Why is a tool grey?">It can't run yet. Tap it anyway and Fillet says why. In an empty design, **Fillet** says *Needs a body. Extrude a sketch first.*</QA>
+  <QA q="How do I change how the part looks?">Use the buttons under the view cube. Tap a face of the cube for a straight-on view, tap <Ui>Fit all</Ui> to frame the part, and use the chip under them to pick one of six styles, from **Shaded** to **Hidden line**. They change the view, never the design.</QA>
+  <QA q="Do I need an account?">No. Fillet works offline, never asks you to sign in and never needs a network.</QA>
+  <QA q="Where are my designs?">Wherever you save them: On My iPad, iCloud Drive or any Files location. Each design is one `.fillet` file. [Files, iCloud and importing STEP →](/guides/files-and-icloud/)</QA>
+  <QA q="What changes in portrait or Split View?">The panels make room for the part. The browser floats over it: tap <Ui>Browser</Ui> in the tool strip to show it. The inspector appears once you start a step or pick something, and in the narrowest windows it's a drawer under the view that you drag taller or shorter. An empty design has no **Start a sketch on the bed** button there, so tap <Ui icon="sketching">Sketch</Ui>, then **XY**.</QA>
+  <QA q="Does it work the same on a Mac?">Yes. Click where this guide says tap, and drag to turn the view. On a trackpad, scroll with two fingers to slide the view, and pinch or hold <Keys combo="⌘" /> while you scroll to zoom. With a mouse, the scroll wheel zooms and Shift-right-drag slides. Press <Keys combo="⌘0" /> to fit everything in view.</QA>
+</FAQ>

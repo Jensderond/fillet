@@ -1,0 +1,178 @@
+{
+  "features" : [
+    {
+      "id" : "627C1A96-54D5-4355-A6F7-699C5BED07FD",
+      "kind" : {
+        "plane" : {
+          "offset" : "0",
+          "plane" : "xz",
+          "type" : "standard"
+        },
+        "shapes" : [
+          {
+            "construction" : false,
+            "id" : "F317FC21-07C7-485E-B34D-92D953DC669C",
+            "kind" : {
+              "closed" : true,
+              "type" : "polyline",
+              "vertices" : [
+                {
+                  "x" : "-30",
+                  "y" : "0"
+                },
+                {
+                  "x" : "30",
+                  "y" : "0"
+                },
+                {
+                  "x" : "30",
+                  "y" : "6"
+                },
+                {
+                  "x" : "-24",
+                  "y" : "6"
+                },
+                {
+                  "x" : "-24",
+                  "y" : "40"
+                },
+                {
+                  "x" : "-30",
+                  "y" : "40"
+                }
+              ]
+            }
+          }
+        ],
+        "type" : "sketch"
+      },
+      "name" : "Profile",
+      "suppressed" : false
+    },
+    {
+      "id" : "5C13FDB2-4A6C-4D2A-847E-ED564C7C1440",
+      "kind" : {
+        "distance" : "40",
+        "operation" : "newBody",
+        "regions" : [
+          {
+            "x" : -26.25,
+            "y" : 4.166666666666667
+          }
+        ],
+        "sketch" : "627C1A96-54D5-4355-A6F7-699C5BED07FD",
+        "symmetric" : true,
+        "taper" : "0",
+        "targets" : [
+
+        ],
+        "type" : "extrude"
+      },
+      "name" : "Bracket",
+      "suppressed" : false
+    },
+    {
+      "id" : "93FC4334-C351-4B06-9212-51FD29AD9CF4",
+      "kind" : {
+        "body" : "5C13FDB2-4A6C-4D2A-847E-ED564C7C1440",
+        "edges" : [
+          {
+            "body" : "5C13FDB2-4A6C-4D2A-847E-ED564C7C1440",
+            "signature" : {
+              "curve" : "line",
+              "end" : {
+                "x" : -24,
+                "y" : -20,
+                "z" : 6
+              },
+              "length" : 40,
+              "mid" : {
+                "x" : -24,
+                "y" : 0,
+                "z" : 6
+              },
+              "radius" : 0,
+              "start" : {
+                "x" : -24,
+                "y" : 20,
+                "z" : 6
+              },
+              "tangent" : {
+                "x" : -0,
+                "y" : -1,
+                "z" : -0
+              }
+            }
+          }
+        ],
+        "size" : "6",
+        "type" : "fillet"
+      },
+      "name" : "Inner fillet",
+      "suppressed" : false
+    },
+    {
+      "id" : "2B3C183D-5EFB-49F0-8BD1-729F9AD3E64C",
+      "kind" : {
+        "anchor" : "world",
+        "centers" : [
+          {
+            "x" : "12",
+            "y" : "-10"
+          },
+          {
+            "x" : "12",
+            "y" : "10"
+          }
+        ],
+        "counterboreDepth" : "4",
+        "counterboreDiameter" : "8 + clearance",
+        "countersinkAngle" : "90",
+        "countersinkDiameter" : "10",
+        "depth" : "10",
+        "diameter" : "4.5 + clearance",
+        "extent" : "throughAll",
+        "face" : {
+          "body" : "5C13FDB2-4A6C-4D2A-847E-ED564C7C1440",
+          "signature" : {
+            "area" : 1920,
+            "centroid" : {
+              "x" : 5.999999999999999,
+              "y" : -1.4802973661668753e-16,
+              "z" : 6
+            },
+            "extent" : {
+              "x" : 48,
+              "y" : 40,
+              "z" : 1.7763568394002505e-15
+            },
+            "normal" : {
+              "x" : -0,
+              "y" : -0,
+              "z" : 1
+            },
+            "surface" : "plane"
+          }
+        },
+        "holeType" : "counterbore",
+        "preset" : "m4-counterbore",
+        "tipAngle" : "118",
+        "type" : "hole"
+      },
+      "name" : "Screw holes",
+      "suppressed" : false
+    }
+  ],
+  "formatVersion" : 1,
+  "name" : "Wall bracket",
+  "parameters" : [
+    {
+      "comment" : "Print clearance, added to the diameter of preset screw holes. Tune it once for your printer.",
+      "expression" : "0.2 mm",
+      "id" : "B79DF175-1AD3-4300-ADA8-A9A2CAAA2265",
+      "name" : "clearance"
+    }
+  ],
+  "printer" : "bambu-a1-mini",
+  "units" : "mm"
+}

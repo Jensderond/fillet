@@ -1,0 +1,172 @@
+---
+title: "Files, iCloud and importing STEP"
+short: "Files & iCloud"
+group: "Get Started"
+order: 2
+blurb: "Where designs live, how they save, and how to bring in STEP files."
+lede: "Each design is one .fillet file that you keep where you like: on your iPad, in iCloud Drive or in any folder in Files. There's no account and no library to manage, and Fillet saves as you work."
+summary: "Each design is one .fillet file, a JSON document you can read, kept wherever you choose: On My iPad, iCloud Drive, or any Files location. Fillet has no project database or account and never needs a network. Covers the iPad launch screen (New Design, Acknowledgements) and the system document browser with Recents, Browse and folders. Edits save automatically. Undo history lasts while the document is open. Renaming, duplicating and moving use the system title menu or the Files app; the window title follows the file. Explains that the printer preset, parameters and timeline (with the rollback position) are saved in the file. Import STEP (Import on the tool strip, or Design > Import STEP… ⇧⌘I) adds an 'Imported from <file>' step you can sketch and model on. Exports (3MF/STL/STEP) are covered in the print guide. Mac notes: normal documents; the app updates itself from GitHub releases (Fillet > Check for Updates)."
+related: ["getting-started","print-check-and-export","timeline","bodies"]
+---
+
+## Start a new design
+
+Fillet opens on its launch screen, with a card for starting something new.
+
+1. Open Fillet.
+2. Tap **New Design**.
+
+<Figure src="/screens/files-and-icloud/new-design.png" width={820} height={712} maxWidth={400} alt="The top of Fillet's launch screen: the filleted block logo, the word Fillet, an orange New Design button, marked, and an Acknowledgements button under it." caption="New Design is the orange button on the launch card." />
+
+You get an empty design called **Untitled**, ready to sketch. It's saved in **On My iPad › Fillet** until you move it. On the Mac, choose **File › New** or press <Keys combo="⌘N" />.
+
+## Open a design
+
+Under the card is the same file browser the Files app uses, so iCloud Drive and all your folders are in it.
+
+<Platforms>
+  <Platform name="iPad">
+    1. Tap **Recents** for the designs you opened lately, or **Browse** to go to any folder.
+    2. Tap a design to open it.
+
+    <Figure src="/screens/files-and-icloud/browser.png" width={1060} height={530} phoneSrc="/screens/files-and-icloud/browser-phone.png" phoneWidth={1024} phoneHeight={472} maxWidth={680} alt="The file browser under the launch card. The Recents, Shared and Browse tabs are marked, with Browse selected. Below them are Bracket.fillet, Knob.fillet and Phone stand.fillet." caption="Browse shows the folder you're in. Each design is one file." />
+
+    To get back to your files, tap the back arrow at the top left of the design. Tapping a `.fillet` file in the Files app opens it in Fillet too.
+  </Platform>
+  <Platform name="Mac">
+    1. Choose **File › Open…** or press <Keys combo="⌘O" />. Recent designs are under **File › Open Recent**.
+    2. Select the design and click **Open**.
+
+    Double-clicking a `.fillet` file in the Finder works too. Each design opens in its own window.
+  </Platform>
+</Platforms>
+
+## Rename, duplicate or move a design
+
+The title at the top of the window is the file's name. Rename the file and the title follows.
+
+<Platforms>
+  <Platform name="iPad">
+    To rename the design you have open:
+
+    1. Tap its name at the top left.
+    2. Tap **Rename**, type the new name and tap return.
+
+    <Figure narrow caption="Tap the name, then Rename.">
+      <div class="fig-duo">
+        <Shot src="/screens/files-and-icloud/title.png" width="600" height="146" alt="The top left of an open design: the back arrow and the title Bracket with a small chevron, marked." />
+        <Shot src="/screens/files-and-icloud/title-rename.png" width="600" height="146" alt="The same corner after tapping the title: a menu with one item, Rename, marked." />
+      </div>
+    </Figure>
+
+    To duplicate or move a design, or rename one that isn't open:
+
+    <div class="split" style="--split: 250px">
+      <div>
+        1. Tap the back arrow to close the design.
+        2. Touch and hold the design in the browser.
+        3. Choose **Duplicate**, **Rename** or **Move**.
+
+        **Duplicate** puts a copy, named with a number, next to the original. **Move** asks where the design should go: see the next section.
+
+        **Delete** is at the bottom of the same menu. A deleted design goes to **Recently Deleted** in the Files app, where you can still get it back.
+      </div>
+      <Figure src="/screens/files-and-icloud/file-menu.png" width={520} height={964} alt="Bracket.fillet held in the browser, with its menu open: Copy, Move and Share across the top, then Get Info, Rename, Duplicate, New Folder with Item, Tags and Delete. Move, Rename and Duplicate are marked." />
+    </div>
+  </Platform>
+  <Platform name="Mac">
+    1. Click the name in the window's title bar.
+    2. Type a new name, or choose a new folder from **Where**.
+
+    The File menu has the same commands: **File › Rename…**, **File › Move To…** and **File › Duplicate**, which is <Keys combo="⇧⌘S" />.
+  </Platform>
+</Platforms>
+
+## Choose where designs live
+
+A design is an ordinary file, so it can live anywhere the Files app reaches.
+
+- **On My iPad › Fillet** is Fillet's own folder. Designs there stay on this iPad.
+- **iCloud Drive** puts a design on all your devices, your Mac included.
+- **Any other place in Files** works too, such as a shared folder or a folder from another storage app.
+
+To move a design there:
+
+1. Touch and hold the design in the browser, and choose **Move**.
+2. Tap **iCloud Drive**, or another place, and open the folder you want.
+3. Tap **Move** at the top right. It stays grey until you're in a different folder.
+
+<Figure src="/screens/files-and-icloud/move.png" width={1584} height={376} phoneSrc="/screens/files-and-icloud/move-phone.png" phoneWidth={988} phoneHeight={370} alt="The Move sheet, open on the Fillet folder that Bracket.fillet is in now. On the left, under Locations, iCloud Drive is marked, with On My iPad below it." caption="The sheet opens on the design's own folder, On My iPad › Fillet. Pick a place under Locations." />
+
+<Tip title="Keep one folder">Make a **Fillet** folder in iCloud Drive and keep your designs in it. The same files then open on your iPad and your Mac.</Tip>
+
+Fillet has no account and no project database. It never needs a network to open, edit or save a design.
+
+## Saving and undo
+
+There's no Save button on iPad. Fillet saves the design as you work, and again when you close it or leave the app.
+
+Undo takes back anything you did since you opened the design. Closing the design clears the undo history, but not your work: every step stays on the timeline, and you can still change any of them.
+
+On the Mac, a new design asks for a name and a folder the first time you save it with <Keys combo="⌘S" /> or close it. After that it saves by itself.
+
+<details class="ref">
+<summary>What a design file keeps</summary>
+
+Everything that makes the part is in the `.fillet` file. Open it on another device and you get the same part, for the same printer.
+
+| Saved in the design | Not saved |
+| --- | --- |
+| Every step on the timeline, and where the caliper sits | The camera view and zoom |
+| Parameters and their values | What's selected |
+| The printer that Print check uses | Section view and Measure |
+| Body colours, and which bodies are hidden | Visual style, which is an app setting |
+| Imported STEP shapes | |
+
+The file is plain JSON, which is why the browser shows lines of text as its preview. If Fillet says a design "was saved by a newer version of Fillet", update Fillet to open it.
+
+</details>
+
+<Callout guide="timeline" />
+
+## Import a STEP file
+
+A STEP file (`.step` or `.stp`) from another CAD app comes in as a solid body you can build on.
+
+1. Open the design you want to add it to.
+2. Tap **Import** in the tool strip.
+3. Find the STEP file and tap it.
+
+<Figure maxWidth={460} caption="Import is in the tool strip. The new body appears in the Bodies list, named after the file.">
+  <div class="fig-duo" style="--duo: 1fr">
+    <Shot src="/screens/files-and-icloud/import-tool.png" width="500" height="152" alt="The modelling tools in the tool strip: Extrude, Revolve, Primitive and Import, with Import marked." />
+    <Shot src="/screens/files-and-icloud/import-bodies.png" width="500" height="152" alt="The Bodies list after importing Motor mount.step: one body, Motor mount, marked." />
+  </div>
+</Figure>
+
+Fillet adds a step named after the file to the timeline, and a body to the **Bodies** list. Sketch on its faces, cut it or fillet its edges, as with any other body. On the Mac, choose **Design › Import STEP…** or press <Keys combo="⇧⌘I" />.
+
+The shape is copied into the design, so changing or deleting the STEP file later doesn't change your design. To bring in a newer version, import it again.
+
+<Note>An imported body has no sketch or dimensions behind it, so its step has nothing to edit. Change its shape by modelling on top of it.</Note>
+
+<Callout guide="print-check-and-export" text="To send a design to your printer or another CAD app, export it as 3MF, STL or STEP." />
+
+## Keep Fillet up to date on the Mac
+
+Fillet on the Mac updates itself from its releases on GitHub. It checks once a day, and **Fillet › Check for Updates…** checks now.
+
+1. When there's a new version, an orange **Update** button shows in the window's toolbar. Click it.
+2. Click **Install Update**.
+3. Click **Relaunch Now**, or keep working: the update installs when you quit Fillet.
+
+To stop the daily check, turn off **Check for updates automatically** in the update window. Checking for updates is the only time Fillet goes online.
+
+## Questions
+
+<FAQ>
+  <QA q="Do I need an account?">No. Fillet never asks you to sign in, and your designs stay on your devices unless you put them in iCloud Drive.</QA>
+  <QA q="Why is there no Fillet folder in iCloud Drive?">Fillet doesn't make one for you. Make a folder in iCloud Drive and move your designs into it.</QA>
+  <QA q="Can I read a .fillet file?">Yes. It's JSON: the steps, parameters and printer, in order. Editing it by hand can break the design, so work on a copy.</QA>
+  <QA q="Where are the Acknowledgements?">They list the open-source software inside Fillet, with its licences. On iPad, tap **Acknowledgements** on the launch screen. On the Mac, choose **Fillet › Acknowledgements**.</QA>
+</FAQ>

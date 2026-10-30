@@ -1,0 +1,25 @@
+{
+ "start": "new",
+ "orientation": "landscape",
+ "outDir": "../../../build/docs-shots/print-check-and-export",
+ "steps": [
+  {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Shelf bracket"}},
+  {"do": "mcp", "tool": "create_sketch", "arguments": {"name": "Profile", "plane": "xz", "shapes": [{"type": "polyline", "closed": true, "vertices": [[-25, 0], [-15, 0], [-15, 50], [25, 50], [25, 60], [-25, 60]]}]}},
+  {"do": "mcp", "tool": "extrude", "arguments": {"name": "Bracket", "sketch": "Profile", "distance": 30, "symmetric": true}},
+  {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+  {"do": "idle"},
+  {"do": "tap", "x": 580, "y": 437},
+  {"do": "idle"},
+  {"do": "screenshot", "path": "lay-flat-select.png"},
+  {"do": "dump", "path": "lay-flat-select-tree.txt"},
+  {"do": "tap", "label": "Lay flat on the bed"},
+  {"do": "idle"},
+  {"do": "screenshot", "path": "lay-flat-open.png"},
+  {"do": "tap", "label": "Done"},
+  {"do": "idle"},
+  {"do": "panel", "name": "overhangs", "show": true},
+  {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+  {"do": "idle"},
+  {"do": "screenshot", "path": "laid-flat.png"}
+ ]
+}

@@ -1,0 +1,9 @@
+---
+import Keys from './Keys.astro';
+interface Props { keys: string; note?: string }
+const { keys, note } = Astro.props;
+---
+<div class="shortcut" role="row">
+  <div class="shortcut-action" role="cell"><slot />{note && <span class="shortcut-note">{note}</span>}</div>
+  <div class="shortcut-keys" role="cell"><Keys combo={keys} /></div>
+</div>

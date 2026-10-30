@@ -1,0 +1,48 @@
+---
+title: "Expression reference"
+short: "Expressions"
+group: "Discover More"
+order: 3
+glyph: "parameters"
+blurb: "Every operator, unit and function a number field takes, and what each red message means."
+lede: "Any number field in Fillet takes a sum, a unit or a function as well as a number. This page lists them all, and what to do when a field turns red."
+related: ["parameters","holes","sketching","extrude-revolve-press-pull"]
+---
+
+## What you can type
+
+Expressions follow the usual order: brackets, then `^`, then `*` and `/`, then `+` and `-`. Spaces don't matter, and a decimal needs a point: `12.5`, not `12,5`.
+
+A plain number takes the field's unit: millimetres in a length, degrees in an angle. Counts, like the number of copies in a pattern, take plain numbers and round to the nearest whole one.
+
+| Type | To get |
+| --- | --- |
+| `+` `-` `*` `/` `^` `()` | Add, subtract, multiply, divide, power, group |
+| `mm` `cm` `m` `in` | Lengths: `1 in` is 25.4 mm |
+| `deg` (or `°`) `rad` | Angles: `(pi / 4) rad` is 45° |
+| `pi` (or `π`) | 3.14159… |
+| `sqrt(x)` | Square root: `sqrt(30^2 + 40^2)` is 50 |
+| `sin(a)` `cos(a)` `tan(a)` | Trigonometry, with `a` in degrees: `sin(30)` is 0.5 |
+| `asin(x)` `acos(x)` `atan(x)` | The angle back, in degrees: `atan(1)` is 45° |
+| `min(a, b, …)` `max(a, b, …)` | The smallest or largest of any number of values |
+| `abs(x)` `round(x)` `floor(x)` `ceil(x)` | Drop the sign, round to nearest, round down, round up |
+
+Units mix freely: `1 in + 2 mm` is 27.4 mm.
+
+## When a field turns red
+
+If Fillet can't work out what you typed, the field turns red and says why underneath. The design keeps the last value that worked, and if you leave the field while it's red, that value comes back.
+
+| Message | What to do |
+| --- | --- |
+| Unknown parameter 'widht' | Check the spelling, or add the parameter first. |
+| Function 'sqrt' needs parentheses | A function takes brackets: `sqrt(2)`. |
+| Missing ')' | Close every bracket you open. |
+| Missing operator between numbers | Put `+`, `-`, `*` or `/` between them: `2 * 3`, not `2 3`. |
+| Unknown unit 'ft' | Use `mm`, `cm`, `m` or `in` for lengths, `deg` or `rad` for angles. |
+| Expected a length, got angle | This field wants millimetres. Drop the angle unit. |
+| Expected a plain number, got length | Counts take no unit. Use a parameter without one. |
+| Cannot combine length and angle with '+' | Add lengths to lengths and angles to angles. |
+| Circular reference: a → b → a | Two parameters use each other. Give one of them a value of its own. |
+
+<Callout guide="parameters" text="Name a size once and use it in every step." />

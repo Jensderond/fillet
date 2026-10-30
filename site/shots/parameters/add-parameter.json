@@ -1,0 +1,80 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/parameters",
+  "steps": [
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "add-0-empty.png"
+    },
+    {
+      "do": "dump",
+      "path": "add-0-tree.txt"
+    },
+    {
+      "do": "tap",
+      "label": "Add parameter"
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "screenshot",
+      "path": "add-1-p1.png"
+    },
+    {
+      "do": "dump",
+      "path": "add-1-tree.txt"
+    },
+    {
+      "do": "tap",
+      "x": 96,
+      "y": 417
+    },
+    {
+      "do": "wait",
+      "seconds": 0.6
+    },
+    {
+      "do": "type",
+      "text": "\u007f\u007f\u007fwall"
+    },
+    {
+      "do": "wait",
+      "seconds": 0.8
+    },
+    {
+      "do": "key",
+      "key": "return"
+    },
+    {
+      "do": "type",
+      "into": {
+        "label": "=, millimetres",
+        "type": "textField"
+      },
+      "text": "2",
+      "clear": true
+    },
+    {
+      "do": "tap",
+      "label": "Hide keyboard"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "screenshot",
+      "path": "add-3-wall.png"
+    },
+    {
+      "do": "dump",
+      "path": "add-3-tree.txt"
+    }
+  ]
+}

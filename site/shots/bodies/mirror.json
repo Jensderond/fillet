@@ -1,0 +1,134 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/bodies",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Cradle"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Half",
+        "plane": "xz",
+        "shapes": [
+          {
+            "type": "polyline",
+            "closed": true,
+            "vertices": [
+              [
+                0,
+                0
+              ],
+              [
+                40,
+                0
+              ],
+              [
+                40,
+                30
+              ],
+              [
+                34,
+                30
+              ],
+              [
+                34,
+                6
+              ],
+              [
+                0,
+                6
+              ]
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "sketch": "Half",
+        "distance": 24
+      }
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          0,
+          -12,
+          12
+        ],
+        "size": 110
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "mirror-before-full.png"
+    },
+    {
+      "do": "mcp",
+      "tool": "mirror",
+      "arguments": {
+        "bodies": "Body 1",
+        "plane": "yz"
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "mirror-after-full.png"
+    },
+    {
+      "do": "tap",
+      "labelContains": "Mirror 1",
+      "type": "button"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          0,
+          -12,
+          12
+        ],
+        "size": 110
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "mirror-full.png"
+    },
+    {
+      "do": "dump",
+      "path": "mirror-tree.txt"
+    }
+  ]
+}

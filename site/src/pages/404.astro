@@ -1,0 +1,14 @@
+---
+import Base from '../layouts/Base.astro';
+import Search from '../components/Search.astro';
+---
+<Base title="Page not found" description="This page doesn't exist." noindex>
+  <div class="column hub-col">
+    <section class="hub-hero">
+      <img class="hub-icon" src="/brand/icon-128.png" alt="" width="76" height="76" />
+      <h1>Page not found</h1>
+      <p class="hub-sub">The link may be old, or the guide has moved. Search for what you need, or start from <a href="/">all guides</a>.</p>
+      <Search size="lg" placeholder="How can we help?" />
+    </section>
+  </div>
+</Base>

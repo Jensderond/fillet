@@ -1,0 +1,102 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/bodies",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Swing"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "primitive",
+      "arguments": {
+        "kind": "box",
+        "dimensions": {
+          "width": 20,
+          "depth": 12,
+          "height": 10
+        },
+        "at": [
+          40,
+          0,
+          0
+        ]
+      }
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "top",
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "size": 110
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "move-before-full.png"
+    },
+    {
+      "do": "mcp",
+      "tool": "move_bodies",
+      "arguments": {
+        "bodies": "Body 1",
+        "rotate": {
+          "axis": "z",
+          "angle": 90
+        }
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "labelContains": "Move 1",
+      "type": "button"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "top",
+        "target": [
+          0,
+          0,
+          0
+        ],
+        "size": 110
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "move-full.png"
+    },
+    {
+      "do": "dump",
+      "path": "move-tree.txt"
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+---
+/** Two-column grid for Callout or Card items; one column on phones. */
+interface Props { cols?: 2 | 3 }
+const { cols = 2 } = Astro.props;
+---
+<div class:list={['card-grid', `cols-${cols}`]}><slot /></div>

@@ -1,0 +1,17 @@
+---
+import { render } from 'astro:content';
+import Guide from '../../layouts/Guide.astro';
+import { allGuides } from '../../data/guides';
+import { mdxComponents } from '../../components/mdx';
+
+export async function getStaticPaths() {
+  const guides = await allGuides({ hidden: true });
+  return guides.map((guide) => ({ params: { slug: guide.id }, props: { guide } }));
+}
+const { guide } = Astro.props;
+const { Content, headings } = await render(guide);
+const stub = !(guide.body ?? '').trim();
+---
+<Guide guide={guide} headings={headings} stub={stub}>
+  <Content components={mdxComponents} />
+</Guide>

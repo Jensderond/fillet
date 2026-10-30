@@ -1,0 +1,77 @@
+---
+title: "Use parameters and expressions"
+short: "Parameters"
+group: "Select & Change"
+order: 2
+blurb: "Name your sizes and change the whole design from one place."
+lede: "Give a size a name, such as wall = 2, and type that name wherever a number goes. Change the value once, and every step that uses it follows."
+summary: "Every number field accepts an expression: + - * / ^ ( ), units mm, cm, in and deg, and the functions sqrt, sin, cos, tan, min, max, abs and round (verify the full list in ExprFunctions). A bare number means mm, or degrees for angles. A field with an expression shows its value underneath ('= 14 mm'). Invalid input shows the reason and isn't applied. Parameters live in the browser: Add parameter (named p1, p2… at 10), tap the name to rename it (every reference is renamed too; invalid or duplicate names are refused with a message), set its = expression (parameters can use other parameters), and delete with the trash button. Change one value and every step that uses it updates. Hole presets add 'clearance'. Worked example: width, wall and hole_d driving a holder."
+related: ["expressions","holes","timeline","patterns"]
+---
+
+## Name a value
+
+Parameters live at the bottom of the browser, the sidebar on the left. If it's hidden, tap <Ui>Browser</Ui> at the left end of the tool strip.
+
+1. Under **Parameters**, tap <Ui>Add parameter</Ui>. A card appears, named `p1` and set to 10 mm.
+2. Tap `p1`, type a name such as `wall`, and press Return.
+3. Tap the field after **=** and type the value, such as `2`.
+
+<Figure narrow caption="Add parameter makes p1. Give it a name and a value.">
+  <div class="fig-duo">
+    <Shot src="/screens/parameters/add-p1.png" width="504" height="420" alt="The Parameters list with one new card, p1 = 10 mm, and Add parameter under it." />
+    <Shot src="/screens/parameters/add-wall.png" width="504" height="420" alt="The same card renamed: wall = 2 mm." />
+  </div>
+</Figure>
+
+A name uses letters, digits and `_`, and can't be a unit or function such as `in` or `sin`. If Fillet can't use a name, it says why under the card and keeps the old one.
+
+## Use it in any field
+
+Type the name wherever a number goes, and mix in sums and units: `height - wall`, `width / 3`, `1 in + wall`.
+
+1. Open a step: tap its station on the timeline, or start a new one.
+2. Tap a field and type an expression with the name, such as `height - wall`.
+3. Tap <Ui>Done</Ui>.
+
+The field keeps what you typed and shows what it comes to underneath.
+
+<Figure narrow caption="In this pen holder, height is 40 and wall is 2, so the holes are cut 38 mm deep.">
+  <div class="fig-duo" style="--duo: 504fr 628fr">
+    <Shot src="/screens/parameters/use-list.png" width="504" height="520" alt="Two parameter cards: height = 40 mm and wall = 2 mm." />
+    <Shot src="/screens/parameters/use-field.png" width="628" height="576" alt="The Holes step in the inspector. Distance reads height - wall, with = 38 mm under it." />
+  </div>
+</Figure>
+
+Every number field takes maths, with or without parameters, including a sketch's **Width** and a hole's **X** and **Y**.
+
+<Callout guide="expressions" title="Expression reference" text="Every unit and function you can type, and what each red message means." />
+
+## Change it once
+
+Change a parameter's value, and every step that uses it rebuilds. In the pen holder, set `hole_d` to 16 for fatter markers. The holes grow, and the block grows 2 mm around them to keep its walls. Nothing else needs touching.
+
+<Tip title="Name what you'll tune">Make a parameter for each size you expect to change: a wall, a fit, a screw size. Screw holes made from a preset already share one, `clearance`, so you can [tune them for your printer](/guides/holes/#tune-the-fit-for-your-printer).</Tip>
+
+### If a step turns red
+
+A step remembers each profile by the spot you tapped. If a change moves a profile away from that spot, the step turns red on the timeline. Set `width` to 120, and the outer holes slide away: *Holes failed: A selected profile no longer exists — reselect it*.
+
+<Figure narrow maxWidth={420} src="/screens/parameters/red-station.png" width={604} height={148} alt="The timeline: Base, Block, Pen holes, and Holes in red with a red dot." caption="The step that needs you turns red." />
+
+<div class="split" style="--split: 314px">
+<div>
+
+1. Tap the red station.
+2. Tap <Ui>Clear</Ui> next to the profile count.
+3. Tap each profile again, then tap <Ui>Done</Ui>.
+
+</div>
+<Figure src="/screens/parameters/red-clear.png" width={628} height={416} alt="The Holes step: A selected profile no longer exists — reselect it, and 3 profiles picked with Clear." caption="Clear the old picks, then tap the profiles again." />
+</div>
+
+## Rename or delete a parameter
+
+To rename a parameter, tap its name and type a new one. Fillet rewrites every expression that uses it, so nothing breaks.
+
+To delete one, tap the trash button on its card. Steps that used it turn red, with a message such as *Unknown parameter 'hole_d'*. Undo brings it back.

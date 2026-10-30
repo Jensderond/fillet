@@ -1,0 +1,9 @@
+---
+/**
+ * A hairline table of shortcuts. Fill with <Shortcut keys="⇧⌘K">New Sketch</Shortcut> rows.
+ * `columns={2}` sets short rows (single keys, no notes) side by side.
+ */
+interface Props { title?: string; columns?: 1 | 2 }
+const { columns = 1 } = Astro.props;
+---
+<div class:list={['shortcuts', { 'shortcuts-2': columns === 2 }]} role="table"><slot /></div>

@@ -1,0 +1,136 @@
+---
+title: "Extrude, revolve and Press Pull"
+short: "Extrude & revolve"
+group: "Sketch & Model"
+order: 2
+blurb: "Turn a sketch into a solid, cut pockets and push faces."
+lede: "Extrude pushes a flat sketch up into a solid, Revolve spins it around an axis, and Press Pull moves the faces of a solid you already have. All three work the same way: pick, set a size, tap Done."
+summary: "Extrude (E): uses the open sketch, else the newest unused one, else the newest. The camera swings to 3D when you were looking at the sketch head-on. A lone profile is picked for you; otherwise tap profiles (hint 'Tap the profiles to use'). The inspector shows the profile count with Clear, then Operation (New, Join, Cut, Intersect; Join is the default for a sketch on a face), Distance, Direction (One side, Symmetric, or Two sides with a Back distance), Taper and Flip direction. Drag the orange arrow in the viewport to set the distance in 0.1 mm steps. Finish with Done (Return) or Cancel (Esc). Pocket recipe: sketch on a face, then Extrude with Cut. Revolve: the same profile picking and operations, but Operation always starts at New, even on a face. Plus an Axis (Sketch X, Sketch Y, or any line in the sketch in drawing order; a chosen line is highlighted in the viewport; the first construction line is chosen automatically, else Sketch Y) and an Angle (360 by default). Press Pull (Q) depends on what you've picked: edges start a fillet; a sketch with unused profiles starts an extrude; otherwise it moves the picked faces, or lets you tap faces. A positive distance pulls faces out and adds material, a negative one pushes them in, and you can drag the arrow. Covers the tool-strip messages such as 'Needs a closed shape in the sketch'. Every distance accepts expressions and parameters."
+related: ["sketching","fillet-chamfer-shell","parameters","timeline"]
+---
+
+## Extrude a sketch
+
+Extrude lifts a closed shape from a sketch, like a rectangle or a circle, straight up into a solid.
+
+1. Draw a closed shape with <Ui icon="sketching">Sketch</Ui>. You can leave the sketch open.
+2. Tap <Ui icon="extrude-revolve-press-pull">Extrude</Ui> in the tool strip, or press <Keys combo="E" />.
+3. Tap the profiles you want to extrude. Tap a picked one again to drop it.
+4. Type a **Distance**, or drag the orange arrow.
+5. Tap **Done**, or press <Keys combo="↩" />.
+
+<Tour src="/screens/extrude-revolve-press-pull/extrude-editing.png" width={1600} height={1217}
+  alt="A 60 by 30 mm plate being extruded 12 mm. The plate profile is blue, the round hole is left out, an orange arrow stands on the plate and the inspector shows 1 profile picked, New, Distance 12 mm, One side, Taper 0 and Flip direction."
+  pins={[
+    { x: 25, y: 66, label: "Picked profile", text: "Picked profiles turn blue. The circle isn't picked, so it stays a hole." },
+    { x: 40.6, y: 47, label: "Distance arrow", text: "Drag it to set the distance. The label shows the value as you drag." },
+    { x: 80.6, y: 32.8, label: "Distance", text: "Type a number or an expression. It always matches the arrow." },
+    { x: 81.3, y: 95.6, label: "Done", text: "Keeps the step. Cancel, or Esc, throws it away." }
+  ]} />
+
+A profile is a closed area of the sketch. A circle inside a rectangle makes two: the plate around the circle, and the circle itself. When the sketch has only one profile, it's picked for you. Until a profile is picked, the inspector shows **Select at least one profile**.
+
+Dragging the arrow changes the distance in 0.1 mm steps. Drag it back through the sketch to extrude the other way.
+
+<Note>Extrude uses the sketch that's open. With none open, it takes the newest sketch that no step uses yet, and otherwise the newest sketch. If you were looking straight down at the sketch, the view turns to 3D so you can see the solid grow.</Note>
+
+## Choose what the extrude does
+
+The rest of the inspector decides what the solid does to other bodies and which way it grows. Change any setting before you tap **Done**, and the preview follows.
+
+**Operation** sets what happens where the solid meets a body:
+
+| Operation | What it does |
+| --- | --- |
+| **New** | Makes a separate body. This is the default for a sketch on a plane. |
+| **Join** | Adds the solid to the bodies it touches. This is the default for a sketch on a face. If it touches nothing, you get a new body. |
+| **Cut** | Removes the solid from the bodies it touches. |
+| **Intersect** | Keeps only the part where the solid and the bodies overlap. |
+
+**Direction**, **Taper** and **Flip direction** shape the solid itself:
+
+| Setting | What it does |
+| --- | --- |
+| **One side** | Extrudes the distance in one direction. |
+| **Symmetric** | Splits the distance in half, one half to each side of the sketch. |
+| **Two sides** | Extrudes **Distance** one way and **Back** the other way. |
+| **Taper** | Tilts the walls by this angle, in degrees, so the solid narrows or widens as it rises. |
+| **Flip direction** | Sends the extrude to the other side of the sketch. |
+
+## Cut a pocket
+
+A pocket is a sketch on a face, extruded into the part with **Cut**. Use the same steps for a slot, a recess or a cut-out that goes all the way through.
+
+1. Tap <Ui icon="sketching">Sketch</Ui>, then tap the face you want to cut into.
+2. Draw the pocket's outline, then tap **Finish sketch**.
+3. Tap <Ui icon="extrude-revolve-press-pull">Extrude</Ui>. Because the sketch is on a face, **Operation** starts at **Join**.
+4. Tap **Cut**.
+5. Type the depth as a negative number, such as `-6`, so the cut goes down into the part. Tap **Done**.
+
+<Figure src="/screens/extrude-revolve-press-pull/cut-pocket.png" width={1600} height={1217} alt="A slot sketched on top of the plate, extruded with Cut at -6 mm. The preview shows the slot sunk into the plate." caption="With Cut and -6 mm, the preview shows the pocket before you commit." />
+
+To cut all the way through, use a depth at least as deep as the part. If nothing is cut, or the inspector shows **The cut doesn't touch any body**, the cut points away from the part: tap **Flip direction**.
+
+<Callout guide="holes" text="For screw holes, the Hole tool sizes clearance, counterbores and inserts for you." />
+
+## Revolve a profile
+
+Revolve spins a profile around an axis. Use it for anything round: knobs, wheels, spacers and bottle caps.
+
+1. Touch and hold <Ui icon="sketching">Sketch</Ui> and choose **On XZ (front)**, so the sketch stands up.
+2. Draw half the outline, on one side of where the axis will be.
+3. Turn on **Draw construction lines** in the inspector and draw a line along the axis.
+4. Tap <Ui icon="extrude-revolve-press-pull">Revolve</Ui>. The construction line becomes the **Axis**.
+5. Set the **Angle**: 360 for a full turn, less for part of one. Then tap **Done**.
+
+<Figure src="/screens/extrude-revolve-press-pull/revolve-axis.png" width={1600} height={1217} alt="A knob revolved from a half profile. The axis line is dashed blue through the middle and the inspector shows Axis Line 1 and Angle 360." caption="A line you choose as the axis is highlighted in the viewport, so you can see what the profile spins around." />
+
+To use another axis, tap the **Axis** menu. **Sketch X** and **Sketch Y** are the sketch's own axes, and aren't highlighted. **Line 1**, **Line 2** and so on are the lines in the sketch, in the order you drew them. Without a construction line, the axis starts at **Sketch Y**.
+
+Profiles work as they do for Extrude. **Operation** always starts at **New**, even for a sketch on a face, so tap **Join** or **Cut** when the revolve should add to a body or cut into it. Revolve has no arrow: type the angle.
+
+## Push and pull faces
+
+Press Pull moves the faces of a solid. Pull the top of a plate up 3 mm and the plate is 3 mm thicker. The faces around it stretch to follow, and it stays one body.
+
+1. Tap the faces you want to move. They must be on the same body.
+2. Tap <Ui icon="extrude-revolve-press-pull">Press Pull</Ui>, or press <Keys combo="Q" />.
+3. Type a **Distance**, or drag the arrow.
+4. Tap **Done**.
+
+<Figure src="/screens/extrude-revolve-press-pull/press-pull-face.png" width={1600} height={1217} alt="The plate's top face picked in blue with an orange arrow on it. The inspector shows 1 face picked, Distance 3 mm and Flip direction." caption="A positive distance pulls the face out and adds material. A negative one pushes it in." />
+
+If you tap **Press Pull** with nothing picked, it opens anyway and waits: tap the faces to move, and tap one again to drop it. The distance starts at 2 mm.
+
+Press Pull also moves round faces. Push a hole's wall with a positive distance to make the hole narrower, or a negative one to widen it. The arrow appears on flat faces only, so type the distance for a round one.
+
+### Press Pull picks the tool for you
+
+Press Pull looks at what you've picked and starts the tool that fits:
+
+- **Edges picked:** it starts a [Fillet](/guides/fillet-chamfer-shell/) on them.
+- **A sketch no step uses yet, and no faces picked:** it starts an Extrude of that sketch. It does the same while a sketch is open.
+- **Faces picked:** it moves them.
+- **Nothing picked:** it waits for you to tap faces.
+
+## Use parameters and expressions
+
+Every **Distance**, **Back**, **Taper** and **Angle** field takes an expression as well as a number. Type `thickness`, `width / 2` or `3 + 0.2`, and the field shows the result under it. Change the [parameter](/guides/parameters/) later and the solid follows.
+
+**Flip direction** keeps an expression: `depth` becomes `-(depth)`. Dragging the arrow replaces the expression with a plain number.
+
+To change an extrude, revolve or Press Pull later, tap its step in the [timeline](/guides/timeline/). It opens in the inspector with the same settings.
+
+## When a tool won't start
+
+A tool that can't run right now looks dimmed. Tap it to see why. If a step goes wrong, the inspector shows the problem in red above the settings.
+
+<FAQ>
+  <QA q="Needs a sketch. Draw a closed shape with Sketch first.">There is no sketch yet. Extrude and Revolve need one to start from.</QA>
+  <QA q="Needs a closed shape in the sketch, like a rectangle or circle.">The sketch has lines, but they don't enclose an area. Close the gap, or draw a rectangle or circle.</QA>
+  <QA q="Needs a body or a closed shape in a sketch. Draw one with Sketch first.">Press Pull has nothing to work on yet. Draw a closed shape, then extrude it.</QA>
+  <QA q="Finish Extrude 1 first: Done or Cancel.">Another step is open. Tap **Done** or **Cancel** in the inspector first.</QA>
+  <QA q="Select at least one profile">Tap a profile in the sketch. With two or more, nothing is picked for you.</QA>
+  <QA q="The cut doesn't touch any body">The cut points away from the part, or the sketch is somewhere else. Tap **Flip direction**, or check the sketch's position.</QA>
+  <QA q="A selected profile no longer exists — reselect it">You changed the sketch and the picked area is gone. Tap **Clear**, then tap the profiles again.</QA>
+</FAQ>

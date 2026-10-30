@@ -1,0 +1,23 @@
+---
+interface Props { current?: string }
+const { current } = Astro.props;
+---
+<header class="site-header">
+  <div class="wrap">
+    <div class="site-header-inner">
+      <a class="brand" href="/" aria-label="Fillet Guide home">
+        <img src="/brand/icon-64.png" alt="" width="30" height="30" />
+        <span class="brand-name">Fillet <span class="brand-sub">Guide</span></span>
+      </a>
+      <nav class="site-nav" aria-label="Site">
+        <a href="/" aria-current={current === 'hub' ? 'page' : undefined}>Guides</a>
+        <a href="/guides/keyboard-shortcuts/" aria-current={current === 'keyboard-shortcuts' ? 'page' : undefined}>Shortcuts</a>
+        <a href="/guides/install/" aria-current={current === 'install' ? 'page' : undefined}>Download</a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Switch between light and dark">
+          <svg class="sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M10 1.8v2.1M10 16.1v2.1M1.8 10h2.1M16.1 10h2.1M4.2 4.2l1.5 1.5M14.3 14.3l1.5 1.5M4.2 15.8l1.5-1.5M14.3 5.7l1.5-1.5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+          <svg class="moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M16.5 12.6A7 7 0 0 1 7.4 3.5a7 7 0 1 0 9.1 9.1Z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+        </button>
+      </nav>
+    </div>
+  </div>
+</header>

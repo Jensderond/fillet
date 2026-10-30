@@ -1,0 +1,123 @@
+{
+  "start": "new",
+  "outDir": "../../../build/docs-shots/extrude-revolve-press-pull",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Plate"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Plate sketch",
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "rectangle",
+            "anchor": "corner",
+            "position": [
+              0,
+              0
+            ],
+            "width": 60,
+            "height": 30
+          },
+          {
+            "type": "circle",
+            "center": [
+              15,
+              15
+            ],
+            "diameter": 14
+          }
+        ]
+      }
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          15,
+          0,
+          6
+        ],
+        "size": 100
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Extrude"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "x": 667,
+      "y": 615
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "type",
+      "into": {
+        "labelContains": "Distance",
+        "type": "textField"
+      },
+      "text": "12",
+      "clear": true
+    },
+    {
+      "do": "wait",
+      "seconds": 0.5
+    },
+    {
+      "do": "tap",
+      "x": 1329,
+      "y": 977
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          15,
+          0,
+          6
+        ],
+        "size": 100
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "extrude-editing.png"
+    },
+    {
+      "do": "dump",
+      "path": "extrude-editing.txt"
+    }
+  ]
+}

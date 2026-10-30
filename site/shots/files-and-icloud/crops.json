@@ -1,0 +1,199 @@
+[
+ {
+  "src": "launch-screen.png",
+  "out": "new-design.png",
+  "rect": [
+   478,
+   96,
+   410,
+   356
+  ],
+  "rings": [
+   [
+    537,
+    316,
+    292,
+    62.5,
+    31
+   ]
+  ]
+ },
+ {
+  "src": "launch-screen.png",
+  "out": "browser.png",
+  "rect": [
+   326,
+   515,
+   530,
+   265
+  ],
+  "rings": [
+   [
+    569,
+    526,
+    282,
+    43,
+    21.5
+   ]
+  ]
+ },
+ {
+  "src": "title-bar.png",
+  "out": "title.png",
+  "rect": [
+   4,
+   25,
+   300,
+   73
+  ],
+  "rings": [
+   [
+    58,
+    37,
+    96,
+    34,
+    17
+   ]
+  ]
+ },
+ {
+  "src": "title-menu.png",
+  "out": "title-rename.png",
+  "rect": [
+   4,
+   25,
+   300,
+   73
+  ],
+  "rings": [
+   [
+    66,
+    45.5,
+    224,
+    50,
+    25
+   ]
+  ]
+ },
+ {
+  "src": "file-menu.png",
+  "out": "file-menu.png",
+  "rect": [
+   512,
+   86,
+   260,
+   482
+  ],
+  "rings": [
+   [
+    607,
+    212,
+    69,
+    64,
+    14
+   ],
+   [
+    535,
+    327,
+    212,
+    72,
+    12
+   ]
+  ]
+ },
+ {
+  "src": "move.png",
+  "out": "move.png",
+  "rect": [
+   288,
+   193,
+   792,
+   188
+  ],
+  "rings": [
+   [
+    318,
+    302,
+    276,
+    40,
+    12
+   ]
+  ]
+ },
+ {
+  "src": "move.png",
+  "out": "move-phone.png",
+  "rect": [
+   296,
+   196,
+   494,
+   185
+  ],
+  "rings": [
+   [
+    318,
+    302,
+    276,
+    40,
+    12
+   ]
+  ]
+ },
+ {
+  "src": "launch-screen.png",
+  "out": "browser-phone.png",
+  "rect": [
+   348,
+   512,
+   512,
+   236
+  ],
+  "rings": [
+   [
+    569,
+    526,
+    282,
+    43,
+    21.5
+   ]
+  ]
+ },
+ {
+  "src": "import-step.png",
+  "out": "import-tool.png",
+  "rect": [
+   212,
+   83,
+   250,
+   76
+  ],
+  "rings": [
+   [
+    393,
+    97,
+    62,
+    48,
+    10
+   ]
+  ]
+ },
+ {
+  "src": "import-step.png",
+  "out": "import-bodies.png",
+  "rect": [
+   0,
+   166,
+   250,
+   76
+  ],
+  "rings": [
+   [
+    14,
+    202,
+    222,
+    36,
+    10
+   ]
+  ]
+ }
+]

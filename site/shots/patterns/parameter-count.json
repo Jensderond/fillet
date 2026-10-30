@@ -1,0 +1,111 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Pattern Plate"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "length",
+        "expression": "80"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_parameter",
+      "arguments": {
+        "name": "pitch",
+        "expression": "20"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "rectangle",
+            "anchor": "corner",
+            "position": [
+              0,
+              0
+            ],
+            "width": "length",
+            "height": 30
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "sketch": "Sketch 1",
+        "distance": 10
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "circle",
+            "center": [
+              10,
+              15
+            ],
+            "diameter": 8
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "sketch": "Sketch 2",
+        "distance": 10,
+        "operation": "cut",
+        "targets": "Extrude 1"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "pattern",
+      "arguments": {
+        "features": [
+          "Extrude 2"
+        ],
+        "layout": "linear",
+        "axis": "x",
+        "count": "floor(length / pitch)",
+        "spacing": "pitch"
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Step 5, Pattern 1"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "parameter-full.png"
+    }
+  ],
+  "outDir": "../../../build/docs-shots/patterns"
+}

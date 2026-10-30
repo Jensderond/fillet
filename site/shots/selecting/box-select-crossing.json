@@ -1,0 +1,156 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/selecting",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Plate"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Outline",
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "rectangle",
+            "anchor": "center",
+            "position": [
+              0,
+              0
+            ],
+            "width": 80,
+            "height": 50
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "name": "Plate",
+        "sketch": "Outline",
+        "distance": 8
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "fillet",
+      "arguments": {
+        "name": "Corners",
+        "body": "Plate",
+        "edges": {
+          "type": "line",
+          "parallel_to": [
+            0,
+            0,
+            1
+          ]
+        },
+        "radius": 8
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "create_sketch",
+      "arguments": {
+        "name": "Holes",
+        "plane": "xy",
+        "shapes": [
+          {
+            "type": "circle",
+            "center": [
+              -30,
+              -15
+            ],
+            "diameter": 3.4
+          },
+          {
+            "type": "circle",
+            "center": [
+              30,
+              -15
+            ],
+            "diameter": 3.4
+          },
+          {
+            "type": "circle",
+            "center": [
+              -30,
+              15
+            ],
+            "diameter": 3.4
+          },
+          {
+            "type": "circle",
+            "center": [
+              30,
+              15
+            ],
+            "diameter": 3.4
+          }
+        ]
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "extrude",
+      "arguments": {
+        "name": "Screw holes",
+        "sketch": "Holes",
+        "distance": 8,
+        "operation": "cut",
+        "targets": "Plate"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso"
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Box select"
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "screenshot",
+      "path": "box-bar.png"
+    },
+    {
+      "do": "drag",
+      "from": {
+        "x": 1000,
+        "y": 515
+      },
+      "to": {
+        "x": 800,
+        "y": 755
+      },
+      "press": 0.05,
+      "velocity": 150,
+      "hold": 14
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "screenshot",
+      "path": "box-after.png"
+    }
+  ]
+}

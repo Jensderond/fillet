@@ -1,0 +1,20 @@
+{
+  "name": "fillet-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "deploy": "astro build && wrangler deploy"
+  },
+  "dependencies": {
+    "@astrojs/mdx": "8.1.2",
+    "astro": "7.4.4"
+  },
+  "devDependencies": {
+    "sharp": "0.35.5",
+    "wrangler": "4.131.2"
+  }
+}

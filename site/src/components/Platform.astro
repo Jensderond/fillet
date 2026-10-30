@@ -1,0 +1,5 @@
+---
+interface Props { name: string }
+const id = Astro.props.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+---
+<div class="platform-panel" data-platform-panel={id} role="tabpanel"><slot /></div>

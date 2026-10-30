@@ -1,0 +1,84 @@
+---
+import '../styles/global.css';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+import Glyph from '../components/Glyph.astro';
+import { GLYPHS } from '../components/glyphs';
+
+interface Props {
+  title: string; description?: string; current?: string; footer?: boolean; noindex?: boolean;
+  /** Social preview image (see src/pages/og/[slug].png.ts); the hub's by default. */
+  image?: string;
+}
+const { title, description = 'How to design 3D-printable parts with Fillet on iPad and Mac.', current, footer = true, noindex = false, image = '/og/index.png' } = Astro.props;
+const fullTitle = current === 'hub' ? 'Fillet Guide' : `${title} · Fillet Guide`;
+const canonical = new URL(Astro.url.pathname, Astro.site);
+const imageUrl = new URL(image, Astro.site);
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{fullTitle}</title>
+    <meta name="description" content={description} />
+    {noindex ? <meta name="robots" content="noindex" /> : <link rel="canonical" href={canonical} />}
+    <meta property="og:type" content={current === 'hub' ? 'website' : 'article'} />
+    <meta property="og:site_name" content="Fillet Guide" />
+    <meta property="og:title" content={current === 'hub' ? 'Fillet Guide' : title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={imageUrl} />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content={current === 'hub' ? 'Fillet Guide' : `${title}, a Fillet guide`} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0e1320" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/png" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <script is:inline>
+      try { const t = localStorage.getItem('fillet-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch {}
+    </script>
+  </head>
+  <body>
+    <div class="page">
+      <Header current={current} />
+      <main id="main"><slot /></main>
+      {footer && <Footer />}
+    </div>
+    {Object.keys(GLYPHS).map((name) => (
+      <template data-glyph={name}><Glyph name={name} size="sm" /></template>
+    ))}
+    <script>
+      // Light/dark: follows the system until you choose; the choice is remembered.
+      const root = document.documentElement;
+      const isDark = () => root.dataset.theme ? root.dataset.theme === 'dark' : matchMedia('(prefers-color-scheme: dark)').matches;
+      document.querySelectorAll('[data-theme-toggle]').forEach((b) => b.addEventListener('click', () => {
+        const next = isDark() ? 'light' : 'dark';
+        root.dataset.theme = next;
+        try { localStorage.setItem('fillet-theme', next); } catch {}
+      }));
+
+      // iPad | Mac switches: all on the page follow the last choice.
+      const KEY = 'fillet-platform';
+      const show = (id: string) => {
+        document.querySelectorAll<HTMLElement>('[data-platforms]').forEach((box) => {
+          const ids = [...box.querySelectorAll<HTMLElement>(':scope > .seg [data-platform-btn]')].map((b) => b.dataset.platformBtn!);
+          const pick = ids.includes(id) ? id : ids[0];
+          box.querySelectorAll<HTMLElement>(':scope > .seg [data-platform-btn]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.platformBtn === pick)));
+          box.querySelectorAll<HTMLElement>(':scope > [data-platform-panel]').forEach((p) => { p.hidden = p.dataset.platformPanel !== pick; });
+        });
+      };
+      let saved = '';
+      try { saved = localStorage.getItem(KEY) ?? ''; } catch {}
+      show(saved);
+      document.addEventListener('click', (ev) => {
+        const b = (ev.target as HTMLElement).closest<HTMLElement>('[data-platform-btn]');
+        if (!b) return;
+        show(b.dataset.platformBtn!);
+        try { localStorage.setItem(KEY, b.dataset.platformBtn!); } catch {}
+      });
+    </script>
+  </body>
+</html>

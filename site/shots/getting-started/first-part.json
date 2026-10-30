@@ -1,0 +1,339 @@
+{
+ "start": "new",
+ "orientation": "landscape",
+ "outDir": "../../../build/docs-shots/getting-started",
+ "steps": [
+  {
+   "do": "mcp",
+   "tool": "rename_design",
+   "arguments": {
+    "name": "Mounting plate"
+   }
+  },
+  {
+   "do": "mcp",
+   "tool": "create_sketch",
+   "arguments": {
+    "name": "Sketch 1",
+    "plane": "xy",
+    "shapes": [
+     {
+      "type": "rectangle",
+      "anchor": "corner",
+      "position": [
+       0,
+       0
+      ],
+      "width": 80,
+      "height": 30
+     }
+    ]
+   }
+  },
+  {
+   "do": "panel",
+   "name": "browser",
+   "show": false
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "labelContains": "Sketch 1",
+   "type": "button"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "tap",
+   "label": "Select"
+  },
+  {
+   "do": "tap",
+   "x": 342,
+   "y": 759.5
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "screenshot",
+   "path": "fp-sketch.png"
+  },
+  {
+   "do": "dump",
+   "path": "fp-sketch-tree.txt"
+  },
+  {
+   "do": "tap",
+   "label": "Finish sketch"
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "mcp",
+   "tool": "extrude",
+   "arguments": {
+    "name": "Extrude 1",
+    "sketch": "Sketch 1",
+    "distance": 6
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "label": "Step 2, Extrude 1"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso",
+    "target": [
+     -1,
+     -26,
+     3
+    ],
+    "size": 165
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "screenshot",
+   "path": "fp-extrude.png"
+  },
+  {
+   "do": "dump",
+   "path": "fp-extrude-tree.txt"
+  },
+  {
+   "do": "tap",
+   "label": "Done"
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "mcp",
+   "tool": "fillet",
+   "arguments": {
+    "name": "Fillet 1",
+    "body": "Extrude 1",
+    "edges": {
+     "type": "line",
+     "parallel_to": [
+      0,
+      0,
+      1
+     ]
+    },
+    "radius": 5
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "label": "Step 3, Fillet 1"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso",
+    "target": [
+     -1,
+     -26,
+     3
+    ],
+    "size": 165
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "x": 1320,
+   "y": 329
+  },
+  {
+   "do": "wait",
+   "seconds": 0.8
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "screenshot",
+   "path": "fp-fillet.png"
+  },
+  {
+   "do": "tap",
+   "label": "Done"
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "mcp",
+   "tool": "hole",
+   "arguments": {
+    "name": "Hole 1",
+    "body": "Extrude 1",
+    "face": {
+     "type": "plane",
+     "extreme": "+z"
+    },
+    "points": [
+     [
+      12,
+      15,
+      6
+     ],
+     [
+      68,
+      15,
+      6
+     ]
+    ],
+    "preset": "m3-counterbore",
+    "through_all": true
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "label": "Step 4, Hole 1"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.5
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso",
+    "target": [
+     -1,
+     -26,
+     3
+    ],
+    "size": 165
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "screenshot",
+   "path": "fp-hole.png"
+  },
+  {
+   "do": "dump",
+   "path": "fp-hole-tree.txt"
+  },
+  {
+   "do": "tap",
+   "label": "Done"
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "panel",
+   "name": "browser",
+   "show": true
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso"
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "screenshot",
+   "path": "fp-tour.png"
+  },
+  {
+   "do": "dump",
+   "path": "fp-tour-tree.txt"
+  },
+  {
+   "do": "panel",
+   "name": "browser",
+   "show": false
+  },
+  {
+   "do": "wait",
+   "seconds": 1
+  },
+  {
+   "do": "mcp",
+   "tool": "set_view",
+   "arguments": {
+    "view": "iso",
+    "target": [
+     -1,
+     -26,
+     3
+    ],
+    "size": 165
+   }
+  },
+  {
+   "do": "idle"
+  },
+  {
+   "do": "tap",
+   "label": "Export",
+   "type": "button"
+  },
+  {
+   "do": "wait",
+   "seconds": 1.2
+  },
+  {
+   "do": "screenshot",
+   "path": "fp-export.png",
+   "settle": false
+  },
+  {
+   "do": "dump",
+   "path": "fp-export-tree.txt"
+  }
+ ]
+}

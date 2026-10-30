@@ -1,0 +1,103 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../../build/docs-shots/section-view",
+  "steps": [
+    {
+      "do": "mcp",
+      "tool": "rename_design",
+      "arguments": {
+        "name": "Mount Plate"
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "primitive",
+      "arguments": {
+        "name": "Plate",
+        "kind": "box",
+        "dimensions": {
+          "width": 60,
+          "depth": 30,
+          "height": 12
+        }
+      }
+    },
+    {
+      "do": "mcp",
+      "tool": "hole",
+      "arguments": {
+        "body": "Plate",
+        "face": {
+          "type": "plane",
+          "extreme": "+z"
+        },
+        "points": [
+          [
+            -15,
+            0,
+            12
+          ],
+          [
+            15,
+            0,
+            12
+          ]
+        ],
+        "preset": "m3-counterbore",
+        "through_all": true
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "panel",
+      "name": "browser",
+      "show": false
+    },
+    {
+      "do": "wait",
+      "seconds": 1
+    },
+    {
+      "do": "mcp",
+      "tool": "set_view",
+      "arguments": {
+        "view": "iso",
+        "target": [
+          0,
+          0,
+          4
+        ],
+        "size": 62
+      }
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "tap",
+      "label": "Section"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.2
+    },
+    {
+      "do": "tap",
+      "label": "XZ plane"
+    },
+    {
+      "do": "idle"
+    },
+    {
+      "do": "wait",
+      "seconds": 1.5
+    },
+    {
+      "do": "screenshot",
+      "path": "section-handles.png"
+    }
+  ]
+}
