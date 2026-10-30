@@ -130,7 +130,8 @@ final class GPUBody {
 @MainActor
 public final class ViewportRenderer: NSObject {
     public static let colorFormat: MTLPixelFormat = .bgra8Unorm_srgb
-    public static let depthFormat: MTLPixelFormat = .depth32Float
+    /// Depth with stencil: the stencil finds where a section plane lies inside a body (caps).
+    public static let depthFormat: MTLPixelFormat = .depth32Float_stencil8
     public static let sampleCount = 4
 
     public let device: MTLDevice
@@ -146,6 +147,11 @@ public final class ViewportRenderer: NSObject {
     private let pGrid: MTLRenderPipelineState
     private let pHull: MTLRenderPipelineState
     private let pShadow: MTLRenderPipelineState
+    /// Section caps: the stencil parity pass over a body's remaining surface, and the cap itself.
+    private let pSectionMask: MTLRenderPipelineState
+    private let pCap: MTLRenderPipelineState
+    /// The section's outline sliced from a body's mesh on the GPU (`section_outline_vertex`).
+    private let pSectionOutline: MTLRenderPipelineState
     /// Resets depth to the far plane over the whole target (a mid-pass depth clear).
     private let pDepthReset: MTLRenderPipelineState
     private let dsGreater: MTLDepthStencilState
@@ -154,6 +160,19 @@ public final class ViewportRenderer: NSObject {
     private let dsLess: MTLDepthStencilState
     private let dsAlways: MTLDepthStencilState
     private let dsReset: MTLDepthStencilState
+    /// Flips the stencil bit for every fragment (no depth test).
+    private let dsCapMask: MTLDepthStencilState
+    /// Draws where the inside bit is set, with the usual depth test, and marks the cap's pixels.
+    private let dsCapFill: MTLDepthStencilState
+    /// Clears the stencil wherever it draws (no depth test).
+    private let dsCapClear: MTLDepthStencilState
+    /// Depth tested, and only where no cap was drawn: a cap's outline runs round it, never over it,
+    /// so a thin wall's cap keeps its whole width.
+    private let dsOutsideCaps: MTLDepthStencilState
+    /// Stencil bits: the parity of a body's surface along each pixel's ray (inside the solid where
+    /// it meets the plane), and a cap drawn there.
+    static let insideBit: UInt32 = 1
+    static let capBit: UInt32 = 2
     private let zeroBuffer: MTLBuffer
     private let cone: GPUBody
 
@@ -168,12 +187,24 @@ public final class ViewportRenderer: NSObject {
     }
     /// Handle currently being dragged (drawn highlighted).
     public var activeHandleID: String?
+    /// Frames drawn to the view so far (scripted runs count them to measure the frame rate).
+    public private(set) var framesDrawn = 0
+    /// New scenes taken so far (`update(scene:)`), and section moves without one (`updateSection`):
+    /// a section drag should make only the second kind.
+    public private(set) var sceneUpdates = 0
+    public private(set) var sectionUpdates = 0
+    /// Collecting frame times (`beginFrameTimings`), and when the earliest input not yet drawn came in.
+    var frameTimings: FrameTimingLog?
+    var pendingInput: CFTimeInterval?
 
     private var bodies: [UUID: GPUBody] = [:]
     /// `scene.bodiesBefore`, by the id of the shown body each replaces (only ever depth).
     private var bodiesBefore: [UUID: GPUBody] = [:]
     private var sceneBounds: Bounds3?
     private var bodiesDirty = true
+    /// The kernel's exact lines where the section plane meets each body (`scene.sectionCurves`, by
+    /// body id), once they are in for this plane; other bodies' outlines are sliced on the GPU.
+    private var sectionOutlines: [UUID: (version: Int, plane: SectionPlane, segs: MTLBuffer?, count: Int)] = [:]
     private var statesDirty = true
     private var overlaysDirty = true
 
@@ -220,6 +251,7 @@ public final class ViewportRenderer: NSObject {
             d.fragmentFunction = lib.makeFunction(name: f)
             d.rasterSampleCount = Self.sampleCount
             d.depthAttachmentPixelFormat = Self.depthFormat
+            d.stencilAttachmentPixelFormat = Self.depthFormat
             let c = d.colorAttachments[0]!
             c.pixelFormat = Self.colorFormat
             if !writeColor { c.writeMask = [] }
@@ -245,6 +277,9 @@ public final class ViewportRenderer: NSObject {
         pHull = try pipeline("hull_vertex", "hull_fragment", blend: true)
         pShadow = try pipeline("shadow_vertex", "shadow_fragment", blend: true)
         pDepthReset = try pipeline("bg_vertex", "bg_fragment", blend: false, writeColor: false)
+        pSectionMask = try pipeline("mesh_vertex", "section_mask_fragment", blend: false, writeColor: false)
+        pCap = try pipeline("cap_vertex", "cap_fragment", blend: false)
+        pSectionOutline = try pipeline("section_outline_vertex", "line_fragment", blend: true)
 
         func depth(_ cmp: MTLCompareFunction, write: Bool) -> MTLDepthStencilState {
             let d = MTLDepthStencilDescriptor()
@@ -258,6 +293,28 @@ public final class ViewportRenderer: NSObject {
         dsAlways = depth(.always, write: false)
         dsGreater = depth(.greater, write: false)
         dsReset = depth(.always, write: true)
+        func stencil(_ cmp: MTLCompareFunction, write: Bool, test: MTLCompareFunction, pass: MTLStencilOperation,
+                     depthFail: MTLStencilOperation = .keep, read: UInt32 = Self.insideBit, mask: UInt32 = Self.insideBit) -> MTLDepthStencilState {
+            let s = MTLStencilDescriptor()
+            s.stencilCompareFunction = test
+            s.depthStencilPassOperation = pass
+            s.depthFailureOperation = depthFail
+            s.stencilFailureOperation = .keep
+            s.readMask = read
+            s.writeMask = mask
+            let d = MTLDepthStencilDescriptor()
+            d.depthCompareFunction = cmp
+            d.isDepthWriteEnabled = write
+            d.frontFaceStencil = s
+            d.backFaceStencil = s
+            return device.makeDepthStencilState(descriptor: d)!
+        }
+        dsCapMask = stencil(.always, write: false, test: .always, pass: .invert)
+        // Where the inside bit is set: replace with both bits (the reference is 3), so the cap's
+        // pixels stay marked once the clear pass takes the inside bit away.
+        dsCapFill = stencil(.lessEqual, write: true, test: .equal, pass: .replace, mask: Self.insideBit | Self.capBit)
+        dsCapClear = stencil(.always, write: false, test: .always, pass: .zero)
+        dsOutsideCaps = stencil(.lessEqual, write: false, test: .equal, pass: .keep, read: Self.capBit, mask: 0)
         zeroBuffer = device.makeBuffer(length: 64, options: .storageModeShared)!
         let coneMesh = DemoMeshes.cone(radius: Float(HandleMetrics.headRadius / HandleMetrics.headLength))
         cone = GPUBody(device: device, mesh: coneMesh, key: MeshKey(SceneBody(id: UUID(), mesh: coneMesh)))
@@ -272,6 +329,20 @@ public final class ViewportRenderer: NSObject {
         bodiesDirty = true
         statesDirty = true
         overlaysDirty = true
+        sceneUpdates += 1
+    }
+
+    /// Moves the section plane and swaps the handles, keeping the rest of the scene: what a step
+    /// of a section handle's drag changes. Meshes, selection states and overlays stay as they
+    /// are; the next frame takes the plane straight into its uniforms (the caps follow on the
+    /// GPU) and slices only the cut's outline again.
+    public func updateSection(_ section: SectionPlane?, handles: [Handle]) {
+        sectionUpdates += 1
+        scene.handles = handles
+        guard section != scene.section else { return }
+        scene.section = section
+        // The exact lines were for where the plane was: the GPU slices the meshes until new ones come.
+        sectionOutlines = [:]
     }
 
     /// Identity of the cached GPU buffers for a body (tests).
@@ -302,6 +373,7 @@ public final class ViewportRenderer: NSObject {
             }
             if keepBefore.count != bodiesBefore.count { bodiesBefore = bodiesBefore.filter { keepBefore.contains($0.key) } }
             sceneBounds = computeBounds()
+            syncSectionOutlines()
         }
         if statesDirty {
             statesDirty = false
@@ -311,6 +383,24 @@ public final class ViewportRenderer: NSObject {
             overlaysDirty = false
             rebuildOverlays()
         }
+    }
+
+    /// Uploads the kernel's exact section lines of each visible body they were made for (this
+    /// plane, this shape); the rest are sliced from their meshes as they are drawn.
+    private func syncSectionOutlines() {
+        guard let section = scene.section, section.unitNormal != nil, let curves = scene.sectionCurves, curves.plane == section else {
+            sectionOutlines = [:]
+            return
+        }
+        var keep = Set<UUID>()
+        for b in scene.bodies where b.visible {
+            guard let exact = curves.bodies[b.id], exact.version == b.version else { continue }
+            keep.insert(b.id)
+            if let o = sectionOutlines[b.id], o.version == b.version, o.plane == section { continue }
+            let segs = GPUBody.segments(exact.lines)
+            sectionOutlines[b.id] = (b.version, section, makeBuffer(segs), segs.count)
+        }
+        if keep.count != sectionOutlines.count { sectionOutlines = sectionOutlines.filter { keep.contains($0.key) } }
     }
 
     /// Scene bounds from cached per-body bounds (avoids touching vertices per update).
@@ -485,9 +575,17 @@ public final class ViewportRenderer: NSObject {
             return
         }
         animation = Animation(from: camera, to: target, start: CACurrentMediaTime(), duration: duration)
-        if let v = view {
-            v.enableSetNeedsDisplay = false
-            v.isPaused = false
+        resumeView()
+    }
+
+    /// Draws on every display refresh while true (a handle being dragged) rather than when asked.
+    /// Input comes faster than the display refreshes: drawing on every event, the main thread
+    /// waits for a drawable each time while finished frames queue up, and the input behind them
+    /// with it (on the frog: 76 ms from a drag step to the screen, the steps handled 1.5 s late).
+    public var drawsEveryRefresh = false {
+        didSet {
+            guard drawsEveryRefresh != oldValue else { return }
+            if drawsEveryRefresh { resumeView() } else if animation == nil { pauseView() }
         }
     }
 
@@ -524,9 +622,16 @@ public final class ViewportRenderer: NSObject {
     }
 
     private func pauseView() {
-        guard let v = view else { return }
+        guard let v = view, !drawsEveryRefresh else { return }
         v.isPaused = true
         v.enableSetNeedsDisplay = true
+    }
+
+    /// The view draws on its display link, once a refresh.
+    private func resumeView() {
+        guard let v = view else { return }
+        v.enableSetNeedsDisplay = false
+        v.isPaused = false
     }
 
     /// Requests a redraw of the attached view.
@@ -594,40 +699,62 @@ public final class ViewportRenderer: NSObject {
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
         // Opaque bodies, filled as the visual style says. Every style lays down their depth, so
-        // hidden edges, silhouettes and the x-ray of previews can tell what's in front.
+        // hidden edges, silhouettes and the x-ray of previews can tell what's in front. A section
+        // drawing (2D) or Section only overrides the style (`ViewportScene.sectionDrawing`).
         let style = scene.visualStyle
         let opaque = scene.bodies.filter { $0.visible && $0.opacity >= 0.999 }
-        switch style.faces {
-        case .lit, .paper:
-            enc.setRenderPipelineState(pMeshOpaque)
-            enc.setDepthStencilState(dsWrite)
-            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: style.faces == .lit, paper: style.faces == .paper) }
-            // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
-            // silhouettes draw on top of the bed).
-            drawGround(enc, U: U)
-        case .xray, .none:
-            // Faces hide nothing, so the bed shows through: draw it first.
-            drawGround(enc, U: U)
-            enc.setRenderPipelineState(pMeshDepth)
-            enc.setDepthStencilState(dsWrite)
-            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
-            enc.setRenderPipelineState(pMeshBlend)
-            if style.faces == .xray {
-                // Every layer, front and back, so overlapping walls build up and show the inside.
-                enc.setDepthStencilState(dsAlways)
-                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: true, alphaScale: 0.16) }
+        let cut = scene.section?.unitNormal != nil
+        let drawing = cut && scene.sectionDrawing, capsOnly = cut && scene.sectionOnly
+        if drawing || capsOnly {
+            if !capsOnly {
+                // What's left of the bodies hides what's behind it, in the background colour.
+                enc.setRenderPipelineState(pMeshDepth)
+                enc.setDepthStencilState(dsWrite)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
             }
-            // Faint or missing faces would hide a pick: picked and hovered faces fill in, front layer only.
-            enc.setDepthStencilState(dsTest)
-            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false, alphaScale: 0.55, highlightOnly: true) }
+            drawSectionCaps(enc, opaque: opaque, paper: false, flat: drawing, faces: !capsOnly, U: U)
+            if !drawing { drawGround(enc, U: U) }
+            if !capsOnly {
+                enc.setRenderPipelineState(pMeshBlend)
+                enc.setDepthStencilState(dsTest)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false, alphaScale: 0.55, highlightOnly: true) }
+            }
+        } else {
+            switch style.faces {
+            case .lit, .paper:
+                enc.setRenderPipelineState(pMeshOpaque)
+                enc.setDepthStencilState(dsWrite)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: style.faces == .lit, paper: style.faces == .paper) }
+                drawSectionCaps(enc, opaque: opaque, paper: style.faces == .paper, flat: false, faces: true, U: U)
+                // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
+                // silhouettes draw on top of the bed).
+                drawGround(enc, U: U)
+            case .xray, .none:
+                // Faces hide nothing, so the bed shows through: draw it first.
+                drawGround(enc, U: U)
+                enc.setRenderPipelineState(pMeshDepth)
+                enc.setDepthStencilState(dsWrite)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
+                enc.setRenderPipelineState(pMeshBlend)
+                if style.faces == .xray {
+                    // Every layer, front and back, so overlapping walls build up and show the inside.
+                    enc.setDepthStencilState(dsAlways)
+                    for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: true, alphaScale: 0.16) }
+                }
+                // Faint or missing faces would hide a pick: picked and hovered faces fill in, front layer only.
+                enc.setDepthStencilState(dsTest)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false, alphaScale: 0.55, highlightOnly: true) }
+            }
         }
 
         // Lines on lit bodies are ink; on the background or the paper they take the wire colour,
-        // light in dark mode.
-        let lineInk = style.faces == .lit ? pal.edge : pal.wire
+        // light in dark mode. A section drawing is lines on the background; Section only has
+        // none but the caps' rims.
+        let lineInk = style.faces == .lit && !drawing && !capsOnly ? pal.edge : pal.wire
+        let showsEdges = drawing ? true : style.showsEdges
         let edgeHover = LineStyle(pal.hover, width: 2.6)
         let edgeSel = LineStyle(pal.accent, width: 3.0)
-        let outlined = opaque.filter(\.showsEdges)
+        let outlined = capsOnly ? [] : opaque.filter(\.showsEdges)
         // Silhouettes of curved faces.
         enc.setRenderPipelineState(pHull)
         enc.setDepthStencilState(dsTest)
@@ -636,17 +763,17 @@ public final class ViewportRenderer: NSObject {
         hull.width = 1.3
         enc.setVertexBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
         enc.setFragmentBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
-        for b in outlined where style.showsEdges {
+        for b in outlined where showsEdges {
             drawMesh(enc, body: b, hover: hover, overhang: false)
         }
         // Their edges: the hidden ones first, so an edge in front always draws over them.
         enc.setRenderPipelineState(pLine)
-        if let hidden = style.hiddenEdges {
+        if let hidden = style.hiddenEdges, !drawing {
             let dashed = hidden == .dashed
             let alpha: Float = dashed ? 0.6 : 0.4
             func faded(_ c: ViewportColor, width: Float) -> LineStyle { LineStyle(c.withAlpha(c.a * alpha), width: width, dashed: dashed) }
             enc.setDepthStencilState(dsGreater)
-            for b in outlined where style.showsEdges {
+            for b in outlined where showsEdges {
                 var d = LineDraw(faded(lineInk, width: 1.1), faded(pal.hover, width: 2), faded(pal.accent, width: 2.2))
                 d.pull = 1
                 d.dashPeriod = U.viewport.w * pixelsPerPoint * 6
@@ -656,10 +783,13 @@ public final class ViewportRenderer: NSObject {
         enc.setDepthStencilState(dsTest)
         for b in outlined {
             // Without edges (shaded) only the hovered and picked ones draw: a zero width skips the rest.
-            var d = LineDraw(style.showsEdges ? LineStyle(lineInk, width: 1.4) : LineStyle(), edgeHover, edgeSel)
+            var d = LineDraw(showsEdges ? LineStyle(lineInk, width: drawing ? 1.2 : 1.4) : LineStyle(), edgeHover, edgeSel)
             d.pull = 1
             drawEdges(enc, id: b.id, draw: &d)
         }
+        // Twice the edges' weight, of which only the half outside the caps shows. Section only
+        // is the caps' fill alone, as in Shapr3D.
+        if !capsOnly { drawSectionOutlines(enc, ink: lineInk, width: 2, opaque: opaque) }
         drawEdgeHighlights(enc, U: U, pixelsPerPoint: pixelsPerPoint, opaque: opaque)
 
         // Translucent bodies and previews: depth pre-pass so only the front layer blends.
@@ -684,7 +814,7 @@ public final class ViewportRenderer: NSObject {
                 drawEdges(enc, id: b.id, draw: &d)
             }
         }
-        for b in scene.bodies where b.visible && b.opacity < 0.999 { drawTranslucent(b, xray: false) }
+        for b in scene.bodies where b.visible && b.opacity < 0.999 && !capsOnly { drawTranslucent(b, xray: false) }
         for b in scene.previews where b.visible { drawTranslucent(b, xray: true) }
 
         if !scene.referencePlanes.isEmpty { drawReferencePlanes(enc, hover: hover) }
@@ -766,6 +896,115 @@ public final class ViewportRenderer: NSObject {
         enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: g.segmentCount)
+    }
+
+    /// Closes every opaque body the section cuts open with a cap on the plane: a cut colour of its
+    /// own (`SectionPlane.capTint`) or its custom colour, hatched (per body a different way), lit
+    /// like a face; flat in a section drawing. Per body: the stencil parity pass over what's left
+    /// of its surface, the cap polygon where the inside bit is set (which marks the cap's pixels
+    /// for the outline), then the surface again to clear the inside bit.
+    ///
+    /// With the bodies' `faces` drawn, a cap seen from the side the section keeps is always behind
+    /// them (the way to it runs into the body first), so it's culled rather than left to the depth
+    /// test: along the rim the faces meet it at the same depth, and its nudge forward (or a tie)
+    /// would let a pixel of cap colour through.
+    private func drawSectionCaps(_ enc: MTLRenderCommandEncoder, opaque: [SceneBody], paper: Bool, flat: Bool, faces: Bool, U: FrameUniforms) {
+        guard let section = scene.section, section.unitNormal != nil else { return }
+        let pal = palette
+        let (u, v) = section.axes
+        let wppPoints = Double(U.viewport.w * U.viewport.z)
+        for b in opaque {
+            guard let g = bodies[b.id], let box = g.bounds else { continue }
+            let polygon = section.polygon(through: box)
+            guard polygon.count >= 3 else { continue }
+            enc.setRenderPipelineState(pSectionMask)
+            enc.setDepthStencilState(dsCapMask)
+            drawDepth(enc, g)
+
+            let index = scene.bodies.firstIndex { $0.id == b.id } ?? 0
+            var d = CapDraw()
+            if paper {
+                d.color = pal.paper.linear
+                d.hatch = SIMD4(SIMD3(pal.wire.linear.x, pal.wire.linear.y, pal.wire.linear.z), 0.8)
+            } else {
+                var fill = SectionPlane.capFill(index: index, body: b.color, defaultBody: pal.body, cut: section.color)
+                if scene.selection.contains(.body(b.id)) || b.highlight == .selected {
+                    fill = simd_mix(fill, SIMD3(pal.accent.linear.x, pal.accent.linear.y, pal.accent.linear.z), SIMD3(repeating: 0.45))
+                }
+                d.color = SIMD4(fill, 1)
+                d.hatch = SIMD4(fill * 0.36, 0.85)
+                d.params.z = flat ? 0 : 1
+            }
+            let angle = SectionPlane.hatchAngle(index: index)
+            d.across = SIMD4((u * -sin(angle) + v * cos(angle)).float, 0)
+            // Even spacing over the whole cap, a power of two in world units near
+            // `hatchSpacing` points where the cap is: it stays put on the part while panning and
+            // steps only when zooming, so no faint in-between lines.
+            // Measured where the view is looking, on the cap (the camera's target moved onto the
+            // plane and kept within the body), so a close-up isn't hatched for the far end.
+            let n = section.unitNormal ?? .unitZ
+            let aim = camera.target - n * (camera.target - section.origin).dot(n)
+            let middle = Vec3(simd_clamp(aim.simd, box.min.simd, box.max.simd))
+            let depthScale = camera.projection == .perspective ? max(camera.depth(of: middle), 1e-3) / camera.distance : 1
+            d.params.x = Float(SectionPlane.hatchSpacing(worldPerPoint: wppPoints * depthScale))
+            d.params.y = SectionPlane.hatchWidth
+            var verts: [SIMD4<Float>] = []
+            for k in 1..<(polygon.count - 1) {
+                for p in [polygon[0], polygon[k], polygon[k + 1]] { verts.append(SIMD4(p.float, 1)) }
+            }
+            enc.setRenderPipelineState(pCap)
+            enc.setDepthStencilState(dsCapFill)
+            enc.setStencilReferenceValue(Self.insideBit | Self.capBit)
+            enc.setVertexBytes(verts, length: verts.count * MemoryLayout<SIMD4<Float>>.stride, index: 0)
+            enc.setFragmentBytes(&d, length: MemoryLayout<CapDraw>.stride, index: 2)
+            // A face lying in the plane is kept and would fight the cap for the same depth: nudge
+            // the cap a few depth steps forward so it wins cleanly.
+            enc.setDepthBias(-8, slopeScale: -2, clamp: 0)
+            // The polygon runs counterclockwise round the normal (`polygon(through:)`), so its
+            // front faces the side that's cut away.
+            if faces { enc.setCullMode(.back) }
+            enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: verts.count)
+            enc.setCullMode(.none)
+            enc.setDepthBias(0, slopeScale: 0, clamp: 0)
+
+            enc.setRenderPipelineState(pSectionMask)
+            enc.setDepthStencilState(dsCapClear)
+            drawDepth(enc, g)
+        }
+        enc.setStencilReferenceValue(0)
+    }
+
+    /// The line where the section plane meets each body, round the caps' rims and never over
+    /// them (`dsOutsideCaps`), so a cap keeps its full width however thin the wall: the kernel's
+    /// exact lines where they are in for this plane, else sliced from the mesh on the GPU (exactly
+    /// where the stencil cap ends, so mid-drag it never lags the cap).
+    private func drawSectionOutlines(_ enc: MTLRenderCommandEncoder, ink: ViewportColor, width: Float, opaque: [SceneBody]) {
+        guard let section = scene.section, section.unitNormal != nil else { return }
+        enc.setDepthStencilState(dsOutsideCaps)
+        enc.setStencilReferenceValue(0)
+        enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
+        var d = LineDraw(LineStyle(ink, width: width))
+        d.pull = 2
+        enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        var sliced: [GPUBody] = []
+        enc.setRenderPipelineState(pLine)
+        for b in opaque {
+            if let o = sectionOutlines[b.id] {
+                guard let segs = o.segs, o.count > 0 else { continue }
+                enc.setVertexBuffer(segs, offset: 0, index: 0)
+                enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: o.count)
+            } else if let g = bodies[b.id], g.vertexBuffer != nil, g.indexBuffer != nil, let box = g.bounds, section.crosses(box) {
+                sliced.append(g)
+            }
+        }
+        guard !sliced.isEmpty else { return }
+        enc.setRenderPipelineState(pSectionOutline)
+        for g in sliced {
+            enc.setVertexBuffer(g.vertexBuffer, offset: 0, index: 0)
+            enc.setVertexBuffer(g.indexBuffer, offset: 0, index: 3)
+            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: g.indexCount / 3)
+        }
     }
 
     /// Picked edges are 3 pt (4 pt on touch, read at arm's length) with a halo. Where the model is
@@ -953,11 +1192,14 @@ public final class ViewportRenderer: NSObject {
         }
         // Contact shadows for lit bodies resting on (or near) the bed. Under see-through bodies the
         // bed would show a dark slab, and a line drawing has no light to cast them.
-        if (scene.plate != nil || scene.showsGroundGrid) && scene.visualStyle.faces == .lit {
+        // What a section cuts away casts none: the shadow is of what's left.
+        let cut = scene.section?.unitNormal != nil
+        if (scene.plate != nil || scene.showsGroundGrid) && scene.visualStyle.faces == .lit && !(cut && scene.sectionOnly) {
             enc.setRenderPipelineState(pShadow)
             enc.setDepthStencilState(dsLess)
             for b in scene.bodies where b.visible {
-                guard let bb = bodies[b.id]?.bounds else { continue }
+                guard let whole = bodies[b.id]?.bounds else { continue }
+                guard let bb = scene.section.map({ $0.kept(of: whole) }) ?? whole else { continue }
                 let size = bb.size
                 let lift = max(bb.min.z, 0)
                 let height = max(size.z, 1e-3)
@@ -1095,45 +1337,123 @@ public final class ViewportRenderer: NSObject {
             // Screen-constant size at the tip's depth.
             let depthScale = camera.projection == .perspective ? max(camera.depth(of: h.tip), 1e-3) / camera.distance : 1
             let wpp = wppPoints * depthScale
+            let width: Float = active ? 4 : (hovered ? 3.5 : 2.75)
+            if case .rotation(let axis) = h.kind {
+                if let zero = h.zeroDirection { drawRotationRing(enc, h, axis: axis, zero: zero, color: base, wpp: wpp, quiet: !active) }
+                drawRotationGrip(enc, h, axis: axis, color: color, width: width, wpp: wpp, grown: active ? 1.25 : 1)
+                continue
+            }
+            // Held, an arrow shows the line it slides along, both ways, dashed under it.
+            if active {
+                let reach = HandleMetrics.totalLength * 2.5 * wpp
+                drawHandleLines(enc, [GPULineSeg((h.tip - h.direction * reach).float, (h.tip + h.direction * (reach + HandleMetrics.totalLength * wpp)).float,
+                                                 dist: 0, id: 0)],
+                                color: base.withAlpha(0.7), width: 1.5, dash: Float(wpp) * 7)
+            }
+            let grown = active ? 1.25 : 1.0
             let shaftEnd = h.tip + h.direction * (HandleMetrics.shaftLength * wpp)
             // Shaft.
-            enc.setRenderPipelineState(pLine)
-            enc.setDepthStencilState(dsAlways)
-            var seg = GPULineSeg(h.tip.float, shaftEnd.float, dist: 0, id: 0)
-            var d = LineDraw(LineStyle(color, width: active || hovered ? 3.5 : 2.75))
-            enc.setVertexBytes(&seg, length: MemoryLayout<GPULineSeg>.stride, index: 0)
-            enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
-            enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
-            enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
-            enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 1)
-            // Base dot.
+            drawHandleLines(enc, [GPULineSeg(h.tip.float, shaftEnd.float, dist: 0, id: 0)], color: color, width: width)
+            // Base dot, with a halo while held.
             enc.setRenderPipelineState(pPoint)
             var pd = PointDraw()
-            pd.s0 = PointStyle(color: color, ring: pal.sketchPointRing, size: 9, ringWidth: 1.5)
+            pd.s0 = active ? PointStyle(color: color, ring: base.withAlpha(0.35), size: 22, ringWidth: 6.5)
+                : PointStyle(color: color, ring: pal.sketchPointRing, size: 9, ringWidth: 1.5)
             let t = h.tip.float
             var inst = GPUPointInst(x: t.x, y: t.y, z: t.z, state: 0)
             enc.setVertexBytes(&inst, length: MemoryLayout<GPUPointInst>.stride, index: 0)
             enc.setVertexBytes(&pd, length: MemoryLayout<PointDraw>.stride, index: 2)
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 1)
             // Cone head.
-            guard let vb = cone.vertexBuffer, let ib = cone.indexBuffer else { continue }
-            let z = h.direction
-            let x = Plane(origin: .zero, normal: z, xDir: abs(z.x) < 0.9 ? .unitX : .unitY).xDir
-            let y = z.cross(x)
-            let s = Float(HandleMetrics.headLength * wpp)
-            var md = MeshDraw()
-            md.model = simd_float4x4(columns: (SIMD4(x.float * s, 0), SIMD4(y.float * s, 0), SIMD4(z.float * s, 0),
-                                               SIMD4(shaftEnd.float, 1)))
-            md.color = SIMD4(SIMD3(color.linear.x, color.linear.y, color.linear.z), 1)
-            enc.setRenderPipelineState(pMeshOpaque)
-            enc.setCullMode(.back)
-            enc.setVertexBuffer(vb, offset: 0, index: 0)
-            enc.setFragmentBuffer(zeroBuffer, offset: 0, index: 3)
-            enc.setVertexBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
-            enc.setFragmentBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
-            enc.drawIndexedPrimitives(type: .triangle, indexCount: cone.indexCount, indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
-            enc.setCullMode(.none)
+            drawHandleHead(enc, at: shaftEnd, pointing: h.direction, length: HandleMetrics.headLength * grown * wpp, color: color)
         }
+    }
+
+    /// While a rotation grip turns: a dashed ring round its whole way, out past the grip, and a
+    /// solid arc on it from where the grip reads 0 to where it is now (Shapr3D's rotation ring).
+    /// Let go, `quiet`, the ring and arc stay, fainter and with no spokes, for as long as the grip
+    /// shows and has turned from 0: the angle it's at stays readable without being held.
+    private func drawRotationRing(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, zero: Vec3, color: ViewportColor, wpp: Double,
+                                  quiet: Bool = false) {
+        let radius = HandleMetrics.ringRadius * wpp
+        let side = axis.cross(zero)
+        func point(_ a: Double) -> Vec3 { h.origin + (zero * cos(a) + side * sin(a)) * radius }
+        // How far round from zero the grip is now, signed about `axis`.
+        let swept = atan2(h.direction.dot(side), h.direction.dot(zero))
+        if quiet && abs(swept) <= 1e-4 { return }
+        let ring = (0..<96).map { i in
+            // Distance along the ring, so the dashes run on from one piece to the next.
+            GPULineSeg(point(Double(i) / 96 * 2 * .pi).float, point(Double(i + 1) / 96 * 2 * .pi).float,
+                       dist: Float(Double(i) / 96 * 2 * .pi * radius), id: 0)
+        }
+        drawHandleLines(enc, ring, color: color.withAlpha(quiet ? 0.6 : 0.9), width: quiet ? 1.5 : 1.75, dash: Float(wpp) * 9)
+        guard abs(swept) > 1e-4 else { return }
+        let steps = max(Int(abs(swept) / (2 * .pi) * 96), 2)
+        let arc = (0..<steps).map { i in
+            GPULineSeg(point(swept * Double(i) / Double(steps)).float, point(swept * Double(i + 1) / Double(steps)).float, dist: 0, id: 0)
+        }
+        drawHandleLines(enc, arc, color: quiet ? color.withAlpha(0.7) : color, width: quiet ? 2 : 3)
+        guard !quiet else { return }
+        // A spoke to each end, so it reads as an angle turned about the centre.
+        drawHandleLines(enc, [GPULineSeg(h.origin.float, point(0).float, dist: 0, id: 0), GPULineSeg(h.origin.float, point(swept).float, dist: 0, id: 0)],
+                        color: color.withAlpha(0.55), width: 1.25, dash: Float(wpp) * 5)
+    }
+
+    /// A rotation grip: a short arc around the handle's axis with a head at each end, so it reads
+    /// as "turn this either way".
+    private func drawRotationGrip(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, color: ViewportColor, width: Float, wpp: Double,
+                                  grown: Double = 1) {
+        let radius = HandleMetrics.gripRadius * wpp
+        let points = ViewportPicker.rotationGripPoints(center: h.origin, axis: axis, direction: h.direction, radius: radius)
+        guard points.count >= 2 else { return }
+        drawHandleLines(enc, (0..<points.count - 1).map { GPULineSeg(points[$0].float, points[$0 + 1].float, dist: 0, id: 0) },
+                        color: color, width: width)
+        // The heads run on along the arc's tangent at both ends.
+        let side = axis.cross(h.direction)
+        let span = HandleMetrics.gripSpan
+        for sign in [-1.0, 1.0] {
+            let tangent = (side * cos(span) - h.direction * sin(span) * sign) * sign
+            drawHandleHead(enc, at: points[sign < 0 ? 0 : points.count - 1], pointing: tangent,
+                           length: HandleMetrics.gripHeadLength * grown * wpp, color: color)
+        }
+    }
+
+    /// Screen-space-wide lines drawn over everything (a handle's shaft or arc).
+    /// `dash`: the dash period in world units, 0 for a solid line.
+    private func drawHandleLines(_ enc: MTLRenderCommandEncoder, _ segs: [GPULineSeg], color: ViewportColor, width: Float, dash: Float = 0) {
+        guard !segs.isEmpty else { return }
+        enc.setRenderPipelineState(pLine)
+        enc.setDepthStencilState(dsAlways)
+        var segs = segs
+        var d = LineDraw(LineStyle(color, width: width, dashed: dash > 0))
+        d.dashPeriod = dash
+        enc.setVertexBytes(&segs, length: MemoryLayout<GPULineSeg>.stride * segs.count, index: 0)
+        enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
+        enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
+        enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: segs.count)
+    }
+
+    /// A cone with its base at `base`, `length` long along `direction` (the section never cuts it).
+    private func drawHandleHead(_ enc: MTLRenderCommandEncoder, at base: Vec3, pointing direction: Vec3, length: Double, color: ViewportColor) {
+        guard let vb = cone.vertexBuffer, let ib = cone.indexBuffer else { return }
+        let z = direction.normalized
+        let x = Plane(origin: .zero, normal: z, xDir: abs(z.x) < 0.9 ? .unitX : .unitY).xDir
+        let y = z.cross(x)
+        let s = Float(length)
+        var md = MeshDraw()
+        md.model = simd_float4x4(columns: (SIMD4(x.float * s, 0), SIMD4(y.float * s, 0), SIMD4(z.float * s, 0),
+                                           SIMD4(base.float, 1)))
+        md.color = SIMD4(SIMD3(color.linear.x, color.linear.y, color.linear.z), 1)
+        md.flags = MeshDraw.ignoresSection
+        enc.setRenderPipelineState(pMeshOpaque)
+        enc.setCullMode(.back)
+        enc.setVertexBuffer(vb, offset: 0, index: 0)
+        enc.setFragmentBuffer(zeroBuffer, offset: 0, index: 3)
+        enc.setVertexBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
+        enc.setFragmentBytes(&md, length: MemoryLayout<MeshDraw>.stride, index: 2)
+        enc.drawIndexedPrimitives(type: .triangle, indexCount: cone.indexCount, indexType: .uint32, indexBuffer: ib, indexBufferOffset: 0)
+        enc.setCullMode(.none)
     }
 
     // MARK: Offscreen snapshot
@@ -1175,6 +1495,10 @@ public final class ViewportRenderer: NSObject {
         rp.depthAttachment.loadAction = .clear
         rp.depthAttachment.clearDepth = 1
         rp.depthAttachment.storeAction = .dontCare
+        rp.stencilAttachment.texture = depth
+        rp.stencilAttachment.loadAction = .clear
+        rp.stencilAttachment.clearStencil = 0
+        rp.stencilAttachment.storeAction = .dontCare
         guard let enc = cb.makeRenderCommandEncoder(descriptor: rp) else { return nil }
         encode(enc, pixelSize: SIMD2(Float(w), Float(h)), pixelsPerPoint: Float(scale))
         enc.endEncoding()
@@ -1233,15 +1557,20 @@ extension ViewportRenderer: MTKViewDelegate {
     }
 
     private func render(in view: MTKView) {
+        let start = CACurrentMediaTime()
+        framesDrawn += 1
         stepAnimation()
         prepare()
+        let prepared = CACurrentMediaTime()
         guard let rp = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
               let cb = queue.makeCommandBuffer(), let enc = cb.makeRenderCommandEncoder(descriptor: rp) else { return }
+        let gotDrawable = CACurrentMediaTime()
         let ds = view.drawableSize
         let pts = view.bounds.size
         let ppp = pts.width > 0 ? Float(ds.width / pts.width) : 1
         encode(enc, pixelSize: SIMD2(Float(ds.width), Float(ds.height)), pixelsPerPoint: ppp)
         enc.endEncoding()
+        timeFrame(cb, drawable: drawable, cpu: (prepared - start) + (CACurrentMediaTime() - gotDrawable), wait: gotDrawable - prepared)
         cb.present(drawable)
         cb.commit()
     }

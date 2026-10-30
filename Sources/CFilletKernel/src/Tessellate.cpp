@@ -2,6 +2,7 @@
 #include "Internal.hpp"
 
 #include <BRepAdaptor_Curve.hxx>
+#include <BRepAlgoAPI_Section.hxx>
 #include <BRepBuilderAPI_Copy.hxx>
 #include <BRepLib_ToolTriangulatedShape.hxx>
 #include <BRepMesh_IncrementalMesh.hxx>
@@ -13,6 +14,7 @@
 #include <Poly_Triangulation.hxx>
 #include <Precision.hxx>
 #include <TopExp.hxx>
+#include <TopExp_Explorer.hxx>
 #include <TopoDS.hxx>
 #include <TopoDS_Edge.hxx>
 #include <TopoDS_Face.hxx>
@@ -128,6 +130,36 @@ extern "C" FKMesh *fk_tessellate(const FKShape *shape, double linearDeflection, 
     const ShapeMap &vertices = shape->vertices();
     mesh->brepVertices.reserve(3 * vertices.Extent());
     for (int vi = 1; vi <= vertices.Extent(); vi++) pushPoint(mesh->brepVertices, BRep_Tool::Pnt(TopoDS::Vertex(vertices(vi))));
+    return mesh.release();
+  });
+}
+
+// MARK: Sections
+
+extern "C" FKMesh *fk_section(const FKShape *shape, FKPlane plane, double linearDeflection, double angularDeflection) {
+  return guarded("Section", (FKMesh *)nullptr, [&] {
+    const TopoDS_Shape &s = shapeOf(shape);
+    if (!isFinite(linearDeflection) || linearDeflection <= 0) fail("Section tolerance must be positive");
+    if (!isFinite(angularDeflection) || angularDeflection <= 0) angularDeflection = 0.1;
+    linearDeflection = std::max(linearDeflection, 1e-4);
+    angularDeflection = std::min(std::max(angularDeflection, 0.01), 1.0);
+    // The plane's own face is made by the algorithm, sized to the shape; the shape is only read
+    // (other threads may be drawing or measuring it meanwhile).
+    BRepAlgoAPI_Section section(s, pln(plane), false);
+    section.SetNonDestructive(true);
+    section.SetRunParallel(true);
+    section.ComputePCurveOn1(false);
+    section.ComputePCurveOn2(false);
+    // Curved faces meet the plane in curves that are fitted to the exact intersection, not
+    // left as the walking line's points.
+    section.Approximation(true);
+    section.Build();
+    if (!section.IsDone() || section.HasErrors()) fail("The plane could not be intersected with the body");
+    auto mesh = std::make_unique<FKMesh>();
+    for (TopExp_Explorer ex(section.Shape(), TopAbs_EDGE); ex.More(); ex.Next()) {
+      std::vector<float> pts = edgePolyline(TopoDS::Edge(ex.Current()), nullptr, linearDeflection, angularDeflection);
+      if (pts.size() >= 6) mesh->edges.push_back(std::move(pts));
+    }
     return mesh.release();
   });
 }

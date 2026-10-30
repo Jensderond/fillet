@@ -37,8 +37,19 @@ struct Plan: Decodable {
         let sub: [String]
         let counter: Counter?
         let callout: String?
+        /// When each line comes in (default: 75 ms apart from `start`), so lines can land on beats.
+        let line_starts: [Double]?
     }
     struct Callout: Decodable { let rect: [Double]; let scale: Double }
+    /// Framing of the device: from this time it shows screen point (fx, fy) at output pixel
+    /// (ax, ay), scaled by `scale`; `dur` 0 cuts to it, otherwise it eases there (in-out).
+    struct Zoom: Decodable {
+        let t: Double; let scale: Double; let fx: Double; let fy: Double; let ax: Double; let ay: Double; let dur: Double
+        /// "sine" for a slow, even push (default: the strong ease-in-out of moves).
+        let curve: String?
+    }
+    /// A big number landing under a title (the Section film's "60 fps").
+    struct Stat: Decodable { let title: String; let start: Double; let text: String; let unit: String; let note: String }
     let fps: Double
     let total: Double
     let opener: Double
@@ -49,6 +60,16 @@ struct Plan: Decodable {
     let segments: [Segment]
     let titles: [Title]
     let callouts: [String: Callout]
+    let zoom: [Zoom]?
+    let stat: Stat?
+    /// End card lines under the icon (default: the announcement's).
+    let end_lines: [String]?
+    /// How long after `end_card` the icon starts (default 0.12 s, after the device starts to leave).
+    let end_card_delay: Double?
+    /// Poster text: name, headline, line, platforms (default: the announcement's).
+    let poster_lines: [String]?
+    /// The poster's framing of the device (default: as it sits mid-film).
+    let poster_zoom: Zoom?
 }
 
 // MARK: Easing
@@ -202,6 +223,7 @@ final class Compositor {
     var titleSprites: [String: [Sprite]] = [:]
     var counterSprites: [Int: Sprite] = [:]
     var counterUnit: Sprite?
+    var statSprites: [Sprite] = []
     var endSprites: [Sprite] = []
     var posterSprites: [Sprite] = []
     let device: DeviceReader
@@ -285,6 +307,16 @@ final class Compositor {
             if t.style == "statement" {
                 lines.append(text(t.headline, size: L.statementSize, weight: .semibold, color: Ink.ink,
                                   width: L.square ? L.size.width - 140 : 1180, align: align, tracking: -0.8, lineSpacing: L.statementSize * 0.04))
+            } else if t.style == "hero" {
+                // Centred: eyebrow, a big headline, a sub line.
+                if !t.eyebrow.isEmpty {
+                    lines.append(text(t.eyebrow, size: L.eyebrowSize * 1.25, weight: .semibold, color: Ink.filletInk, condensed: true,
+                                      align: .center, tracking: 2.2))
+                }
+                lines.append(text(t.headline, size: L.statementSize * 1.6, weight: .semibold, color: Ink.ink, align: .center, tracking: -2.4))
+                for s in t.sub {
+                    lines.append(text(s, size: L.subSize * 1.25, weight: .regular, color: Ink.inkSecondary, align: .center))
+                }
             } else {
                 if !t.eyebrow.isEmpty {
                     lines.append(text(t.eyebrow, size: L.eyebrowSize, weight: .semibold, color: Ink.filletInk, condensed: true,
@@ -308,16 +340,25 @@ final class Compositor {
             }
         }
         let center: TextAlignment = .center
+        let end = plan.end_lines ?? ["Fillet", "Parametric CAD for the things you print.", "iPad and Mac"]
         endSprites = [
-            text("Fillet", size: L.square ? 88 : 104, weight: .semibold, color: Ink.ink, align: center, tracking: -1.5),
-            text("Parametric CAD for the things you print.", size: L.square ? 34 : 38, weight: .regular, color: Ink.inkSecondary, align: center),
-            text("iPad and Mac", size: L.square ? 28 : 30, weight: .semibold, color: Ink.filletInk, condensed: true, align: center, tracking: 1.6),
+            text(end[0], size: L.square ? 88 : 104, weight: .semibold, color: Ink.ink, align: center, tracking: -1.5),
+            text(end[1], size: L.square ? 34 : 38, weight: .regular, color: Ink.inkSecondary, align: center),
+            text(end[2], size: L.square ? 28 : 30, weight: .semibold, color: Ink.filletInk, condensed: true, align: center, tracking: 1.6),
         ]
+        if let s = plan.stat {
+            statSprites = [
+                text(s.text, size: 150, weight: .semibold, color: Ink.fillet, condensed: true),
+                text(s.unit, size: 56, weight: .medium, color: Ink.ink, condensed: true),
+                text(s.note, size: L.subSize, weight: .regular, color: Ink.inkSecondary),
+            ]
+        }
+        let poster = plan.poster_lines ?? ["Fillet", "Parametric CAD for\nthe things you print.", "Offline. One file per design. No account.", "iPad and Mac"]
         posterSprites = [
-            text("Fillet", size: 112, weight: .semibold, color: Ink.ink, tracking: -1.6),
-            text("Parametric CAD for\nthe things you print.", size: 52, weight: .semibold, color: Ink.ink, width: 700, tracking: -0.5),
-            text("Offline. One file per design. No account.", size: 28, weight: .regular, color: Ink.inkSecondary, width: 700),
-            text("iPad and Mac", size: 30, weight: .semibold, color: Ink.filletInk, condensed: true, tracking: 1.6),
+            text(poster[0], size: 112, weight: .semibold, color: Ink.ink, tracking: -1.6),
+            text(poster[1], size: 52, weight: .semibold, color: Ink.ink, width: 700, tracking: -0.5),
+            text(poster[2], size: 28, weight: .regular, color: Ink.inkSecondary, width: 700),
+            text(poster[3], size: 30, weight: .semibold, color: Ink.filletInk, condensed: true, tracking: 1.6),
         ]
     }
 
@@ -376,7 +417,7 @@ final class Compositor {
     /// The splash drawing, slowed down, then dissolving into the paper as the statement comes in.
     func drawOpener(_ t: Double, _ ctx: CGContext) {
         let fadeStart = plan.opener - 0.3
-        guard t < plan.opener + 0.05 else { return }
+        guard plan.opener > 0, t < plan.opener + 0.05 else { return }
         let splashTime = min(t / plan.opener_draw, 1) * SplashTimeline.restingTime
         let fade = Ease.progress(t, fadeStart, 0.3)
         let image = splash(splashTime)
@@ -405,6 +446,7 @@ final class Compositor {
         ctx.setAlpha(opacity)
         ctx.beginTransparencyLayer(auxiliaryInfo: nil)  // fade the device as one piece
         ctx.translateBy(x: 0, y: rise)
+        applyZoom(t, ctx)
         scaled(scale, about: L.deviceCenter, ctx) {
             let outer = L.deviceRect
             let outerRadius = L.screenCorner + L.bezel
@@ -438,11 +480,40 @@ final class Compositor {
         drawCallout(t, screen: screen, ctx)
     }
 
+    /// The framing at time t: (scale, screen point in output pixels at scale 1, where it lands).
+    func zoomState(_ t: Double) -> (s: Double, p: CGPoint, a: CGPoint) {
+        let sr = layout.screenRect
+        let k = sr.width / Layout.screenPoints.width
+        func state(_ z: Plan.Zoom) -> (Double, CGPoint, CGPoint) {
+            (z.scale, CGPoint(x: sr.minX + z.fx * k, y: sr.minY + z.fy * k), CGPoint(x: z.ax, y: z.ay))
+        }
+        let identity = (1.0, CGPoint(x: layout.size.width / 2, y: layout.size.height / 2), CGPoint(x: layout.size.width / 2, y: layout.size.height / 2))
+        guard let keys = plan.zoom, !keys.isEmpty else { return identity }
+        var current = identity
+        for z in keys where z.t <= t + 1e-9 {
+            let target = state(z)
+            let p = z.dur <= 0 ? 1 : (z.curve == "sine" ? (1 - cos(Double.pi * min(max((t - z.t) / z.dur, 0), 1))) / 2
+                                                         : Ease.progress(t, z.t, z.dur, Ease.inOut))
+            current = (lerp(current.0, target.0, p),
+                       CGPoint(x: lerp(current.1.x, target.1.x, p), y: lerp(current.1.y, target.1.y, p)),
+                       CGPoint(x: lerp(current.2.x, target.2.x, p), y: lerp(current.2.y, target.2.y, p)))
+        }
+        return current
+    }
+
+    func applyZoom(_ t: Double, _ ctx: CGContext) {
+        let z = zoomState(t)
+        ctx.translateBy(x: z.a.x, y: z.a.y)
+        ctx.scaleBy(x: z.s, y: z.s)
+        ctx.translateBy(x: -z.p.x, y: -z.p.y)
+    }
+
     // MARK: Titles
 
     /// Entrance for line `i` of a title: opacity and a short rise, strong ease-out, staggered.
     func lineState(_ title: Plan.Title, _ i: Int, _ t: Double) -> (opacity: Double, dy: Double) {
-        let enter = Ease.progress(t, title.start + 0.075 * Double(i), 0.6)
+        let begin = title.line_starts.flatMap { i < $0.count ? $0[i] : $0.last.map { $0 + 0.075 } } ?? (title.start + 0.075 * Double(i))
+        let enter = Ease.progress(t, begin, 0.6)
         let exit = Ease.progress(t, title.end - 0.26, 0.26)
         return (enter * (1 - exit), (1 - enter) * 22 - exit * 8)
     }
@@ -450,6 +521,18 @@ final class Compositor {
     func drawTitle(_ title: Plan.Title, _ t: Double, _ ctx: CGContext) {
         guard t >= title.start, t <= title.end, let lines = titleSprites[title.key] else { return }
         let L = layout
+        if title.style == "hero" {
+            let gaps = [L.eyebrowSize * 0.9, L.headlineSize * 0.35, 0]
+            var total = lines.map(\.size.height).reduce(0, +)
+            for i in 0..<max(lines.count - 1, 0) { total += gaps[min(i, 2)] }
+            var y = (L.size.height - total) / 2 - 20
+            for (i, s) in lines.enumerated() {
+                let (o, dy) = lineState(title, i, t)
+                draw(s, at: CGPoint(x: (L.size.width - s.size.width) / 2, y: y + dy), opacity: o, ctx)
+                y += s.size.height + gaps[min(i, 2)]
+            }
+            return
+        }
         if title.style == "statement" {
             let s = lines[0]
             let (o, dy) = lineState(title, 0, t)
@@ -479,6 +562,7 @@ final class Compositor {
             y += s.size.height + (i < 2 ? gap[min(i, 1)] : 0)
         }
         if let c = title.counter, !L.square { drawCounter(c, title, below: y + 26, t, ctx) }
+        if let s = plan.stat, s.title == title.key, !L.square { drawStat(s, title, below: y + 18, t, ctx) }
         if let c = title.counter, L.square { drawCounterSquare(c, title, t, ctx) }
     }
 
@@ -496,6 +580,24 @@ final class Compositor {
             draw(digits, at: origin, opacity: o, ctx)
             draw(unit, at: CGPoint(x: x + digits.size.width + 12, y: origin.y + digits.size.height - unit.size.height - 22), opacity: o, ctx)
         }
+    }
+
+    /// A big number landing on its beat under the title: rises in, a small overshoot, settles.
+    func drawStat(_ s: Plan.Stat, _ title: Plan.Title, below y: Double, _ t: Double, _ ctx: CGContext) {
+        guard t >= s.start, statSprites.count == 3 else { return }
+        let enter = Ease.progress(t, s.start, 0.5)
+        let exit = Ease.progress(t, title.end - 0.26, 0.26)
+        let o = enter * (1 - exit)
+        let dy = (1 - enter) * 30
+        let x = layout.textX - 4
+        let digits = statSprites[0], unit = statSprites[1], note = statSprites[2]
+        let pop = 1 + 0.06 * sin(Double.pi * min((t - s.start) / 0.35, 1)) * (1 - min((t - s.start) / 0.35, 1) * 0.0)
+        scaled(t - s.start < 0.35 ? pop : 1, about: CGPoint(x: x, y: y + digits.size.height / 2), ctx) {
+            draw(digits, at: CGPoint(x: x, y: y + dy), opacity: o, ctx)
+            draw(unit, at: CGPoint(x: x + digits.size.width + 12, y: y + dy + digits.size.height - unit.size.height - 22), opacity: o, ctx)
+        }
+        let p2 = Ease.progress(t, s.start + 0.12, 0.5) * (1 - exit)
+        draw(note, at: CGPoint(x: x + 4, y: y + digits.size.height - 6 + (1 - p2) * 18), opacity: p2, ctx)
     }
 
     func drawCounterSquare(_ c: Plan.Counter, _ title: Plan.Title, _ t: Double, _ ctx: CGContext) {
@@ -604,7 +706,7 @@ final class Compositor {
     }
 
     func drawEndCard(_ t: Double, _ ctx: CGContext) {
-        let start = plan.end_card + 0.12
+        let start = plan.end_card + (plan.end_card_delay ?? 0.12)
         guard t >= start else { return }
         let L = layout
         let iconSize = L.square ? 210.0 : 220.0
@@ -653,6 +755,14 @@ final class Compositor {
     func drawDevicePoster(_ deviceTime: Double, _ ctx: CGContext) {
         guard let screen = device.frame(at: deviceTime) else { return }
         let L = layout
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        if let z = plan.poster_zoom {
+            let k = L.screenRect.width / Layout.screenPoints.width
+            ctx.translateBy(x: z.ax, y: z.ay)
+            ctx.scaleBy(x: z.scale, y: z.scale)
+            ctx.translateBy(x: -(L.screenRect.minX + z.fx * k), y: -(L.screenRect.minY + z.fy * k))
+        }
         let outer = L.deviceRect
         let outerRadius = L.screenCorner + L.bezel
         let body = CGPath(roundedRect: outer, cornerWidth: outerRadius, cornerHeight: outerRadius, transform: nil)

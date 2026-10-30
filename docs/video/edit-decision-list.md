@@ -121,3 +121,94 @@ high-passed at 35 Hz; then two-pass `loudnorm` (I −14, TP −1.5, linear). Mea
 (AAC 256 kb/s, 48 kHz stereo) with `ebur128=peak=true`: **−14.3 LUFS integrated, LRA 5.5 LU, true peak
 −1.3 dBTP**, sample peak −1.28 dBFS, no clipped samples (flat factor 0). Voice is present in every
 section; between lines the bed sits about 8–10 dB under the voice.
+
+# Section view — beat-synced demo
+
+40.5 s, 30 fps, 1920×1080. Deliverables: `Fillet-Section-View.mp4` (H.264 High, AAC 256 kb/s) and
+`Fillet-Section-View-poster.png`, in `build/video/section/out/`. No voice-over: original music only.
+
+One take of `FILLET_DEMO=section` (`DemoDirector.sectionStory`) on the same 12.9" simulator, light,
+9:41. The part is built in code: a captive rotor (revolved, chamfered housing with four bolt holes and
+two sealed channels; a rotor and a pin sealed inside it, each 0.2 mm clear), so nothing of the inside
+shows until it's cut. The music comes first: **112.5 bpm**, so a beat is exactly 16 frames and every
+beat and half-beat falls on a frame. The demo waits on that grid (`FILLET_DEMO_BPM`) and bar *b* of
+its grid is bar *b* of the film, so the take is already on the beat (in the log, taps, presses and releases land within 2.5 ms
+of their beats and the ends of the drags within 10 ms); the edit only cuts it into shots and reframes the device on downbeats.
+`docs/video/section/timeline.py` holds the grid, the bars and the titles for all of it.
+
+## Rebuild
+
+```sh
+docs/video/section/record.sh build/video/section/raw/take.mp4   # build Debug, record the demo (≈50 s)
+python3 docs/video/section/sync.py build/video/section/raw/take.mp4  # where each action shows in the take
+python3 docs/video/section/build.py      # plan, device clip, music + master, picture, poster (≈1 min)
+python3 docs/video/section/beatcheck.py  # every cut, title line, action and hit against the grid
+docs/video/section/qc.sh                 # contact sheets (per second, per beat, either side of each cut), spectrum, loudness
+```
+
+| File | Role |
+|---|---|
+| `section/timeline.py` | Tempo, the bar each action and title lands on |
+| `section/record.sh` | Builds the Debug app, prepares the simulator, records the paced demo with its beat log |
+| `section/sync.py` | Finds the take's offset from the log and the frame each action first (and most) changes the screen |
+| `section/edit.py` | Shots, framing (zoom keys), titles, poster; frame-exact mapping from take to film |
+| `section/music.py` | The music, synthesised with numpy; also writes the hits alone for the check |
+| `section/build.py` | Runs it all with ffmpeg and the shared compositor (`compositor/main.swift`, now with zoom keys, beat-timed title lines, a centred title, a stat line and its own end card and poster text) |
+| `section/beatcheck.py` | The beat-sync check; fails on anything more than one frame off |
+| `section/qc.sh` | Contact sheets, spectrogram, EBU R128, streams |
+
+## Shots
+
+Every cut is on a downbeat. Each output frame of a shot is every other frame of the take resampled at
+60 fps, so nothing drifts. Two shots start on the frame where the picture changes most rather than on
+the grid, because the simulator draws them late: the cut opening (the scene is rebuilt with the section,
+about 65 ms) and turning it off (about 35 ms). Each runs a bar, and the next shot goes back to the take on the grid.
+
+| Bar (s) | Shot | Framing | On the beat |
+|---|---|---|---|
+| 0–2 (0–4.27) | Title on paper | — | "NEW IN FILLET" 0.1, "Section view" 1.0, sub 1.2 |
+| 2 (4.27) | Device comes in on the solid part, slow orbit | whole device | Section tool 3.2, plane chips and planes up |
+| 5 (10.67) | **The cut opens** (XZ chip): three bodies, three cap colours | close 1.75 | impact |
+| 6 (12.80) | The nested bodies | close 2.15 | — |
+| 7 (14.93) | Arrow held 7.0, slides out to 18 mm 7.1→8.0, back to 0 →8.3; live pill | close 1.9 | "60 fps" lands 8.0 |
+| 9 (19.20) | Grip held 9.0, tilts 0→30° 9.1→9.3.5, dashed ring and angle | close 2.05 | released 10.0 |
+| 11 (23.47) | **Flip** 11.0, the camera swinging round over two beats to the half now kept, its cut face to the viewer; Untilt 11.3 | full screen width 1.45 | |
+| 12 (25.60) | **2D section view** 12.0 (camera flies orthographic) | full width | |
+| 13 (27.73) | The section drawing | close 1.9 | |
+| 14 (29.87) | **Section only** 14.0 | full width | |
+| 15 (32.00) | Back to 3D, caps only | close 2.2 | |
+| 16 (34.13) | Section off: the part whole again | whole device | |
+| 17 (36.27) | **End card**: icon, "Fillet", "Section view: see inside what you make.", "iPad and Mac" | — | to 40.53 |
+
+Close shots put the frame's right edge on the viewport's (the panel just out of shot); shots where
+the panel is tapped show the screen's full width. Each shot cuts to its framing and pushes in slowly.
+
+Titles (left column, eyebrow and headline on the downbeat, sub lines on the half-beats after):
+"It looks solid." (2.2), "See inside." (5), "Every body, its own colour." (6), "Drag the arrow." (7)
+with **60 fps** (8), "Turn a grip." (9), "Flip side." / "Keep either half." (11), "Straight at the cut." (12),
+"Just the cut faces." (14), "Nothing to undo." (16).
+
+## Music (`section/music.py`)
+
+D minor, 112.5 bpm, one chord a bar: Dm Dm Bb Gm A | Dm Bb Gm A Dm Bb Gm | Eb C | Dm Bb A | D (Picardy third).
+Detuned saw pad, a sixteenth pulse arpeggio through a resonant filter that opens over the film (ping-pong
+delay on dotted eighths), a gated sixteenth bass and a sub, four-on-the-floor with claps and hats from the
+impact, all sidechained to the kick. Bar 4 is the riser (noise sweep, pitch riser, snare roll, reversed
+swell) into the impact on bar 5. Under the slide a band of noise sweeps with the arrow's offset, chopped
+on 32nds, with data blips; a glide rises with the tilt; a reversed hit into the flip (a blip on the
+Untilt, a beat later); bars 12–13 lift to
+Eb and C in half time with bells; bar 14 strips to bass, arpeggio and ticks; the groove comes back on 15,
+a roll on 16, and D major rings out under the end card. Blips mark the taps.
+
+Mastered with two-pass `loudnorm` (I −16, TP −1.5, linear). Measured on the MP4: **−15.9 LUFS
+integrated, LRA 6.8 LU, true peak −2.5 dBTP**, sample peak −2.9 dBFS, flat factor 0.
+
+## Beat check
+
+`beatcheck.py` lists 91 checks with their error from the grid: 12 cuts, 34 title lines, 16 actions as
+logged (through the edit), 15 picture changes as the take shows them (first change and biggest change),
+2 picture changes measured again in the finished film, and 12 hits found in the film's audio (the hits'
+own stem cross-correlated with it). On the current take every one is 0 ms: the picture rows are
+whole frames (a beat is exactly 16), and each lands on its beat's frame; underneath, the take's log
+puts taps, presses and releases within 2.5 ms of their beats and the ends of drags within 10 ms. The
+hits are found to the sample (the Section-only hit correlates weakly, r 0.23, under the bass).

@@ -89,6 +89,30 @@ final class DesignSession {
     var pendingSketchTool: SketchTool?
     /// Measure is on (see `MeasureState`); nil otherwise.
     var measure: MeasureState?
+    /// Section view's plane (see `SectionState`), kept while it's off; nil when none was picked.
+    var section: SectionState?
+    /// Whether that plane cuts the model and its handles are up; `.off` whenever `section` is nil.
+    var sectionMode = SectionMode.off
+    /// Section view was asked for with no plane: the origin planes show and the next tap on one
+    /// of them, or on a flat face, cuts there.
+    var choosingSectionPlane = false
+    /// The section handle being dragged (its readout follows the pointer), nil otherwise.
+    var sectionDrag: String?
+    /// The kernel's exact outline of the section shown (see `loadSectionCurves`), nil until it's in.
+    var sectionCurves: SectionCurves?
+    /// Section only: just the caps show (`ViewportScene.sectionOnly`). Off with the section.
+    var sectionOnly = false
+    /// 2D section view: the cut as a drawing, looked at straight on (`ViewportScene.sectionDrawing`).
+    /// Off with the section.
+    var section2D = false
+    /// Where the camera was before 2D section view turned it to the cut: turning it off goes back.
+    @ObservationIgnored var cameraBeforeSection2D: Camera?
+    /// How long the last exact outline took the kernel (scripted runs log it).
+    @ObservationIgnored var sectionCurvesTime: Duration?
+    /// `section` read without subscribing to it (the macro's storage): mid-drag the viewport takes
+    /// each step straight from the drag (`viewportSectionDragged`), so the scene that holds it
+    /// mustn't be rebuilt on every step.
+    var sectionUntracked: SectionState? { _section }
     /// Bodies hidden in the viewport (and left out of exports). Saved with the document so they
     /// stay hidden on reopen, but not an undo step (like Fusion's eye toggles); see `setDocument`.
     var hiddenBodies: Set<BodyRef> {
@@ -288,6 +312,9 @@ final class DesignSession {
         choosingSketchPlane = false
         pendingSketchTool = nil
         measure = nil
+        // A section stays cut through what comes next; its handles and panel make way.
+        choosingSectionPlane = false
+        putSectionHandlesAway()
         guard let edit = editing else { return }
         editing = nil
         sketchEditor = nil

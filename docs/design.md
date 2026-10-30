@@ -202,6 +202,30 @@ grid + bed rectangle, sketch overlay drawn on top with depth test off for
 points. Picking on the CPU: ray vs triangles (BVH per body) for faces,
 screen-space distance to edge polylines (tolerance 8 pt touch / 4 pt mouse).
 
+Section cuts (`ViewportScene.section`) discard everything on the plane's cut-away side in the
+shaders and close every opaque solid they open with a cap, drawn right after the opaque bodies
+with the stencil buffer (`depth32Float_stencil8`). Per body: what is left of its surface is drawn
+without colour or depth test, flipping a stencil bit per layer, so the bit ends up set where the
+plane lies inside the solid (closed meshes; parity, so cavities, enclosed channels and crossing
+bores come out open); then a polygon on the plane (where it crosses the body's bounding box) is
+drawn where the bit is set, with a small depth bias so a face lying in the plane doesn't fight it;
+then the surface again clears that bit for the next body. The cap also sets a second stencil bit
+where it is drawn, and the outline where the plane meets each body (sliced from its triangles on
+the GPU, then the kernel's exact lines once the plane settles) only draws where that bit is clear:
+it runs round a cap and never over it, so a 0.8 mm wall keeps its whole width. Caps of
+default-coloured bodies take a cut colour each (the section red, then slate, plum, ochre, teal,
+olive, mixed into the body grey) and a body with its own colour keeps it, so nested parts read as
+parts; each also hatches at its own angle (45°, 135°, 15°…). The hatch is a hairline at one
+spacing over the whole cap, a power of two in world units nearest 5 pt where the view looks (the
+camera's target moved onto the cap), so it stays put on the part, steps only when zooming, and
+never shows faint lines between the real ones. Caps are half lit in 3D. Silhouettes and edges are
+cut with the body, not dropped, and so is the contact shadow (it is of the kept part's box).
+`ViewportScene.sectionOnly` draws the caps and nothing else of the bodies; `sectionDrawing` is a
+2D section view: caps flat, what's left of the bodies laid down in depth only (the background
+shows) with its edges and silhouettes in the line colour, no hidden edges, ground, bed or shadow.
+Picks clip the ray to the kept side: what is cut away can't be picked or hide anything, and a ray
+that enters a body through the plane hits its cap, which picks the body but no face.
+
 Input:
 - iPad: 1 finger drag orbit, 2 finger drag pan, pinch zoom, two-finger double‑tap
   fit; tap = pick. Apple Pencil (or a finger when "draw with finger" is on)
@@ -300,6 +324,49 @@ crossing, diamond quadrant, ring centre). They are feedback only: never picked,
 saved or undone, and gone when the gesture ends. `SnapTargets` is built once per
 change to the sketch, its parameters, its plane or the bodies (points sorted by x
 and y, so a pointer event only looks near it). `FILLET_SCENARIO=snapping` and the `FilletUITests` scheme exercise it on iPad.
+
+Section view (`App/Sources/Session/Section.swift`, after Shapr3D's): Section on the tool strip,
+⇧⌘X or *View ▸ Section View* cuts the model open. With a flat face selected it cuts right on that
+face; otherwise the viewport offers the origin planes and flat faces like choosing a sketch plane
+(bar with XY / XZ / YZ and Cancel). The picked plane's normal is turned towards the camera, so
+what faces the viewer is cut away and the inside shows. An origin plane that misses the part (a
+part standing on the bed, or beside the plane) starts the cut through the part's middle instead,
+so picking always shows a cut; a face starts right on it. Then, with the panel in the inspector:
+
+- An arrow across the cut (in the selection blue: it steers the view, not a step) slides it; the
+  offset reads in a pill past the arrow's head, live while dragging, and a tap on the pill types
+  one (an expression, like every field). The offset is the handles' distance from the picked plane
+  along its normal, positive towards the side cut away, in 0.1 mm steps.
+- Two curved grips, out on the plane's in-plane axes, tilt it about the handles' point (whole
+  degrees; first about the picked plane's level axis, then about the axis that turned to). Tilting
+  never moves that point, so the offset reads the same through a tilt. The grip's angle shows
+  beside it while it turns.
+- A round button behind the arrow's base flips the side cut away; the plane stays where it is.
+- Pressing a handle shows it's held before it moves: it grows and takes a halo, the arrow shows the
+  line it slides along (dashed, both ways) and the pill fills in blue. A turning grip shows a dashed
+  ring round the handles' point with a solid arc from where it reads 0°, and its angle at the arc's
+  end. Let go, a tilt that isn't 0° keeps its angle in a pill under the offset's; a tap types one.
+- The panel types the offset and both tilts, changes the plane, untilts, and *Look at the cut*
+  turns the camera straight at it from the cut-away side.
+- *2D section view* (panel, or *View ▸ 2D Section View*) turns the camera orthographic and straight
+  at the cut from the side cut away, framing what's left, and draws it as a section drawing:
+  caps flat and hatched with a line round each, the rest of the model as lines, no bed or grid.
+  The handles go (they'd be end-on); the pills and the panel steer it, and a flip or typed tilt
+  turns the view with the cut. Off goes back to the camera before it.
+- *Section only* draws the caps and nothing else, in 3D or 2D. Both looks end with the section.
+
+It is view state, like Measure: never a step, never in the document or the undo history, and the
+plane stays put in the world while orbiting. Escape or Done puts the handles away and keeps the
+cut, with a pill over the viewport (Edit, Turn off); other tools and steps take over the handles
+but keep the cut. The tool turns it off and later back on at the same plane (Delete forgets it).
+A section drag doesn't rebuild the scene: each step goes from the viewport controller straight to
+the renderer, which moves the section uniform (the stencil caps follow on the GPU) and slices the
+outline from the meshes on the GPU too, and the view draws once a display refresh while the handle
+is held. Only the panel and the pill redraw around it (the mode is kept apart from the plane, so
+the rest of the editor doesn't). When the plane holds still for 0.12 s, or is let go, the kernel
+cuts each body with it off the main thread (`fk_section`) and those exact lines, split to about
+half a pixel, replace the mesh's outline; a step drops a fetch still running. The frog (159k
+triangles) drags at 60 frames/s with no scene rebuilt; see `docs/performance.md`.
 
 ## Milestones
 

@@ -58,7 +58,8 @@ struct SketchPlaneBar: View {
             divider
             HStack(spacing: Theme.Space.xs) {
                 ForEach(StandardPlane.allCases, id: \.self) { plane in
-                    PlaneChip(plane: plane, lit: session.hover == .originPlane(plane)) {
+                    PlaneChip(plane: plane, lit: session.hover == .originPlane(plane), help: "Sketch on \(plane.title), the \(plane.role) plane",
+                              hint: "Starts a sketch on the \(plane.role) plane", automationID: "sketch-plane.\(plane.rawValue)") {
                         session.startSketch(on: plane)
                     } onHover: { inside in
                         if inside { session.hover = .originPlane(plane) } else if session.hover == .originPlane(plane) { session.hover = nil }
@@ -86,11 +87,15 @@ struct SketchPlaneBar: View {
     private var divider: some View { Theme.hairlineStrong.frame(width: 1, height: 16) }
 }
 
-/// One origin plane: its glyph in the plane's colour and its name.
-private struct PlaneChip: View {
+/// One origin plane: its glyph in the plane's colour and its name (in the sketch and section plane bars).
+struct PlaneChip: View {
     let plane: StandardPlane
     /// The plane is under the pointer, here or in the viewport.
     let lit: Bool
+    /// The tooltip and the VoiceOver hint: what picking it does.
+    let help: String
+    let hint: String
+    let automationID: String
     let action: () -> Void
     let onHover: (Bool) -> Void
     @Environment(\.touchTargets) private var touch
@@ -113,10 +118,10 @@ private struct PlaneChip: View {
         .buttonStyle(PressableStyle())
         .onHover(perform: onHover)
         .animation(Theme.Motion.hover, value: lit)
-        .help("Sketch on \(plane.title), the \(plane.role) plane")
+        .help(help)
         .accessibilityLabel("\(plane.title) plane")
-        .accessibilityHint("Starts a sketch on the \(plane.role) plane")
-        .automationFrame("sketch-plane.\(plane.rawValue)")
+        .accessibilityHint(hint)
+        .automationFrame(automationID)
     }
 }
 

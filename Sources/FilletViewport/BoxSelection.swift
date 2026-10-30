@@ -101,6 +101,7 @@ extension ViewportPicker {
     public func boxSelect(scene: ViewportScene, camera: Camera, rect: CGRect, viewSize: CGSize,
                           filter: PickFilter, mode: BoxSelectMode) -> [PickTarget] {
         guard rect.width >= 1, rect.height >= 1 else { return [] }
+        section = scene.section
         let bodies = scene.bodies.filter { $0.visible && $0.pickable && !$0.mesh.indices.isEmpty }
         var result: [PickTarget] = []
         if filter.contains(.edges) {

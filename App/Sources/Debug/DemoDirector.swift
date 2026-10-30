@@ -50,6 +50,10 @@ enum DemoDirector {
             await snappingStory(session)
             return
         }
+        if ProcessInfo.processInfo.environment["FILLET_DEMO"] == "section" {
+            await sectionStory(session)
+            return
+        }
         beat("launch")
         session.fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("Pen holder.fillet")  // the title
         // The splash plays over the editor (1.6 s); let it finish and the bed settle.
@@ -370,6 +374,251 @@ enum DemoDirector {
         await settle(session)
         await pause(1.2)
         beat("end")
+    }
+
+    // MARK: Section view, on the beat
+
+    /// `FILLET_DEMO=section`: Section view on a part that looks solid, every action on the beat
+    /// of the music it is cut to (`FILLET_DEMO_BPM`, 112.5 by default: a beat is 16 frames at
+    /// 30 fps). The part is a print-in-place captive rotor: a chamfered housing with four bolt
+    /// holes, and sealed inside it a rotor, inside that a pin, 0.2 mm apart, and two closed
+    /// channels in the housing's floor and lid. Nothing of the inside shows until it's cut.
+    ///
+    /// Bars of four beats from the grid's start (`beat grid`); the edit puts bar 2 where the
+    /// device comes in. Bar 3 Section on the tool strip; bar 5 the XZ chip, the cut opens; bars 7–8
+    /// the arrow slides the cut out and back; bars 9–10 a grip tilts it 30°; bar 11 flip, the camera
+    /// swinging round to the half now kept, then Untilt on beat 3; bar 12 2D section view; bar 14 Section only; bar 15 back to 3D; bar 16 off; bar 17 the end.
+    /// Taps land on their beat as the finger lifts; every action logs a beat named after it.
+    /// `docs/video/section/record.sh` records it.
+    static func sectionStory(_ session: DesignSession) async {
+        beat("launch")
+        session.fileURL = FileManager.default.temporaryDirectory.appendingPathComponent("Captive rotor.fillet")  // the title
+        buildCaptiveRotor(session)
+        await settle(session)
+        var iso = session.camera
+        iso.setView(.iso)
+        iso.orbit(deltaYaw: 0.28, deltaPitch: 0)
+        session.camera = iso
+        // Closer than the app frames bodies: the part is what the film is about.
+        if let bounds = session.visibleBodyBounds {
+            session.camera = session.camera.framing(bounds, viewSize: session.viewSize, insets: session.viewInsets, margin: 1.02)
+        }
+        await settle(session)
+        // The splash plays over the editor (1.6 s); let it finish and the part settle.
+        await pause(3.0)
+        let bpm = ProcessInfo.processInfo.environment["FILLET_DEMO_BPM"].flatMap(Double.init) ?? 112.5
+        beatLength = 60 / bpm
+        grid = Date()
+        log(String(format: "beat grid t=%.3f epoch=%.3f bpm=%.3f", grid.timeIntervalSince(start), grid.timeIntervalSince1970, bpm))
+
+        // Bar 2: the device comes in on a part that looks solid, turning slowly.
+        // Through the renderer: the editor hands the viewport a flight's length only when it redraws.
+        await wait(2, 0)
+        var orbit = session.camera
+        orbit.orbit(deltaYaw: -0.34, deltaPitch: 0)
+        controller?.renderer?.animateCamera(to: orbit, duration: 5.5 * beatLength)
+        beat("orbit")
+        cameraDuration = 2 * beatLength
+
+        // Bar 3: Section on the tool strip offers the planes; bar 5: the XZ chip cuts it open.
+        await tap(frame: "tool.Section", on: 3, 2, "section-tool") { session.toggleSection() }
+        await tap(frame: "section-plane.xz", on: 5, 0, "reveal") { session.startSection(on: .xz) }
+
+        // Bars 7–8: the arrow, held on the downbeat, slides the cut out to the front and back to the middle.
+        await dragSectionArrow(session, press: (7, 0), moves: [(to: 18, from: (7, 1), until: (8, 0)), (to: 0, from: (8, 0), until: (8, 3))],
+                               release: (8, 3.5))
+
+        // Bars 9–10: the level grip tips the cut 30° round its ring.
+        await tiltSection(session, press: (9, 0), degrees: 30, from: (9, 1), until: (9, 3.5), release: (10, 0))
+
+        // Bar 11: flip, and the camera swings round over two beats to face the half now kept, its
+        // cut face and the bodies inside towards the viewer; Untilt on the beat after it lands.
+        await tap(frame: "section-flip", on: 11, 0, "flip") {
+            session.flipSection()
+            var swung = session.camera
+            swung.orbit(deltaYaw: .pi - 0.05, deltaPitch: 0)  // just short of half a turn, so it goes round one way
+            controller?.renderer?.animateCamera(to: swung, duration: 2 * beatLength)
+        }
+        await tap(frame: "section.untilt", on: 11, 3, "untilt") { session.resetSectionTilt() }
+
+        // Bar 12: 2D section view; bar 14: Section only; bar 15: back to 3D, caps only.
+        await tap(frame: "section.2d", unit: CGPoint(x: 0.93, y: 0.5), on: 12, 0, "2d") { session.setSection2D(true) }
+        await tap(frame: "section.only", unit: CGPoint(x: 0.93, y: 0.5), on: 14, 0, "section-only") { session.setSectionOnly(true) }
+        await tap(frame: "section.2d", unit: CGPoint(x: 0.93, y: 0.5), on: 15, 0, "3d") { session.setSection2D(false) }
+
+        // Bar 16: the tool turns it off, the part whole again.
+        await tap(frame: "tool.Section", on: 16, 0, "off") { session.toggleSection() }
+        await wait(17, 0)
+        beat("end-card")
+        cameraDuration = 1.1
+        await wait(18, 0)
+        beat("end")
+    }
+
+    /// The captive rotor: housing (revolved, chamfered, a raised boss), its sealed cavity, four
+    /// bolt holes, a floor channel along X and a lid channel along Y; a rotor in the cavity with
+    /// its own sealed bore, and a pin in that, each 0.2 mm clear of what holds it.
+    private static func buildCaptiveRotor(_ session: DesignSession) {
+        let profile = Feature(name: "Housing profile", .sketch(Sketch(plane: .standard(.xz, offset: 0), shapes: [
+            SketchShape(.polyline(vertices: [(0, 0), (25, 0), (26, 1), (26, 20), (25, 21), (12.5, 21), (11, 23), (0, 23)]
+                .map { PolylineVertex(Expr($0.0), Expr($0.1)) }, closed: true)),
+        ])))
+        let housing = Feature(name: "Housing", .revolve(Revolve(sketch: profile.id, regions: [RegionRef(x: 10, y: 10)], axis: .y)))
+        let h = BodyRef(housing.id)
+        func cylinder(_ name: String, _ plane: SketchPlaneRef, _ at: (Double, Double), _ d: Double, _ height: Double,
+                      cut target: BodyRef? = nil) -> Feature {
+            Feature(name: name, .primitive(Primitive(kind: .cylinder, plane: plane, position: Point2Expr(Expr(at.0), Expr(at.1)),
+                                                     dimensions: [Expr(d), Expr(height)], operation: target == nil ? .newBody : .cut,
+                                                     targets: target.map { [$0] } ?? [])))
+        }
+        let cavity = cylinder("Cavity", .standard(.xy, offset: 4.6), (0, 0), 34.4, 12.4, cut: h)
+        let holes = [(21.6, 0.0), (-21.6, 0), (0, 21.6), (0, -21.6)].enumerated().map { i, p in
+            cylinder("Bolt hole \(i + 1)", .standard(.xy, offset: -1), p, 3.4, 26, cut: h)
+        }
+        // Along +X from x = -22, and along -Y from y = 22 (the front plane's normal is -Y).
+        let floorChannel = cylinder("Floor channel", .standard(.yz, offset: -22), (0, 2.3), 2.4, 44, cut: h)
+        let lidChannel = cylinder("Lid channel", .standard(.xz, offset: -22), (0, 19), 2, 44, cut: h)
+        let rotor = cylinder("Rotor", .standard(.xy, offset: 4.8), (0, 0), 34, 12)
+        let bore = cylinder("Rotor bore", .standard(.xy, offset: 6.6), (0, 0), 16.4, 8.4, cut: BodyRef(rotor.id))
+        let pin = cylinder("Pin", .standard(.xy, offset: 6.8), (0, 0), 16, 8)
+        session.perform("Captive rotor") { doc in
+            for f in [profile, housing, cavity] + holes + [floorChannel, lidChannel, rotor, bore, pin] { _ = doc.addFeature(f) }
+        }
+    }
+
+    private static var grid = Date()
+    private static var beatLength = 60 / 112.5
+
+    /// When beat `b` (0…3, halves allowed) of bar `bar` falls, counted from the grid's start.
+    private static func time(_ bar: Int, _ b: Double) -> Date {
+        grid.addingTimeInterval((Double(bar) * 4 + b) * beatLength)
+    }
+
+    /// Sleeps until `date`, on time: a long sleep left to the system's default tolerance wakes
+    /// late by a few percent of its length (a quarter of a second over a few bars), so it sleeps
+    /// with none, short of the mark, and steps up to it a couple of milliseconds at a time.
+    private static func wait(until date: Date) async {
+        let d = date.timeIntervalSinceNow - 0.03
+        if d > 0 { try? await Task.sleep(for: .seconds(d), tolerance: .zero, clock: .continuous) }
+        while date.timeIntervalSinceNow > 0.002 {
+            try? await Task.sleep(for: .milliseconds(1), tolerance: .zero, clock: .continuous)
+        }
+    }
+
+    private static func wait(_ bar: Int, _ b: Double) async { await wait(until: time(bar, b)) }
+
+    /// A finger tap on a tagged view whose action lands on a beat, as the finger lifts.
+    private static func tap(frame name: String, unit: CGPoint = CGPoint(x: 0.5, y: 0.5), on bar: Int, _ b: Double,
+                            _ label: String, _ action: () -> Void) async {
+        let when = time(bar, b)
+        await wait(until: when.addingTimeInterval(-0.16))
+        let touch = DemoTouch.shared
+        if let r = DebugAutomation.frames[name]?.rect {
+            touch.kind = .finger
+            touch.location = CGPoint(x: r.minX + r.width * unit.x, y: r.minY + r.height * unit.y)
+            withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.14)) { touch.visible = true; touch.pressed = true }
+            beat("touch")
+        } else {
+            log("no frame \(name); acting without a touch")
+        }
+        await wait(until: when)
+        action()
+        beat(label)
+        withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.14)) { touch.pressed = false }
+        try? await Task.sleep(for: .seconds(0.12))
+        withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.2)) { touch.visible = false }
+    }
+
+    private static func handle(_ session: DesignSession, _ id: String) -> Handle? {
+        session.makeScene().handles.first { $0.id == id }
+    }
+
+    /// Presses the section arrow on a beat (held, before it moves), slides it to each offset over
+    /// its beats, eased, and lets go on a beat, through the viewport controller like a finger.
+    private static func dragSectionArrow(_ session: DesignSession, press: (Int, Double),
+                                         moves: [(to: Double, from: (Int, Double), until: (Int, Double))],
+                                         release: (Int, Double)) async {
+        guard let controller, let arrow = handle(session, DesignSession.sectionOffsetHandleID), let start = session.section?.offset else {
+            log("no section arrow"); return
+        }
+        let cam = controller.liveCamera, size = controller.viewSize
+        let wpp = cam.worldUnitsPerPoint(at: arrow.tip, viewSize: size)
+        let grabWorld = arrow.tip + arrow.direction * (HandleMetrics.totalLength / 2 * wpp)
+        func screen(_ offset: Double) -> CGPoint? { cam.project(grabWorld + arrow.direction * (offset - start), viewSize: size) }
+        guard let grab = screen(start) else { return }
+        let touch = DemoTouch.shared
+        touch.kind = .finger
+        await wait(until: time(press.0, press.1).addingTimeInterval(-0.1))
+        touch.location = global(grab)
+        withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.1)) { touch.visible = true; touch.pressed = true }
+        await wait(press.0, press.1)
+        guard controller.beginHandleDrag(at: grab, pointer: .touch) else { log("the arrow can't be grabbed"); return }
+        beat("arrow-press")
+        var value = start
+        for m in moves {
+            await wait(m.from.0, m.from.1)
+            beat("arrow-move")
+            let a = value, t0 = time(m.from.0, m.from.1), t1 = time(m.until.0, m.until.1)
+            let length = t1.timeIntervalSince(t0)
+            while true {
+                let p = min(max(Date().timeIntervalSince(t0) / length, 0), 1)
+                value = a + (m.to - a) * easeInOut(p)
+                if let s = screen(value) {
+                    controller.dragHandle(to: s)
+                    touch.location = global(s)
+                }
+                if p >= 1 { break }
+                try? await Task.sleep(for: .seconds(1.0 / 120))
+            }
+            beat("arrow-stop")
+        }
+        await wait(release.0, release.1)
+        controller.endHandleDrag()
+        beat("arrow-release")
+        withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.2)) { touch.visible = false; touch.pressed = false }
+    }
+
+    /// Presses the level tilt grip on a beat, turns it round its ring to `degrees` over its beats
+    /// and lets go on a beat.
+    private static func tiltSection(_ session: DesignSession, press: (Int, Double), degrees: Double, from: (Int, Double),
+                                    until: (Int, Double), release: (Int, Double)) async {
+        guard let controller, let grip = handle(session, DesignSession.sectionTiltUHandleID), case .rotation(let axis) = grip.kind else {
+            log("no tilt grip"); return
+        }
+        let cam = controller.liveCamera, size = controller.viewSize
+        let radius = HandleMetrics.gripRadius * cam.worldUnitsPerPoint(at: grip.origin, viewSize: size)
+        // The grip turns towards the camera, so the tilt reads as the cut tipping forward.
+        let towards: Double = axis.cross(grip.direction).dot(cam.back) >= 0 ? 1 : -1
+        func screen(_ d: Double) -> CGPoint? {
+            let a = towards * d * .pi / 180
+            return cam.project(grip.origin + (grip.direction * cos(a) + axis.cross(grip.direction) * sin(a)) * radius, viewSize: size)
+        }
+        guard let begin = screen(0) else { return }
+        let touch = DemoTouch.shared
+        touch.kind = .finger
+        await wait(until: time(press.0, press.1).addingTimeInterval(-0.1))
+        touch.location = global(begin)
+        withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.1)) { touch.visible = true; touch.pressed = true }
+        await wait(press.0, press.1)
+        guard controller.beginHandleDrag(at: begin, pointer: .touch) else { log("the grip can't be grabbed"); return }
+        beat("tilt-press")
+        await wait(from.0, from.1)
+        beat("tilt-move")
+        let t0 = time(from.0, from.1), length = time(until.0, until.1).timeIntervalSince(t0)
+        while true {
+            let p = min(max(Date().timeIntervalSince(t0) / length, 0), 1)
+            if let s = screen(degrees * easeInOut(p)) {
+                controller.dragHandle(to: s)
+                touch.location = global(s)
+            }
+            if p >= 1 { break }
+            try? await Task.sleep(for: .seconds(1.0 / 120))
+        }
+        beat("tilt-stop")
+        await wait(release.0, release.1)
+        controller.endHandleDrag()
+        beat("tilt-release")
+        withAnimation(.timingCurve(0.23, 1, 0.32, 1, duration: 0.2)) { touch.visible = false; touch.pressed = false }
     }
 
     // MARK: Pointer

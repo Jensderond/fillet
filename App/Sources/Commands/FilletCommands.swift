@@ -44,6 +44,18 @@ struct FilletCommands: Commands {
             Picker("Visual Style", selection: $visualStyle) {
                 ForEach(VisualStyle.allCases, id: \.self) { Text($0.menuTitle).tag($0) }
             }
+            // X for cross-section. Off again with the same keys; the plane is kept for next time.
+            Button(session?.sectionIsOn == true || session?.choosingSectionPlane == true ? "Turn Off Section View" : "Section View") {
+                session?.toggleSection()
+            }
+            .keyboardShortcut("x", modifiers: [.command, .shift])
+            .disabled(session == nil)
+            Button("Flip Section Side") { session?.flipSection() }
+                .disabled(session?.sectionIsOn != true)
+            Toggle("2D Section View", isOn: Binding(get: { session?.section2D == true }, set: { session?.setSection2D($0) }))
+                .disabled(session?.sectionIsOn != true)
+            Toggle("Section Only", isOn: Binding(get: { session?.sectionOnly == true }, set: { session?.setSectionOnly($0) }))
+                .disabled(session?.sectionIsOn != true)
             Divider()
         }
 

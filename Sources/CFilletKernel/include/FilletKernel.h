@@ -274,6 +274,11 @@ const float *fk_mesh_edge_points(const FKMesh *mesh, int32_t edgeIndex, int32_t 
 /// Position of every B-rep vertex, indexed like fk_vertex_point (xyz × *count).
 const float *fk_mesh_brep_vertices(const FKMesh *mesh, int32_t *count);
 
+/// Where `plane` cuts the shape: the exact lines it meets the faces in (a section view's outline),
+/// as polylines discretised like fk_tessellate's edges, one per section edge, in the mesh's edge
+/// lists (it has no triangles). No edges when the plane misses the shape.
+FKMesh *fk_section(const FKShape *shape, FKPlane plane, double linearDeflection, double angularDeflection);
+
 // MARK: Exchange
 
 FKShape *fk_import_step(const char *path);

@@ -45,6 +45,16 @@ struct MeshDraw {
     static let unlit: UInt32 = 2
     static let pull: UInt32 = 4
     static let highlightOnly: UInt32 = 8
+    static let ignoresSection: UInt32 = 16
+}
+
+struct CapDraw {
+    var color = SIMD4<Float>()
+    var hatch = SIMD4<Float>()
+    /// Unit vector in the section plane across the hatch lines.
+    var across = SIMD4<Float>()
+    /// x line spacing (world units), y line width (pt), z = 1 lit.
+    var params = SIMD4<Float>()
 }
 
 struct ShadowDraw {
@@ -92,6 +102,7 @@ struct LineDraw {
     var model = matrix_identity_float4x4
     var s0 = LineStyle(), s1 = LineStyle(), s2 = LineStyle(), s3 = LineStyle(), s4 = LineStyle(), s5 = LineStyle()
     var stateCount: UInt32 = 0
+    /// 1 = pulled towards the camera and cut by the section, 2 = pulled but not cut.
     var pull: UInt32 = 0
     var dashPeriod: Float = 0
     var pad: Float = 0

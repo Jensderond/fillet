@@ -31,7 +31,8 @@ import UniformTypeIdentifiers
 ///
 /// `FILLET_SCENARIO=featurePattern` runs only the feature pattern scenario (Automation+Pattern.swift),
 /// `FILLET_SCENARIO=selection` only the selection one: chains, loops, clicks and boxes (Automation+Selection.swift),
-/// `FILLET_SCENARIO=snapping` only snapping and alignment guides at several zooms (Automation+Snapping.swift).
+/// `FILLET_SCENARIO=snapping` only snapping and alignment guides at several zooms (Automation+Snapping.swift),
+/// `FILLET_SCENARIO=section` only Section view: picking, dragging, tilting, typing and leaving it (Automation+Section.swift).
 @MainActor
 enum DebugAutomation {
     static var isEnabled: Bool { ProcessInfo.processInfo.environment["FILLET_AUTOMATION"] != nil }
@@ -102,17 +103,22 @@ enum DebugAutomation {
         await snap(session, "01-empty")
         if ProcessInfo.processInfo.environment["FILLET_SCENARIO"] == "featurePattern" {
             await featurePatternScenario(session)
-            log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
+            finish()
             return
         }
         if ProcessInfo.processInfo.environment["FILLET_SCENARIO"] == "snapping" {
             await snappingScenario(session)
-            log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
+            finish()
+            return
+        }
+        if ProcessInfo.processInfo.environment["FILLET_SCENARIO"] == "section" {
+            await sectionScenario(session)
+            finish()
             return
         }
         if ProcessInfo.processInfo.environment["FILLET_SCENARIO"] == "selection" {
             await selectionScenario(session)
-            log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
+            finish()
             return
         }
 
@@ -323,6 +329,14 @@ enum DebugAutomation {
         // Last: its sketch on XZ turns the camera, which would move the taps of anything after it.
         await keyboardShortcuts(session)
         log("timeline: " + session.document.features.map { "\($0.name)[\(session.model.status[$0.id].map(String.init(describing:)) ?? "-")]" }.joined(separator: " → "))
+        finish()
+    }
+
+    /// Logs the verdict and, on the Mac, quits (unless `FILLET_AUTOMATION_KEEP_OPEN` is set).
+    /// Every run ends here, scenarios too: a run killed instead leaves its scratch document to
+    /// be restored by the next launch, whose editor may then be the one the script drives.
+    /// (Launch with `-ApplePersistenceIgnoreState YES` to skip windows an earlier kill left.)
+    private static func finish() {
         log(failures == 0 ? "ALL CHECKS PASSED" : "\(failures) CHECK(S) FAILED")
         #if os(macOS)
         if ProcessInfo.processInfo.environment["FILLET_AUTOMATION_KEEP_OPEN"] == nil {
@@ -811,6 +825,11 @@ enum DebugAutomation {
             }
         }
         log("snapshot \(name)")
+        // `FILLET_SNAPSHOT_PAUSE=2`: hold still that many seconds, so a script watching the log can
+        // `screencapture -l` the real window (the window capture above leaves the Metal view out).
+        if let pause = ProcessInfo.processInfo.environment["FILLET_SNAPSHOT_PAUSE"].flatMap(Double.init) {
+            try? await Task.sleep(for: .seconds(pause))
+        }
         #endif
     }
 

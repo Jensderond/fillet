@@ -30,8 +30,14 @@ public final class ViewportController {
     @ObservationIgnored private var orbitPivot: Vec3?
     @ObservationIgnored private var zoomAnchor: Vec3?
     @ObservationIgnored private var panDepthPoint: Vec3?
-    @ObservationIgnored private var dragHandle: (handle: Handle, offset: Double, value: Double)?
+    /// The handle as it was when the drag began, value minus what the press read off it, the value
+    /// now, and the last reading (a grip's angle is unwrapped against it across ±180°).
+    @ObservationIgnored private var dragHandle: (handle: Handle, offset: Double, value: Double, reading: Double)?
     @ObservationIgnored private(set) var isDraggingTarget = false
+    /// What the section handle being dragged last left (`ViewportDelegate.viewportSectionDragged`):
+    /// drawn over every scene that comes in until the drag ends, so one rebuilt mid-drag for
+    /// something else can't put the cut back where it was.
+    @ObservationIgnored private var sectionDrag: SectionDragStep?
 
     public init() {
         renderer = try? ViewportRenderer()
@@ -46,11 +52,17 @@ public final class ViewportController {
 
     func update(scene: ViewportScene, camera: Camera, filter: PickFilter, options: ViewportOptions,
                 delegate: (any ViewportDelegate)?, appearance: ViewportAppearance, increasedContrast: Bool = false) {
+        var scene = scene
+        if let step = sectionDrag {
+            scene.section = step.section
+            scene.handles = step.handles
+        }
         self.scene = scene
         self.filter = filter
         self.options = options
         self.delegate = delegate
         picker.prune(keeping: Set(scene.bodies.map(\.id)))
+        picker.section = scene.section
         renderer?.update(scene: scene)
         renderer?.palette = increasedContrast ? appearance.palette.increasedContrast : appearance.palette
         if lastSyncedCamera == nil {
@@ -409,36 +421,66 @@ public final class ViewportController {
 
     // MARK: Handles
 
-    /// Starts dragging the handle under `p`, if any. Returns whether a drag began.
-    func beginHandleDrag(at p: CGPoint, pointer: PointerKind) -> Bool {
+    /// Starts dragging the handle under `p`, if any. Returns whether a drag began. (Public, like
+    /// `dragHandle` and `endHandleDrag`, so scripted runs can drag handles as a pointer does.)
+    public func beginHandleDrag(at p: CGPoint, pointer: PointerKind) -> Bool {
         guard filter.contains(.handles) || !scene.handles.isEmpty,
               let hit = picker.pickHandle(scene.handles, camera: liveCamera, location: SIMD2(Double(p.x), Double(p.y)),
-                                          viewSize: viewSize, tolerance: max(pointer.tolerance, 12) + 4),
+                                          viewSize: viewSize, tolerance: Self.handleTolerance(pointer)),
               case .handle(let id) = hit.target,
               let h = scene.handles.first(where: { $0.id == id }) else { return false }
         renderer?.cancelAnimation()
-        let s = ViewportPicker.handleAxisParameter(h, ray: ray(at: p)) ?? h.value
-        dragHandle = (h, h.value - s, h.value)
+        let s = ViewportPicker.handleParameter(h, ray: ray(at: p)) ?? h.value
+        dragHandle = (h, h.value - s, h.value, s)
         renderer?.activeHandleID = id
+        renderer?.drawsEveryRefresh = true
+        delegate?.viewportHandlePressed(id: id)
         redraw()
         return true
     }
 
+    /// How far from a handle a press still grabs it (points): a fingertip gets a wide margin, as a
+    /// handle is a small thing to hit on a moving model.
+    static func handleTolerance(_ pointer: PointerKind) -> Double {
+        pointer == .touch ? 22 : max(pointer.tolerance, 12) + 4
+    }
+
     var isDraggingHandle: Bool { dragHandle != nil }
 
-    func dragHandle(to p: CGPoint) {
-        guard var d = dragHandle, let s = ViewportPicker.handleAxisParameter(d.handle, ray: ray(at: p)) else { return }
+    public func dragHandle(to p: CGPoint) {
+        guard var d = dragHandle, var s = ViewportPicker.handleParameter(d.handle, ray: ray(at: p)) else { return }
+        if case .rotation = d.handle.kind {
+            // atan2 wraps at ±180°: keep the reading continuous, so a grip turned past it keeps going.
+            while s - d.reading > 180 { s -= 360 }
+            while s - d.reading < -180 { s += 360 }
+            d.reading = s
+        }
         var v = s + d.offset
         if let r = d.handle.range { v = min(max(v, r.lowerBound), r.upperBound) }
         d.value = v
         dragHandle = d
+        renderer?.noteInput()
         delegate?.viewportHandleDragged(id: d.handle.id, value: v)
+        if let step = delegate?.viewportSectionDragged(id: d.handle.id) { moveSection(step) }
     }
 
-    func endHandleDrag() {
+    /// The fast path of a section drag: the plane and handles go straight to the renderer and the
+    /// picker, and the frame is redrawn, with no new scene.
+    private func moveSection(_ step: SectionDragStep) {
+        sectionDrag = step
+        scene.section = step.section
+        scene.handles = step.handles
+        picker.section = step.section
+        renderer?.updateSection(step.section, handles: step.handles)
+        redraw()
+    }
+
+    public func endHandleDrag() {
         guard let d = dragHandle else { return }
         dragHandle = nil
+        sectionDrag = nil
         renderer?.activeHandleID = nil
+        renderer?.drawsEveryRefresh = false
         delegate?.viewportHandleDragEnded(id: d.handle.id, value: d.value)
         redraw()
     }

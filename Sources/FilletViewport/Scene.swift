@@ -223,7 +223,9 @@ public struct OverhangStyle: Hashable, Sendable {
 }
 
 /// A section cut: everything on the side `normal` points to is cut away, so the inside shows.
-/// Where the cut opens a body, its inside is drawn in `color` (mixed `color.a` into the body's colour).
+/// Where the cut goes through an opaque solid it is closed with a cap on the plane: the body's
+/// colour with `color` mixed in (`color.a` of it), hatched, and outlined where the plane meets the
+/// body. What is cut away can't be picked.
 public struct SectionPlane: Hashable, Sendable {
     public var origin: Vec3
     public var normal: Vec3
@@ -234,26 +236,72 @@ public struct SectionPlane: Hashable, Sendable {
     }
 }
 
-/// A draggable arrow handle (e.g. extrude distance). The arrow tip sits at
-/// `origin + direction * value`; dragging reports a new `value`.
+/// The exact lines where a section plane meets the bodies (the kernel's, from their B-rep): drawn
+/// as the cut's outline in place of the lines sliced from the meshes, for each body whose shape
+/// hasn't changed, while the section is still `plane`. They take a boolean per body, so they come
+/// in after a drag settles.
+public struct SectionCurves: Sendable {
+    public struct Lines: Sendable {
+        /// `SceneBody.version` of the body they were made for.
+        public var version: Int
+        public var lines: [[SIMD3<Float>]]
+        public init(version: Int, lines: [[SIMD3<Float>]]) { self.version = version; self.lines = lines }
+    }
+
+    public var plane: SectionPlane
+    /// By body id.
+    public var bodies: [UUID: Lines]
+
+    public init(plane: SectionPlane, bodies: [UUID: Lines]) { self.plane = plane; self.bodies = bodies }
+}
+
+/// A step of a section handle's drag: the plane and the handles as it left them, drawn at once
+/// (`ViewportDelegate.viewportSectionDragged`).
+public struct SectionDragStep: Sendable, Equatable {
+    public var section: SectionPlane?
+    public var handles: [Handle]
+    public init(section: SectionPlane?, handles: [Handle]) { self.section = section; self.handles = handles }
+}
+
+/// A draggable handle. An arrow (e.g. extrude distance) has its tip at `origin + direction * value`
+/// and is dragged along `direction`; a rotation grip turns about an axis. Dragging reports a new `value`.
 public struct Handle: Hashable, Sendable, Identifiable {
+    /// How the handle looks and what dragging it means.
+    public enum Kind: Hashable, Sendable {
+        /// An arrow along `direction`; `value` is a distance in mm.
+        case arrow
+        /// A short curved grip with a head at each end, `HandleMetrics.gripRadius` points from
+        /// `origin` along `direction`, turning about `axis` through `origin` (a section's tilt).
+        /// `value` is an angle in degrees; dragging around the axis adds to it.
+        case rotation(axis: Vec3)
+    }
+
     public var id: String
     public var origin: Vec3
-    /// Unit axis the handle moves along.
+    /// Unit axis the handle moves along (an arrow), or where the grip sits from `origin` (a rotation).
     public var direction: Vec3
     public var value: Double
     /// Allowed values (drag results are clamped).
     public var range: ClosedRange<Double>?
     public var color: ViewportColor?
+    public var kind: Kind
+    /// A rotation grip's `direction` at a value of 0: while the grip turns, a dashed ring shows
+    /// its whole way round and a solid arc how far it has turned from here; let go, both stay
+    /// (fainter) while it's turned from 0. Nil: no ring.
+    public var zeroDirection: Vec3?
 
     public init(id: String, origin: Vec3, direction: Vec3, value: Double, range: ClosedRange<Double>? = nil,
-                color: ViewportColor? = nil) {
+                color: ViewportColor? = nil, kind: Kind = .arrow) {
         self.id = id; self.origin = origin; self.direction = direction.normalized; self.value = value
         self.range = range; self.color = color
+        if case .rotation(let axis) = kind { self.kind = .rotation(axis: axis.normalized) } else { self.kind = kind }
     }
 
-    /// World position of the arrow tip.
-    public var tip: Vec3 { origin + direction * value }
+    /// World position of the arrow tip; a rotation grip's centre.
+    public var tip: Vec3 {
+        if case .rotation = kind { return origin }
+        return origin + direction * value
+    }
 }
 
 /// A picked edge drawn on top of the model: thick, in the selection blue, with a halo, and
@@ -453,8 +501,16 @@ public struct ViewportScene: Sendable {
     public var visualStyle: VisualStyle = .shadedWithEdges
     /// Contact shadows as soft ellipses instead of rounded boxes (organic, product-shot renders).
     public var ellipticalShadows = false
-    /// Cuts the bodies open (renders for agents); their edges and silhouettes are cut too.
+    /// Cuts the bodies open and caps them (see `SectionPlane`); their edges and silhouettes are cut too.
     public var section: SectionPlane?
+    /// The kernel's exact outline of a section, used while it's for `section` (see `SectionCurves`).
+    public var sectionCurves: SectionCurves?
+    /// With a section: only its caps are drawn, nothing else of the bodies (Shapr3D's Section Only).
+    public var sectionOnly = false
+    /// With a section: a section drawing (Shapr3D's 2D Section View). The caps flat and hatched,
+    /// outlined in the line colour; what's left of the bodies as its edges and silhouettes only,
+    /// hiding what's behind it; no ground, bed or shadows. Usually seen straight on, orthographic.
+    public var sectionDrawing = false
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
                 plate: BuildPlate? = nil, selection: Set<PickTarget> = [], hover: PickTarget? = nil,
