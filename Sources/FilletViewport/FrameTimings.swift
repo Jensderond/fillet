@@ -109,7 +109,12 @@ extension ViewportRenderer {
         cb.addCompletedHandler { cb in
             if cb.gpuEndTime > cb.gpuStartTime { log.addGPU((cb.gpuEndTime - cb.gpuStartTime) * 1000) }
         }
+        #if targetEnvironment(simulator)
+        // The simulator doesn't report presents: the GPU finishing the frame stands in for it.
+        cb.addCompletedHandler { _ in log.presented(at: CACurrentMediaTime(), input: input) }
+        #else
         drawable.addPresentedHandler { d in log.presented(at: d.presentedTime, input: input) }
+        #endif
         log.addCPU(cpu * 1000, wait: wait * 1000)
     }
 }
