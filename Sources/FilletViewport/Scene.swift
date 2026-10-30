@@ -286,7 +286,8 @@ public struct Handle: Hashable, Sendable, Identifiable {
     public var color: ViewportColor?
     public var kind: Kind
     /// A rotation grip's `direction` at a value of 0: while the grip turns, a dashed ring shows
-    /// its whole way round and a solid arc how far it has turned from here. Nil: no ring.
+    /// its whole way round and a solid arc how far it has turned from here; let go, both stay
+    /// (fainter) while it's turned from 0. Nil: no ring.
     public var zeroDirection: Vec3?
 
     public init(id: String, origin: Vec3, direction: Vec3, value: Double, range: ClosedRange<Double>? = nil,

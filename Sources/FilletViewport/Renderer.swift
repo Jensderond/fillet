@@ -1339,7 +1339,7 @@ public final class ViewportRenderer: NSObject {
             let wpp = wppPoints * depthScale
             let width: Float = active ? 4 : (hovered ? 3.5 : 2.75)
             if case .rotation(let axis) = h.kind {
-                if active, let zero = h.zeroDirection { drawRotationRing(enc, h, axis: axis, zero: zero, color: base, wpp: wpp) }
+                if let zero = h.zeroDirection { drawRotationRing(enc, h, axis: axis, zero: zero, color: base, wpp: wpp, quiet: !active) }
                 drawRotationGrip(enc, h, axis: axis, color: color, width: width, wpp: wpp, grown: active ? 1.25 : 1)
                 continue
             }
@@ -1371,24 +1371,29 @@ public final class ViewportRenderer: NSObject {
 
     /// While a rotation grip turns: a dashed ring round its whole way, out past the grip, and a
     /// solid arc on it from where the grip reads 0 to where it is now (Shapr3D's rotation ring).
-    private func drawRotationRing(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, zero: Vec3, color: ViewportColor, wpp: Double) {
+    /// Let go, `quiet`, the ring and arc stay, fainter and with no spokes, for as long as the grip
+    /// shows and has turned from 0: the angle it's at stays readable without being held.
+    private func drawRotationRing(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, zero: Vec3, color: ViewportColor, wpp: Double,
+                                  quiet: Bool = false) {
         let radius = HandleMetrics.ringRadius * wpp
         let side = axis.cross(zero)
         func point(_ a: Double) -> Vec3 { h.origin + (zero * cos(a) + side * sin(a)) * radius }
+        // How far round from zero the grip is now, signed about `axis`.
+        let swept = atan2(h.direction.dot(side), h.direction.dot(zero))
+        if quiet && abs(swept) <= 1e-4 { return }
         let ring = (0..<96).map { i in
             // Distance along the ring, so the dashes run on from one piece to the next.
             GPULineSeg(point(Double(i) / 96 * 2 * .pi).float, point(Double(i + 1) / 96 * 2 * .pi).float,
                        dist: Float(Double(i) / 96 * 2 * .pi * radius), id: 0)
         }
-        drawHandleLines(enc, ring, color: color.withAlpha(0.9), width: 1.75, dash: Float(wpp) * 9)
-        // How far round from zero the grip is now, signed about `axis`.
-        let swept = atan2(h.direction.dot(side), h.direction.dot(zero))
+        drawHandleLines(enc, ring, color: color.withAlpha(quiet ? 0.6 : 0.9), width: quiet ? 1.5 : 1.75, dash: Float(wpp) * 9)
         guard abs(swept) > 1e-4 else { return }
         let steps = max(Int(abs(swept) / (2 * .pi) * 96), 2)
         let arc = (0..<steps).map { i in
             GPULineSeg(point(swept * Double(i) / Double(steps)).float, point(swept * Double(i + 1) / Double(steps)).float, dist: 0, id: 0)
         }
-        drawHandleLines(enc, arc, color: color, width: 3)
+        drawHandleLines(enc, arc, color: quiet ? color.withAlpha(0.7) : color, width: quiet ? 2 : 3)
+        guard !quiet else { return }
         // A spoke to each end, so it reads as an angle turned about the centre.
         drawHandleLines(enc, [GPULineSeg(h.origin.float, point(0).float, dist: 0, id: 0), GPULineSeg(h.origin.float, point(swept).float, dist: 0, id: 0)],
                         color: color.withAlpha(0.55), width: 1.25, dash: Float(wpp) * 5)

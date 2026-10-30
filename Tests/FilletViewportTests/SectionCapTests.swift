@@ -127,6 +127,35 @@ struct SectionCapTests {
         #expect(Double(try greenCount(cutX)) > Double(plain) * 0.9)
     }
 
+    /// Let go of a turned rotation grip, its ring (dashed) and the arc it swept stay drawn until
+    /// the handle goes; at 0 there is no ring once it's let go.
+    @Test func rotationRingStaysOnceLetGoWhileTurned() throws {
+        let green = ViewportColor(hex: 0x00C000)
+        let cam = Camera(target: .zero, distance: 70, projection: .orthographic).viewing(.top)
+        let size = CGSize(width: 300, height: 300)
+        let turn = 60.0 * .pi / 180
+        func ring(turned: Bool) throws -> Int {
+            var h = Handle(id: "tilt", origin: .zero, direction: turned ? Vec3(cos(turn), sin(turn), 0) : .unitX,
+                           value: turned ? 60 : 0, color: green, kind: .rotation(axis: .unitZ))
+            h.zeroDirection = .unitX
+            let px = try render(ViewportScene(handles: [h], showsGroundGrid: false), camera: cam, size: 300)
+            let none = try render(ViewportScene(showsGroundGrid: false), camera: cam, size: 300)
+            // On the ring (well out past the grip), on the far side from the arc swept.
+            let c = try #require(cam.project(.zero, viewSize: size))
+            let m = try #require(cam.project(Vec3(cos(turn / 2), sin(turn / 2), 0), viewSize: size))
+            let mid = SIMD2(Double(m.x - c.x), Double(m.y - c.y))
+            return (0..<300 * 300).filter { i in
+                let d = SIMD2(Double(i % 300) - Double(c.x), Double(i / 300) - Double(c.y))
+                let r = simd_length(d)
+                return r > HandleMetrics.ringRadius - 6 && r < HandleMetrics.ringRadius + 6 && simd_dot(d, mid) < 0
+                    && difference(px[i], none[i]) > 40
+            }.count
+        }
+        let turned = try ring(turned: true)
+        #expect(turned > 60, "\(turned) ring px")
+        #expect(try ring(turned: false) == 0)
+    }
+
     /// Without the kernel's lines the outline is sliced from the mesh (on the GPU): ink all round
     /// the cap's rim. Once lines are in for this plane they are drawn instead; lines made for
     /// another plane are not.
