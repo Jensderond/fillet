@@ -168,6 +168,7 @@ struct SectionInspector: View {
                         .buttonStyle(SecondaryButtonStyle())
                         .disabled(s.tiltU == 0 && s.tiltV == 0)
                         .help("Back to the direction of \(s.reference.name)")
+                        .automationFrame("section.untilt")
                 }
                 Button { session.lookAtSection() } label: { Label("Look at the cut", systemImage: "eye") }
                     .buttonStyle(SecondaryButtonStyle())
