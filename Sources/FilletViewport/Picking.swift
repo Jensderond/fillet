@@ -446,6 +446,8 @@ public enum HandleMetrics {
     public static var totalLength: Double { shaftLength + headLength }
     /// How far a rotation grip sits from its centre.
     public static let gripRadius = 64.0
+    /// The ring a grip shows while it turns, round its centre.
+    public static let ringRadius = 96.0
     /// Half the angle a rotation grip's arc covers.
     static let gripSpan = 0.32
     static let gripHeadLength = 10.0

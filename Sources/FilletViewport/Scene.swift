@@ -285,6 +285,9 @@ public struct Handle: Hashable, Sendable, Identifiable {
     public var range: ClosedRange<Double>?
     public var color: ViewportColor?
     public var kind: Kind
+    /// A rotation grip's `direction` at a value of 0: while the grip turns, a dashed ring shows
+    /// its whole way round and a solid arc how far it has turned from here. Nil: no ring.
+    public var zeroDirection: Vec3?
 
     public init(id: String, origin: Vec3, direction: Vec3, value: Double, range: ClosedRange<Double>? = nil,
                 color: ViewportColor? = nil, kind: Kind = .arrow) {

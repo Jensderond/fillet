@@ -434,6 +434,7 @@ public final class ViewportController {
         dragHandle = (h, h.value - s, h.value, s)
         renderer?.activeHandleID = id
         renderer?.drawsEveryRefresh = true
+        delegate?.viewportHandlePressed(id: id)
         redraw()
         return true
     }

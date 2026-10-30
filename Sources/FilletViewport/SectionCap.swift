@@ -139,7 +139,7 @@ extension SectionPlane {
     }
 
     /// The part of `box` on the side the section keeps; nil when it is all cut away.
-    func kept(of box: Bounds3) -> Bounds3? {
+    public func kept(of box: Bounds3) -> Bounds3? {
         guard let n = unitNormal else { return box }
         let corners = (0..<8).map { i in
             Vec3(i & 1 == 0 ? box.min.x : box.max.x, i & 2 == 0 ? box.min.y : box.max.y, i & 4 == 0 ? box.min.z : box.max.z)

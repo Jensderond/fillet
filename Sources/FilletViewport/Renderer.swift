@@ -1328,31 +1328,67 @@ public final class ViewportRenderer: NSObject {
             // Screen-constant size at the tip's depth.
             let depthScale = camera.projection == .perspective ? max(camera.depth(of: h.tip), 1e-3) / camera.distance : 1
             let wpp = wppPoints * depthScale
-            let width: Float = active || hovered ? 3.5 : 2.75
+            let width: Float = active ? 4 : (hovered ? 3.5 : 2.75)
             if case .rotation(let axis) = h.kind {
-                drawRotationGrip(enc, h, axis: axis, color: color, width: width, wpp: wpp)
+                if active, let zero = h.zeroDirection { drawRotationRing(enc, h, axis: axis, zero: zero, color: base, wpp: wpp) }
+                drawRotationGrip(enc, h, axis: axis, color: color, width: width, wpp: wpp, grown: active ? 1.25 : 1)
                 continue
             }
+            // Held, an arrow shows the line it slides along, both ways, dashed under it.
+            if active {
+                let reach = HandleMetrics.totalLength * 2.5 * wpp
+                drawHandleLines(enc, [GPULineSeg((h.tip - h.direction * reach).float, (h.tip + h.direction * (reach + HandleMetrics.totalLength * wpp)).float,
+                                                 dist: 0, id: 0)],
+                                color: base.withAlpha(0.7), width: 1.5, dash: Float(wpp) * 7)
+            }
+            let grown = active ? 1.25 : 1.0
             let shaftEnd = h.tip + h.direction * (HandleMetrics.shaftLength * wpp)
             // Shaft.
             drawHandleLines(enc, [GPULineSeg(h.tip.float, shaftEnd.float, dist: 0, id: 0)], color: color, width: width)
-            // Base dot.
+            // Base dot, with a halo while held.
             enc.setRenderPipelineState(pPoint)
             var pd = PointDraw()
-            pd.s0 = PointStyle(color: color, ring: pal.sketchPointRing, size: 9, ringWidth: 1.5)
+            pd.s0 = active ? PointStyle(color: color, ring: base.withAlpha(0.35), size: 22, ringWidth: 6.5)
+                : PointStyle(color: color, ring: pal.sketchPointRing, size: 9, ringWidth: 1.5)
             let t = h.tip.float
             var inst = GPUPointInst(x: t.x, y: t.y, z: t.z, state: 0)
             enc.setVertexBytes(&inst, length: MemoryLayout<GPUPointInst>.stride, index: 0)
             enc.setVertexBytes(&pd, length: MemoryLayout<PointDraw>.stride, index: 2)
             enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: 1)
             // Cone head.
-            drawHandleHead(enc, at: shaftEnd, pointing: h.direction, length: HandleMetrics.headLength * wpp, color: color)
+            drawHandleHead(enc, at: shaftEnd, pointing: h.direction, length: HandleMetrics.headLength * grown * wpp, color: color)
         }
+    }
+
+    /// While a rotation grip turns: a dashed ring round its whole way, out past the grip, and a
+    /// solid arc on it from where the grip reads 0 to where it is now (Shapr3D's rotation ring).
+    private func drawRotationRing(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, zero: Vec3, color: ViewportColor, wpp: Double) {
+        let radius = HandleMetrics.ringRadius * wpp
+        let side = axis.cross(zero)
+        func point(_ a: Double) -> Vec3 { h.origin + (zero * cos(a) + side * sin(a)) * radius }
+        let ring = (0..<96).map { i in
+            // Distance along the ring, so the dashes run on from one piece to the next.
+            GPULineSeg(point(Double(i) / 96 * 2 * .pi).float, point(Double(i + 1) / 96 * 2 * .pi).float,
+                       dist: Float(Double(i) / 96 * 2 * .pi * radius), id: 0)
+        }
+        drawHandleLines(enc, ring, color: color.withAlpha(0.9), width: 1.75, dash: Float(wpp) * 9)
+        // How far round from zero the grip is now, signed about `axis`.
+        let swept = atan2(h.direction.dot(side), h.direction.dot(zero))
+        guard abs(swept) > 1e-4 else { return }
+        let steps = max(Int(abs(swept) / (2 * .pi) * 96), 2)
+        let arc = (0..<steps).map { i in
+            GPULineSeg(point(swept * Double(i) / Double(steps)).float, point(swept * Double(i + 1) / Double(steps)).float, dist: 0, id: 0)
+        }
+        drawHandleLines(enc, arc, color: color, width: 3)
+        // A spoke to each end, so it reads as an angle turned about the centre.
+        drawHandleLines(enc, [GPULineSeg(h.origin.float, point(0).float, dist: 0, id: 0), GPULineSeg(h.origin.float, point(swept).float, dist: 0, id: 0)],
+                        color: color.withAlpha(0.55), width: 1.25, dash: Float(wpp) * 5)
     }
 
     /// A rotation grip: a short arc around the handle's axis with a head at each end, so it reads
     /// as "turn this either way".
-    private func drawRotationGrip(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, color: ViewportColor, width: Float, wpp: Double) {
+    private func drawRotationGrip(_ enc: MTLRenderCommandEncoder, _ h: Handle, axis: Vec3, color: ViewportColor, width: Float, wpp: Double,
+                                  grown: Double = 1) {
         let radius = HandleMetrics.gripRadius * wpp
         let points = ViewportPicker.rotationGripPoints(center: h.origin, axis: axis, direction: h.direction, radius: radius)
         guard points.count >= 2 else { return }
@@ -1364,17 +1400,19 @@ public final class ViewportRenderer: NSObject {
         for sign in [-1.0, 1.0] {
             let tangent = (side * cos(span) - h.direction * sin(span) * sign) * sign
             drawHandleHead(enc, at: points[sign < 0 ? 0 : points.count - 1], pointing: tangent,
-                           length: HandleMetrics.gripHeadLength * wpp, color: color)
+                           length: HandleMetrics.gripHeadLength * grown * wpp, color: color)
         }
     }
 
     /// Screen-space-wide lines drawn over everything (a handle's shaft or arc).
-    private func drawHandleLines(_ enc: MTLRenderCommandEncoder, _ segs: [GPULineSeg], color: ViewportColor, width: Float) {
+    /// `dash`: the dash period in world units, 0 for a solid line.
+    private func drawHandleLines(_ enc: MTLRenderCommandEncoder, _ segs: [GPULineSeg], color: ViewportColor, width: Float, dash: Float = 0) {
         guard !segs.isEmpty else { return }
         enc.setRenderPipelineState(pLine)
         enc.setDepthStencilState(dsAlways)
         var segs = segs
-        var d = LineDraw(LineStyle(color, width: width))
+        var d = LineDraw(LineStyle(color, width: width, dashed: dash > 0))
+        d.dashPeriod = dash
         enc.setVertexBytes(&segs, length: MemoryLayout<GPULineSeg>.stride * segs.count, index: 0)
         enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
         enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
