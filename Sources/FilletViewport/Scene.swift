@@ -501,6 +501,12 @@ public struct ViewportScene: Sendable {
     public var section: SectionPlane?
     /// The kernel's exact outline of a section, used while it's for `section` (see `SectionCurves`).
     public var sectionCurves: SectionCurves?
+    /// With a section: only its caps are drawn, nothing else of the bodies (Shapr3D's Section Only).
+    public var sectionOnly = false
+    /// With a section: a section drawing (Shapr3D's 2D Section View). The caps flat and hatched,
+    /// outlined in the line colour; what's left of the bodies as its edges and silhouettes only,
+    /// hiding what's behind it; no ground, bed or shadows. Usually seen straight on, orthographic.
+    public var sectionDrawing = false
 
     public init(bodies: [SceneBody] = [], previews: [SceneBody] = [], sketch: SketchOverlay? = nil,
                 plate: BuildPlate? = nil, selection: Set<PickTarget> = [], hover: PickTarget? = nil,

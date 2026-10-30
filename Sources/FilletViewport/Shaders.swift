@@ -336,7 +336,7 @@ struct CapDraw {
     float4 color;        // linear rgb fill
     float4 hatch;        // linear rgb hatch lines, a = strength
     float4 across;       // xyz unit vector in the plane across the hatch lines
-    float4 params;       // x line spacing (pt), y line width (pt), z = 1 lit
+    float4 params;       // x line spacing (world units), y line width (pt), z = 1 lit
 };
 
 struct CapOut { float4 position [[position]]; float3 world; };
@@ -362,18 +362,11 @@ fragment float4 cap_fragment(CapOut in [[stage_in]],
     // Partly lit: enough to sit in the scene like a face, not so much that a cap facing away from
     // the light turns muddy (a section should read the same from any side).
     float3 c = C.params.z > 0.5 ? mix(C.color.rgb, shade(C.color.rgb, U.section.xyz, in.world, U), 0.4) : C.color.rgb;
-    // Hatching keeps about the same spacing on screen at any zoom: the lines sit at a power of
-    // two in world units (so they stay put on the part while panning) and every other one fades
-    // out as they close up, which leaves the next coarser set. The fade is kept to the last part
-    // of each octave so the lines mostly read as one even weight.
+    // Hairline hatching at an even spacing over the whole cap, a power of two in world units
+    // picked for the zoom (`SectionPlane.hatchSpacing`): it stays put on the part while panning.
     float t = dot(in.world, C.across.xyz);
     float fw = max(fwidth(t), 1e-7);
-    float spacing = C.params.x * U.viewport.z * fw;
-    float level = log2(spacing);
-    float base = exp2(floor(level));
-    float fade = 1.0 - smoothstep(0.55, 1.0, level - floor(level));
-    float w = C.params.y * U.viewport.z;
-    float a = max(hatchLines(t, base * 2.0, fw, w), hatchLines(t, base, fw, w) * fade);
+    float a = hatchLines(t, C.params.x, fw, max(C.params.y * U.viewport.z, 1.0));
     c = mix(c, C.hatch.rgb, a * C.hatch.a);
     return float4(c, 1.0);
 }

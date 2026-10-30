@@ -53,7 +53,7 @@ struct CapDraw {
     var hatch = SIMD4<Float>()
     /// Unit vector in the section plane across the hatch lines.
     var across = SIMD4<Float>()
-    /// x line spacing (pt), y line width (pt), z = 1 lit.
+    /// x line spacing (world units), y line width (pt), z = 1 lit.
     var params = SIMD4<Float>()
 }
 

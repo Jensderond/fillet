@@ -106,9 +106,49 @@ extension SectionPlane {
         return degrees[index % degrees.count] * .pi / 180
     }
 
-    /// A cap shade for the `index`th body, so nested bodies of one colour don't merge into one cap.
-    static func capShade(index: Int) -> Float {
-        let shades: [Float] = [1, 0.76, 1.2]
-        return shades[index % shades.count]
+    /// The cut colour of the `index`th body's cap where the body has the default colour: the
+    /// section's own (red) first, then slate, plum, ochre, teal and olive, so nested bodies of one
+    /// colour read as separate parts (Shapr3D gives each its own too), not one cap.
+    static func capTint(index: Int, cut: ViewportColor) -> ViewportColor {
+        let tints: [UInt32] = [0, 0x3F6E9C, 0x9C3F8A, 0xC98A2E, 0x2E8F7F, 0x7F8F2E]
+        let i = index % tints.count
+        return i == 0 ? cut : ViewportColor(hex: tints[i], alpha: cut.a)
+    }
+
+    /// The `index`th body's cap fill (linear): its cut tint mixed into the default body colour,
+    /// or a body's own colour, a little deeper, where it has one.
+    static func capFill(index: Int, body: ViewportColor?, defaultBody: ViewportColor, cut: ViewportColor) -> SIMD3<Float> {
+        if let body {
+            let c = body.linear
+            return SIMD3(c.x, c.y, c.z) * 0.8
+        }
+        let b = defaultBody.linear, t = capTint(index: index, cut: cut).linear
+        return simd_mix(SIMD3(b.x, b.y, b.z), SIMD3(t.x, t.y, t.z), SIMD3(repeating: t.w))
+    }
+
+    /// About how far apart a cap's hatch lines are on screen (points).
+    static let hatchPoints = 5.0
+    /// How wide a hatch line is (points): a hairline, a device pixel on a 2× screen.
+    static let hatchWidth: Float = 0.55
+
+    /// Hatch line spacing in world units with `worldPerPoint` where the cap is: the power of two
+    /// nearest `hatchPoints` points, so it holds still on the part and only steps (by halves or
+    /// doubles) as the view zooms.
+    static func hatchSpacing(worldPerPoint: Double) -> Double {
+        exp2((log2(max(hatchPoints * worldPerPoint, 1e-9))).rounded())
+    }
+
+    /// The part of `box` on the side the section keeps; nil when it is all cut away.
+    func kept(of box: Bounds3) -> Bounds3? {
+        guard let n = unitNormal else { return box }
+        let corners = (0..<8).map { i in
+            Vec3(i & 1 == 0 ? box.min.x : box.max.x, i & 2 == 0 ? box.min.y : box.max.y, i & 4 == 0 ? box.min.z : box.max.z)
+        }
+        let kept = corners.filter { ($0 - origin).dot(n) <= 0 }
+        guard !kept.isEmpty else { return nil }
+        guard kept.count < 8 else { return box }
+        // (The polygon is on a slightly grown box: back inside this one.)
+        let points = kept + polygon(through: box).map { Vec3(simd_clamp($0.simd, box.min.simd, box.max.simd)) }
+        return Bounds3(points: points)
     }
 }

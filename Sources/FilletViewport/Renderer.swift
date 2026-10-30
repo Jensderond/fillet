@@ -162,10 +162,17 @@ public final class ViewportRenderer: NSObject {
     private let dsReset: MTLDepthStencilState
     /// Flips the stencil bit for every fragment (no depth test).
     private let dsCapMask: MTLDepthStencilState
-    /// Draws where the bit is set, with the usual depth test, and clears it.
+    /// Draws where the inside bit is set, with the usual depth test, and marks the cap's pixels.
     private let dsCapFill: MTLDepthStencilState
     /// Clears the stencil wherever it draws (no depth test).
     private let dsCapClear: MTLDepthStencilState
+    /// Depth tested, and only where no cap was drawn: a cap's outline runs round it, never over it,
+    /// so a thin wall's cap keeps its whole width.
+    private let dsOutsideCaps: MTLDepthStencilState
+    /// Stencil bits: the parity of a body's surface along each pixel's ray (inside the solid where
+    /// it meets the plane), and a cap drawn there.
+    static let insideBit: UInt32 = 1
+    static let capBit: UInt32 = 2
     private let zeroBuffer: MTLBuffer
     private let cone: GPUBody
 
@@ -287,14 +294,14 @@ public final class ViewportRenderer: NSObject {
         dsGreater = depth(.greater, write: false)
         dsReset = depth(.always, write: true)
         func stencil(_ cmp: MTLCompareFunction, write: Bool, test: MTLCompareFunction, pass: MTLStencilOperation,
-                     depthFail: MTLStencilOperation = .keep) -> MTLDepthStencilState {
+                     depthFail: MTLStencilOperation = .keep, read: UInt32 = Self.insideBit, mask: UInt32 = Self.insideBit) -> MTLDepthStencilState {
             let s = MTLStencilDescriptor()
             s.stencilCompareFunction = test
             s.depthStencilPassOperation = pass
             s.depthFailureOperation = depthFail
             s.stencilFailureOperation = .keep
-            s.readMask = 1
-            s.writeMask = 1
+            s.readMask = read
+            s.writeMask = mask
             let d = MTLDepthStencilDescriptor()
             d.depthCompareFunction = cmp
             d.isDepthWriteEnabled = write
@@ -303,8 +310,11 @@ public final class ViewportRenderer: NSObject {
             return device.makeDepthStencilState(descriptor: d)!
         }
         dsCapMask = stencil(.always, write: false, test: .always, pass: .invert)
-        dsCapFill = stencil(.lessEqual, write: true, test: .equal, pass: .zero, depthFail: .zero)
+        // Where the inside bit is set: replace with both bits (the reference is 3), so the cap's
+        // pixels stay marked once the clear pass takes the inside bit away.
+        dsCapFill = stencil(.lessEqual, write: true, test: .equal, pass: .replace, mask: Self.insideBit | Self.capBit)
         dsCapClear = stencil(.always, write: false, test: .always, pass: .zero)
+        dsOutsideCaps = stencil(.lessEqual, write: false, test: .equal, pass: .keep, read: Self.capBit, mask: 0)
         zeroBuffer = device.makeBuffer(length: 64, options: .storageModeShared)!
         let coneMesh = DemoMeshes.cone(radius: Float(HandleMetrics.headRadius / HandleMetrics.headLength))
         cone = GPUBody(device: device, mesh: coneMesh, key: MeshKey(SceneBody(id: UUID(), mesh: coneMesh)))
@@ -689,41 +699,62 @@ public final class ViewportRenderer: NSObject {
         enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
 
         // Opaque bodies, filled as the visual style says. Every style lays down their depth, so
-        // hidden edges, silhouettes and the x-ray of previews can tell what's in front.
+        // hidden edges, silhouettes and the x-ray of previews can tell what's in front. A section
+        // drawing (2D) or Section only overrides the style (`ViewportScene.sectionDrawing`).
         let style = scene.visualStyle
         let opaque = scene.bodies.filter { $0.visible && $0.opacity >= 0.999 }
-        switch style.faces {
-        case .lit, .paper:
-            enc.setRenderPipelineState(pMeshOpaque)
-            enc.setDepthStencilState(dsWrite)
-            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: style.faces == .lit, paper: style.faces == .paper) }
-            drawSectionCaps(enc, opaque: opaque, paper: style.faces == .paper)
-            // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
-            // silhouettes draw on top of the bed).
-            drawGround(enc, U: U)
-        case .xray, .none:
-            // Faces hide nothing, so the bed shows through: draw it first.
-            drawGround(enc, U: U)
-            enc.setRenderPipelineState(pMeshDepth)
-            enc.setDepthStencilState(dsWrite)
-            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
-            enc.setRenderPipelineState(pMeshBlend)
-            if style.faces == .xray {
-                // Every layer, front and back, so overlapping walls build up and show the inside.
-                enc.setDepthStencilState(dsAlways)
-                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: true, alphaScale: 0.16) }
+        let cut = scene.section?.unitNormal != nil
+        let drawing = cut && scene.sectionDrawing, capsOnly = cut && scene.sectionOnly
+        if drawing || capsOnly {
+            if !capsOnly {
+                // What's left of the bodies hides what's behind it, in the background colour.
+                enc.setRenderPipelineState(pMeshDepth)
+                enc.setDepthStencilState(dsWrite)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
             }
-            // Faint or missing faces would hide a pick: picked and hovered faces fill in, front layer only.
-            enc.setDepthStencilState(dsTest)
-            for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false, alphaScale: 0.55, highlightOnly: true) }
+            drawSectionCaps(enc, opaque: opaque, paper: false, flat: drawing, U: U)
+            if !drawing { drawGround(enc, U: U) }
+            if !capsOnly {
+                enc.setRenderPipelineState(pMeshBlend)
+                enc.setDepthStencilState(dsTest)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false, alphaScale: 0.55, highlightOnly: true) }
+            }
+        } else {
+            switch style.faces {
+            case .lit, .paper:
+                enc.setRenderPipelineState(pMeshOpaque)
+                enc.setDepthStencilState(dsWrite)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: style.faces == .lit, paper: style.faces == .paper) }
+                drawSectionCaps(enc, opaque: opaque, paper: style.faces == .paper, flat: false, U: U)
+                // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
+                // silhouettes draw on top of the bed).
+                drawGround(enc, U: U)
+            case .xray, .none:
+                // Faces hide nothing, so the bed shows through: draw it first.
+                drawGround(enc, U: U)
+                enc.setRenderPipelineState(pMeshDepth)
+                enc.setDepthStencilState(dsWrite)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
+                enc.setRenderPipelineState(pMeshBlend)
+                if style.faces == .xray {
+                    // Every layer, front and back, so overlapping walls build up and show the inside.
+                    enc.setDepthStencilState(dsAlways)
+                    for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: true, alphaScale: 0.16) }
+                }
+                // Faint or missing faces would hide a pick: picked and hovered faces fill in, front layer only.
+                enc.setDepthStencilState(dsTest)
+                for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false, alphaScale: 0.55, highlightOnly: true) }
+            }
         }
 
         // Lines on lit bodies are ink; on the background or the paper they take the wire colour,
-        // light in dark mode.
-        let lineInk = style.faces == .lit ? pal.edge : pal.wire
+        // light in dark mode. A section drawing is lines on the background; Section only has
+        // none but the caps' rims.
+        let lineInk = style.faces == .lit && !drawing && !capsOnly ? pal.edge : pal.wire
+        let showsEdges = drawing ? true : style.showsEdges
         let edgeHover = LineStyle(pal.hover, width: 2.6)
         let edgeSel = LineStyle(pal.accent, width: 3.0)
-        let outlined = opaque.filter(\.showsEdges)
+        let outlined = capsOnly ? [] : opaque.filter(\.showsEdges)
         // Silhouettes of curved faces.
         enc.setRenderPipelineState(pHull)
         enc.setDepthStencilState(dsTest)
@@ -732,17 +763,17 @@ public final class ViewportRenderer: NSObject {
         hull.width = 1.3
         enc.setVertexBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
         enc.setFragmentBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
-        for b in outlined where style.showsEdges {
+        for b in outlined where showsEdges {
             drawMesh(enc, body: b, hover: hover, overhang: false)
         }
         // Their edges: the hidden ones first, so an edge in front always draws over them.
         enc.setRenderPipelineState(pLine)
-        if let hidden = style.hiddenEdges {
+        if let hidden = style.hiddenEdges, !drawing {
             let dashed = hidden == .dashed
             let alpha: Float = dashed ? 0.6 : 0.4
             func faded(_ c: ViewportColor, width: Float) -> LineStyle { LineStyle(c.withAlpha(c.a * alpha), width: width, dashed: dashed) }
             enc.setDepthStencilState(dsGreater)
-            for b in outlined where style.showsEdges {
+            for b in outlined where showsEdges {
                 var d = LineDraw(faded(lineInk, width: 1.1), faded(pal.hover, width: 2), faded(pal.accent, width: 2.2))
                 d.pull = 1
                 d.dashPeriod = U.viewport.w * pixelsPerPoint * 6
@@ -752,11 +783,13 @@ public final class ViewportRenderer: NSObject {
         enc.setDepthStencilState(dsTest)
         for b in outlined {
             // Without edges (shaded) only the hovered and picked ones draw: a zero width skips the rest.
-            var d = LineDraw(style.showsEdges ? LineStyle(lineInk, width: 1.4) : LineStyle(), edgeHover, edgeSel)
+            var d = LineDraw(showsEdges ? LineStyle(lineInk, width: drawing ? 1.2 : 1.4) : LineStyle(), edgeHover, edgeSel)
             d.pull = 1
             drawEdges(enc, id: b.id, draw: &d)
         }
-        drawSectionOutlines(enc, ink: lineInk, opaque: opaque)
+        // Twice the edges' weight, of which only the half outside the caps shows. Section only
+        // is the caps' fill alone, as in Shapr3D.
+        if !capsOnly { drawSectionOutlines(enc, ink: lineInk, width: 2, opaque: opaque) }
         drawEdgeHighlights(enc, U: U, pixelsPerPoint: pixelsPerPoint, opaque: opaque)
 
         // Translucent bodies and previews: depth pre-pass so only the front layer blends.
@@ -781,7 +814,7 @@ public final class ViewportRenderer: NSObject {
                 drawEdges(enc, id: b.id, draw: &d)
             }
         }
-        for b in scene.bodies where b.visible && b.opacity < 0.999 { drawTranslucent(b, xray: false) }
+        for b in scene.bodies where b.visible && b.opacity < 0.999 && !capsOnly { drawTranslucent(b, xray: false) }
         for b in scene.previews where b.visible { drawTranslucent(b, xray: true) }
 
         if !scene.referencePlanes.isEmpty { drawReferencePlanes(enc, hover: hover) }
@@ -865,14 +898,16 @@ public final class ViewportRenderer: NSObject {
         enc.drawPrimitives(type: .triangleStrip, vertexStart: 0, vertexCount: 4, instanceCount: g.segmentCount)
     }
 
-    /// Closes every opaque body the section cuts open with a cap on the plane: filled in its body's
-    /// colour mixed with the section colour, hatched (per body a different way), lit like a face.
-    /// Per body: the stencil parity pass over what's left of its surface, the cap polygon where the
-    /// bit is set (which clears it there), then the surface again to clear any bit the cap missed.
-    private func drawSectionCaps(_ enc: MTLRenderCommandEncoder, opaque: [SceneBody], paper: Bool) {
+    /// Closes every opaque body the section cuts open with a cap on the plane: a cut colour of its
+    /// own (`SectionPlane.capTint`) or its custom colour, hatched (per body a different way), lit
+    /// like a face; flat in a section drawing. Per body: the stencil parity pass over what's left
+    /// of its surface, the cap polygon where the inside bit is set (which marks the cap's pixels
+    /// for the outline), then the surface again to clear the inside bit.
+    private func drawSectionCaps(_ enc: MTLRenderCommandEncoder, opaque: [SceneBody], paper: Bool, flat: Bool, U: FrameUniforms) {
         guard let section = scene.section, section.unitNormal != nil else { return }
         let pal = palette
         let (u, v) = section.axes
+        let wppPoints = Double(U.viewport.w * U.viewport.z)
         for b in opaque {
             guard let g = bodies[b.id], let box = g.bounds else { continue }
             let polygon = section.polygon(through: box)
@@ -887,28 +922,34 @@ public final class ViewportRenderer: NSObject {
                 d.color = pal.paper.linear
                 d.hatch = SIMD4(SIMD3(pal.wire.linear.x, pal.wire.linear.y, pal.wire.linear.z), 0.8)
             } else {
-                let body = (b.color ?? pal.body).linear
-                let cut = section.color.linear
-                var fill = simd_mix(SIMD3(body.x, body.y, body.z), SIMD3(cut.x, cut.y, cut.z), SIMD3(repeating: section.color.a))
-                fill *= SectionPlane.capShade(index: index)
+                var fill = SectionPlane.capFill(index: index, body: b.color, defaultBody: pal.body, cut: section.color)
                 if scene.selection.contains(.body(b.id)) || b.highlight == .selected {
                     fill = simd_mix(fill, SIMD3(pal.accent.linear.x, pal.accent.linear.y, pal.accent.linear.z), SIMD3(repeating: 0.45))
                 }
                 d.color = SIMD4(fill, 1)
-                d.hatch = SIMD4(fill * 0.3, 0.9)
-                d.params.z = 1
+                d.hatch = SIMD4(fill * 0.36, 0.85)
+                d.params.z = flat ? 0 : 1
             }
             let angle = SectionPlane.hatchAngle(index: index)
             d.across = SIMD4((u * -sin(angle) + v * cos(angle)).float, 0)
-            d.params.x = 9
-            d.params.y = 1.1
+            // Even spacing over the whole cap, a power of two in world units near
+            // `hatchSpacing` points where the cap is: it stays put on the part while panning and
+            // steps only when zooming, so no faint in-between lines.
+            // Measured where the view is looking, on the cap (the camera's target moved onto the
+            // plane and kept within the body), so a close-up isn't hatched for the far end.
+            let n = section.unitNormal ?? .unitZ
+            let aim = camera.target - n * (camera.target - section.origin).dot(n)
+            let middle = Vec3(simd_clamp(aim.simd, box.min.simd, box.max.simd))
+            let depthScale = camera.projection == .perspective ? max(camera.depth(of: middle), 1e-3) / camera.distance : 1
+            d.params.x = Float(SectionPlane.hatchSpacing(worldPerPoint: wppPoints * depthScale))
+            d.params.y = SectionPlane.hatchWidth
             var verts: [SIMD4<Float>] = []
             for k in 1..<(polygon.count - 1) {
                 for p in [polygon[0], polygon[k], polygon[k + 1]] { verts.append(SIMD4(p.float, 1)) }
             }
             enc.setRenderPipelineState(pCap)
             enc.setDepthStencilState(dsCapFill)
-            enc.setStencilReferenceValue(1)
+            enc.setStencilReferenceValue(Self.insideBit | Self.capBit)
             enc.setVertexBytes(verts, length: verts.count * MemoryLayout<SIMD4<Float>>.stride, index: 0)
             enc.setFragmentBytes(&d, length: MemoryLayout<CapDraw>.stride, index: 2)
             // A face lying in the plane is kept and would fight the cap for the same depth: nudge
@@ -921,16 +962,19 @@ public final class ViewportRenderer: NSObject {
             enc.setDepthStencilState(dsCapClear)
             drawDepth(enc, g)
         }
+        enc.setStencilReferenceValue(0)
     }
 
-    /// The line where the section plane meets each body, in the edge ink, over the cap's rim: the
-    /// kernel's exact lines where they are in for this plane, else sliced from the mesh on the GPU
-    /// (exactly where the stencil cap ends, so mid-drag it never lags the cap).
-    private func drawSectionOutlines(_ enc: MTLRenderCommandEncoder, ink: ViewportColor, opaque: [SceneBody]) {
+    /// The line where the section plane meets each body, round the caps' rims and never over
+    /// them (`dsOutsideCaps`), so a cap keeps its full width however thin the wall: the kernel's
+    /// exact lines where they are in for this plane, else sliced from the mesh on the GPU (exactly
+    /// where the stencil cap ends, so mid-drag it never lags the cap).
+    private func drawSectionOutlines(_ enc: MTLRenderCommandEncoder, ink: ViewportColor, width: Float, opaque: [SceneBody]) {
         guard let section = scene.section, section.unitNormal != nil else { return }
-        enc.setDepthStencilState(dsTest)
+        enc.setDepthStencilState(dsOutsideCaps)
+        enc.setStencilReferenceValue(0)
         enc.setVertexBuffer(zeroBuffer, offset: 0, index: 3)
-        var d = LineDraw(LineStyle(ink, width: 1.6))
+        var d = LineDraw(LineStyle(ink, width: width))
         d.pull = 2
         enc.setVertexBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
         enc.setFragmentBytes(&d, length: MemoryLayout<LineDraw>.stride, index: 2)
@@ -1139,11 +1183,14 @@ public final class ViewportRenderer: NSObject {
         }
         // Contact shadows for lit bodies resting on (or near) the bed. Under see-through bodies the
         // bed would show a dark slab, and a line drawing has no light to cast them.
-        if (scene.plate != nil || scene.showsGroundGrid) && scene.visualStyle.faces == .lit {
+        // What a section cuts away casts none: the shadow is of what's left.
+        let cut = scene.section?.unitNormal != nil
+        if (scene.plate != nil || scene.showsGroundGrid) && scene.visualStyle.faces == .lit && !(cut && scene.sectionOnly) {
             enc.setRenderPipelineState(pShadow)
             enc.setDepthStencilState(dsLess)
             for b in scene.bodies where b.visible {
-                guard let bb = bodies[b.id]?.bounds else { continue }
+                guard let whole = bodies[b.id]?.bounds else { continue }
+                guard let bb = scene.section.map({ $0.kept(of: whole) }) ?? whole else { continue }
                 let size = bb.size
                 let lift = max(bb.min.z, 0)
                 let height = max(size.z, 1e-3)
