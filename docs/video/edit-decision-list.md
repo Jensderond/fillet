@@ -172,7 +172,7 @@ about 65 ms) and turning it off (about 35 ms). Each runs a bar, and the next sho
 | 6 (12.80) | The nested bodies | close 2.15 | — |
 | 7 (14.93) | Arrow held 7.0, slides out to 18 mm 7.1→8.0, back to 0 →8.3; live pill | close 1.9 | "60 fps" lands 8.0 |
 | 9 (19.20) | Grip held 9.0, tilts 0→30° 9.1→9.3.5, dashed ring and angle | close 2.05 | released 10.0 |
-| 11 (23.47) | **Flip** 11.0, Untilt 11.2 | full screen width 1.45 | |
+| 11 (23.47) | **Flip** 11.0, the camera swinging round over two beats to the half now kept, its cut face to the viewer; Untilt 11.3 | full screen width 1.45 | |
 | 12 (25.60) | **2D section view** 12.0 (camera flies orthographic) | full width | |
 | 13 (27.73) | The section drawing | close 1.9 | |
 | 14 (29.87) | **Section only** 14.0 | full width | |
@@ -185,7 +185,7 @@ the panel is tapped show the screen's full width. Each shot cuts to its framing 
 
 Titles (left column, eyebrow and headline on the downbeat, sub lines on the half-beats after):
 "It looks solid." (2.2), "See inside." (5), "Every body, its own colour." (6), "Drag the arrow." (7)
-with **60 fps** (8), "Turn a grip." (9), "Either side." (11), "Straight at the cut." (12),
+with **60 fps** (8), "Turn a grip." (9), "Flip side." / "Keep either half." (11), "Straight at the cut." (12),
 "Just the cut faces." (14), "Nothing to undo." (16).
 
 ## Music (`section/music.py`)
@@ -195,7 +195,8 @@ Detuned saw pad, a sixteenth pulse arpeggio through a resonant filter that opens
 delay on dotted eighths), a gated sixteenth bass and a sub, four-on-the-floor with claps and hats from the
 impact, all sidechained to the kick. Bar 4 is the riser (noise sweep, pitch riser, snare roll, reversed
 swell) into the impact on bar 5. Under the slide a band of noise sweeps with the arrow's offset, chopped
-on 32nds, with data blips; a glide rises with the tilt; a reversed hit into the flip; bars 12–13 lift to
+on 32nds, with data blips; a glide rises with the tilt; a reversed hit into the flip (a blip on the
+Untilt, a beat later); bars 12–13 lift to
 Eb and C in half time with bells; bar 14 strips to bass, arpeggio and ticks; the groove comes back on 15,
 a roll on 16, and D major rings out under the end card. Blips mark the taps.
 

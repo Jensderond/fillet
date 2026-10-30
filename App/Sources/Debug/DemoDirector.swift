@@ -386,8 +386,8 @@ enum DemoDirector {
     ///
     /// Bars of four beats from the grid's start (`beat grid`); the edit puts bar 2 where the
     /// device comes in. Bar 3 Section on the tool strip; bar 5 the XZ chip, the cut opens; bars 7–8
-    /// the arrow slides the cut out and back; bars 9–10 a grip tilts it 30°; bar 11 flip, then
-    /// Untilt; bar 12 2D section view; bar 14 Section only; bar 15 back to 3D; bar 16 off; bar 17 the end.
+    /// the arrow slides the cut out and back; bars 9–10 a grip tilts it 30°; bar 11 flip, the camera
+    /// swinging round to the half now kept, then Untilt on beat 3; bar 12 2D section view; bar 14 Section only; bar 15 back to 3D; bar 16 off; bar 17 the end.
     /// Taps land on their beat as the finger lifts; every action logs a beat named after it.
     /// `docs/video/section/record.sh` records it.
     static func sectionStory(_ session: DesignSession) async {
@@ -431,9 +431,15 @@ enum DemoDirector {
         // Bars 9–10: the level grip tips the cut 30° round its ring.
         await tiltSection(session, press: (9, 0), degrees: 30, from: (9, 1), until: (9, 3.5), release: (10, 0))
 
-        // Bar 11: flip, then Untilt on the half bar.
-        await tap(frame: "section-flip", on: 11, 0, "flip") { session.flipSection() }
-        await tap(frame: "section.untilt", on: 11, 2, "untilt") { session.resetSectionTilt() }
+        // Bar 11: flip, and the camera swings round over two beats to face the half now kept, its
+        // cut face and the bodies inside towards the viewer; Untilt on the beat after it lands.
+        await tap(frame: "section-flip", on: 11, 0, "flip") {
+            session.flipSection()
+            var swung = session.camera
+            swung.orbit(deltaYaw: .pi - 0.05, deltaPitch: 0)  // just short of half a turn, so it goes round one way
+            controller?.renderer?.animateCamera(to: swung, duration: 2 * beatLength)
+        }
+        await tap(frame: "section.untilt", on: 11, 3, "untilt") { session.resetSectionTilt() }
 
         // Bar 12: 2D section view; bar 14: Section only; bar 15: back to 3D, caps only.
         await tap(frame: "section.2d", unit: CGPoint(x: 0.93, y: 0.5), on: 12, 0, "2d") { session.setSection2D(true) }

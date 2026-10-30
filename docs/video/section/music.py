@@ -475,7 +475,7 @@ def effects():
     # Bars 9–10: the glide rises with the tilt (0 → 30° from bar 9 beat 1 to beat 3.5).
     place(buf, T(9), glide(T(9), 2 * tl.BAR, ([0, tl.BEAT, tl.BEAT * 3.5, 2 * tl.BAR], [0, 0, 700, 700])), 1.0)
     # Small actions: a blip on the beat they land on.
-    for bar, beat, f0 in [(3, 2, 2200), (7, 0, 1800), (9, 0, 1800), (11, 2, 2600), (14, 0, 3000), (15, 0, 2200), (16, 0, 1600)]:
+    for bar, beat, f0 in [(3, 2, 2200), (7, 0, 1800), (9, 0, 1800), (11, 3, 2600), (14, 0, 3000), (15, 0, 2200), (16, 0, 1600)]:
         place(buf, T(bar, beat), blip(f0), 0.18, pan=0.1)
     # Bar 11: a reversed hit into the flip.
     s, sig = reverse_swell(T(11), tl.BEAT, 0.22)

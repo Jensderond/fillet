@@ -18,6 +18,9 @@ FPS = 60
 W, H = 192, 256  # the 2048 × 2732 portrait screen, small
 # Actions whose picture change is large and immediate: they measure the take's offset.
 VISIBLE = ["section-tool", "reveal", "flip", "untilt", "2d", "section-only", "3d", "off"]
+# Actions that start a camera flight: it eases in, so its first frames change little; a lower
+# bar (0.2 % of the pixels) still clears a touch marker (about 0.16 %).
+FLIGHTS = {"3d": 0.002}
 
 
 def load_beats(path):
@@ -75,9 +78,9 @@ def analyse(take):
     for name, _, epoch in beats:
         if name in VISIBLE:
             t = epoch - start + rough
-            o = onset(ch, t - 0.25, t + 0.6)
+            o = onset(ch, t - 0.25, t + 0.6, FLIGHTS.get(name, 0.004))
             found[name] = None if o is None else o - (epoch - start)
-            main[name] = biggest(ch, t - 0.25, t + 0.6) - (epoch - start)
+            main[name] = biggest(ch, t - 0.25, t + 0.3) - (epoch - start)  # not into the next beat's action
     lag = float(np.median([v for v in found.values() if v is not None]))
     rows = []
     for name, tt, epoch in beats:

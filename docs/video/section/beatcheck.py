@@ -152,7 +152,7 @@ SR = 48000
 for what, bar, beat in [("first downbeat of the groove", 2, 0), ("impact: the cut opens", 5, 0), ("arrow pressed", 7, 0),
                         ("grip pressed", 9, 0), ("flip hit", 11, 0), ("2D lift", 12, 0), ("section only", 14, 0),
                         ("groove back (3D)", 15, 0), ("turned off", 16, 0), ("end card", 17, 0),
-                        ("tap: section tool", 3, 2), ("tap: untilt", 11, 2)]:
+                        ("tap: section tool", 3, 2), ("tap: untilt", 11, 3)]:
     want = tl.t(bar, beat)
     i0, i1 = int((want - 0.08) * SR), int((want + 0.25) * SR)
     ref = hits[i0:i1] - hits[i0:i1].mean()
