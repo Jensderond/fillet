@@ -481,9 +481,11 @@ extension DesignSession {
     /// What the hint over the viewport says while the handles are up.
     var sectionHint: String {
         #if os(macOS)
-        "Drag the arrow to slide the cut, a curved grip to tilt it. Esc when done"
+        section2D ? "Looking straight at the cut. Click the value to move it. Esc when done"
+            : "Drag the arrow to slide the cut, a curved grip to tilt it. Esc when done"
         #else
-        "Drag the arrow to slide the cut, a curved grip to tilt it"
+        section2D ? "Looking straight at the cut. Tap the value to move it"
+            : "Drag the arrow to slide the cut, a curved grip to tilt it"
         #endif
     }
 }

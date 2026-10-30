@@ -138,7 +138,7 @@ struct SectionInspector: View {
                 InspectorHeader(symbol: SectionSymbol.name, title: "Section view", subtitle: "Cutting along \(s.reference.name)", tint: Theme.selectInk)
                 plane(s)
                 VStack(alignment: .leading, spacing: Theme.Space.xs) {
-                    SectionLookToggle(symbol: "view.2d", title: "2D section view", isOn: session.section2D,
+                    SectionLookToggle(symbol: "pencil.and.ruler", title: "2D section view", isOn: session.section2D,
                                       on: "Straight at the cut, as a drawing", off: "Turns the view straight at the cut",
                                       help: "Look straight at the cut, flat and orthographic, the rest of the model as lines",
                                       automationID: "section.2d") { session.setSection2D($0) }
