@@ -34,7 +34,7 @@ extension SectionPlane {
     }
 
     /// Where the plane crosses `box` (grown a little so the cap covers the whole cut), as a convex
-    /// polygon in order around the plane; empty when it misses.
+    /// polygon counterclockwise round the normal (`u` × `v` is the normal); empty when it misses.
     func polygon(through box: Bounds3) -> [Vec3] {
         guard let n = unitNormal else { return [] }
         let pad = max((box.max - box.min).length * 0.01, 1e-3)

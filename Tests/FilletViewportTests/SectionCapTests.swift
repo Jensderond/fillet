@@ -98,6 +98,22 @@ struct SectionCapTests {
         #expect(changed < 40, "\(changed) of \(plain.count)")
     }
 
+    /// Seen at a slant from the side it keeps, the cap lies right behind the faces that run up to
+    /// the cut: none of its colour may leak round their rim (as it did through the cap's depth bias,
+    /// which grows with the slant), wherever the camera stands on that side.
+    @Test func noCapFringeFromTheKeptSideAtASlant() throws {
+        var leaks: [String] = []
+        for yaw in stride(from: -3.0, through: 3.0, by: 0.4) {
+            for pitch in [-0.5, 0.3, 0.8] {
+                let cam = Camera(target: .zero, distance: 70, yaw: yaw, pitch: pitch)
+                guard cam.eye.x < -5 else { continue }
+                let red = try render(DemoMeshes.cube(size: 20), section: cutX, camera: cam, scale: 2).filter(isRed).count
+                if red > 0 { leaks.append("\(red) px at yaw \(yaw), pitch \(pitch)") }
+            }
+        }
+        #expect(leaks.isEmpty, "cap colour round the rim: \(leaks.joined(separator: "; "))")
+    }
+
     @Test func handlesOnTheCutSideStillDraw() throws {
         let green = ViewportColor(hex: 0x00C000)
         let handle = Handle(id: "h", origin: Vec3(14, 0, 0), direction: .unitY, value: 0, color: green)

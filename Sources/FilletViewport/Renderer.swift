@@ -712,7 +712,7 @@ public final class ViewportRenderer: NSObject {
                 enc.setDepthStencilState(dsWrite)
                 for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: false) }
             }
-            drawSectionCaps(enc, opaque: opaque, paper: false, flat: drawing, U: U)
+            drawSectionCaps(enc, opaque: opaque, paper: false, flat: drawing, faces: !capsOnly, U: U)
             if !drawing { drawGround(enc, U: U) }
             if !capsOnly {
                 enc.setRenderPipelineState(pMeshBlend)
@@ -725,7 +725,7 @@ public final class ViewportRenderer: NSObject {
                 enc.setRenderPipelineState(pMeshOpaque)
                 enc.setDepthStencilState(dsWrite)
                 for b in opaque { drawMesh(enc, body: b, hover: hover, overhang: style.faces == .lit, paper: style.faces == .paper) }
-                drawSectionCaps(enc, opaque: opaque, paper: style.faces == .paper, flat: false, U: U)
+                drawSectionCaps(enc, opaque: opaque, paper: style.faces == .paper, flat: false, faces: true, U: U)
                 // Ground grid and bed (after opaque bodies so they occlude it, before outlines so
                 // silhouettes draw on top of the bed).
                 drawGround(enc, U: U)
@@ -903,7 +903,12 @@ public final class ViewportRenderer: NSObject {
     /// like a face; flat in a section drawing. Per body: the stencil parity pass over what's left
     /// of its surface, the cap polygon where the inside bit is set (which marks the cap's pixels
     /// for the outline), then the surface again to clear the inside bit.
-    private func drawSectionCaps(_ enc: MTLRenderCommandEncoder, opaque: [SceneBody], paper: Bool, flat: Bool, U: FrameUniforms) {
+    ///
+    /// With the bodies' `faces` drawn, a cap seen from the side the section keeps is always behind
+    /// them (the way to it runs into the body first), so it's culled rather than left to the depth
+    /// test: along the rim the faces meet it at the same depth, and its nudge forward (or a tie)
+    /// would let a pixel of cap colour through.
+    private func drawSectionCaps(_ enc: MTLRenderCommandEncoder, opaque: [SceneBody], paper: Bool, flat: Bool, faces: Bool, U: FrameUniforms) {
         guard let section = scene.section, section.unitNormal != nil else { return }
         let pal = palette
         let (u, v) = section.axes
@@ -955,7 +960,11 @@ public final class ViewportRenderer: NSObject {
             // A face lying in the plane is kept and would fight the cap for the same depth: nudge
             // the cap a few depth steps forward so it wins cleanly.
             enc.setDepthBias(-8, slopeScale: -2, clamp: 0)
+            // The polygon runs counterclockwise round the normal (`polygon(through:)`), so its
+            // front faces the side that's cut away.
+            if faces { enc.setCullMode(.back) }
             enc.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: verts.count)
+            enc.setCullMode(.none)
             enc.setDepthBias(0, slopeScale: 0, clamp: 0)
 
             enc.setRenderPipelineState(pSectionMask)
