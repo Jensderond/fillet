@@ -70,7 +70,8 @@ struct BrowserView: View {
     }
 }
 
-/// Display colours for bodies (context menu on a body row).
+/// Display colours for bodies (context menu on a body row). The swatches sit in the menu itself, not
+/// in a "Color" submenu: one tap fewer, and no submenu row floating over the browser.
 struct BodyColorMenu: View {
     let session: DesignSession
     let bodyRef: BodyRef
@@ -82,15 +83,46 @@ struct BodyColorMenu: View {
     ]
 
     var body: some View {
-        Menu("Color") {
+        Section("Color") {
             ForEach(Self.swatches, id: \.name) { swatch in
                 Button {
                     session.perform("Color Body") { $0.bodyColors[bodyRef] = swatch.hex.isEmpty ? nil : swatch.hex }
                 } label: {
-                    Label(swatch.name, systemImage: (session.document.bodyColors[bodyRef] ?? "") == swatch.hex ? "checkmark" : "circle.fill")
+                    if (session.document.bodyColors[bodyRef] ?? "") == swatch.hex {
+                        Label(swatch.name, systemImage: "checkmark")
+                    } else {
+                        Label { Text(swatch.name) } icon: { Self.swatchImage(swatch.hex) }
+                    }
                 }
             }
         }
+    }
+
+    /// Menus draw SF Symbols as templates in the accent colour, so every swatch came out orange.
+    /// A drawn, non-template dot keeps its own colour; the faint ring keeps White and Slate visible.
+    static func swatchImage(_ hex: String) -> Image {
+        let v = UInt32(hex.dropFirst(), radix: 16) ?? 0xBAC3D3 // Slate: the viewport's default body grey
+        let (r, g, b) = (CGFloat((v >> 16) & 0xFF) / 255, CGFloat((v >> 8) & 0xFF) / 255, CGFloat(v & 0xFF) / 255)
+        let size = CGSize(width: 16, height: 16)
+        func draw(_ ctx: CGContext) {
+            let dot = CGRect(origin: .zero, size: size).insetBy(dx: 1.5, dy: 1.5)
+            ctx.setFillColor(CGColor(srgbRed: r, green: g, blue: b, alpha: 1))
+            ctx.fillEllipse(in: dot)
+            ctx.setStrokeColor(CGColor(srgbRed: 0, green: 0, blue: 0, alpha: 0.18))
+            ctx.setLineWidth(1)
+            ctx.strokeEllipse(in: dot.insetBy(dx: 0.5, dy: 0.5))
+        }
+        #if os(iOS)
+        let image = UIGraphicsImageRenderer(size: size).image { draw($0.cgContext) }
+        return Image(uiImage: image.withRenderingMode(.alwaysOriginal))
+        #else
+        let image = NSImage(size: size, flipped: false) { _ in
+            if let ctx = NSGraphicsContext.current?.cgContext { draw(ctx) }
+            return true
+        }
+        image.isTemplate = false
+        return Image(nsImage: image)
+        #endif
     }
 }
 
