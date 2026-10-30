@@ -1,0 +1,23 @@
+{
+  "start": "new",
+  "orientation": "landscape",
+  "outDir": "../../build/docs-shots/sample",
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Bracket"}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"name": "Profile", "plane": "xz", "shapes": [
+      {"type": "polyline", "closed": true,
+       "vertices": [[-30, 0], [30, 0], [30, 6], [-24, 6], [-24, 40], [-30, 40]]}]}},
+    {"do": "mcp", "tool": "extrude", "arguments": {"name": "Bracket", "sketch": "Profile", "distance": 40, "symmetric": true}},
+    {"do": "mcp", "tool": "fillet", "arguments": {"name": "Inner fillet", "body": "Bracket",
+      "edges": {"type": "line", "near": [-24, 0, 6], "limit": 1}, "radius": 6}},
+    {"do": "mcp", "tool": "create_sketch", "arguments": {"name": "Holes", "plane": "xy", "shapes": [
+      {"type": "circle", "center": [12, -10], "diameter": 5.5},
+      {"type": "circle", "center": [12, 10], "diameter": 5.5}]}},
+    {"do": "mcp", "tool": "extrude", "arguments": {"name": "Holes cut", "sketch": "Holes", "distance": 6,
+      "operation": "cut", "targets": "Bracket"}},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+    {"do": "screenshot", "path": "bracket-landscape.png"},
+    {"do": "save"},
+    {"do": "dump", "path": "bracket-tree.txt"}
+  ]
+}

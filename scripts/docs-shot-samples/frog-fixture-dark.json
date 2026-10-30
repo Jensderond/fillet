@@ -1,0 +1,13 @@
+{
+  "fixture": "../../Benchmarks/frog-wizard.fillet",
+  "start": {"open": "frog-wizard.fillet"},
+  "appearance": "dark",
+  "outDir": "../../build/docs-shots/sample",
+  "steps": [
+    {"do": "tap", "labelContains": "Play to end"},
+    {"do": "idle"},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+    {"do": "screenshot", "path": "frog-fixture-dark.png"},
+    {"do": "screenshot", "path": "frog-timeline-lift-hat-dark.png", "of": {"labelContains": ", Lift hat", "padding": 8}}
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "start": "new",
+  "outDir": "../../build/docs-shots/sample",
+  "steps": [
+    {"do": "mcp", "tool": "rename_design", "arguments": {"name": "Rounded block"}},
+    {"do": "mcp", "tool": "primitive", "arguments": {"name": "Block", "kind": "box", "at": [0, 0, 0],
+      "dimensions": {"width": 50, "depth": 30, "height": 20}}},
+    {"do": "mcp", "tool": "fillet", "arguments": {"name": "Round all", "body": "Block", "edges": "all", "radius": 4}},
+    {"do": "panel", "name": "browser", "show": false},
+    {"do": "mcp", "tool": "set_view", "arguments": {"view": "iso"}},
+    {"do": "screenshot", "path": "rounded-block-no-browser.png"}
+  ]
+}

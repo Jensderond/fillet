@@ -1,0 +1,7 @@
+{
+  "start": "new",
+  "outDir": "../../build/docs-shots/warmup",
+  "steps": [
+    {"do": "screenshot", "path": "warmup.png"}
+  ]
+}
