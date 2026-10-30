@@ -7,6 +7,36 @@ export 3MF for Bambu Studio.
 
 ![Fillet on macOS in light and dark mode: a filleted bracket in the viewport, with the browser, print check and timeline](docs/screenshots/mac-light-dark.png)
 
+The user guide is at **[fillet.jsdr.dev](https://fillet.jsdr.dev)**.
+
+## Install
+
+**Mac** (Apple silicon, macOS 15 or later; Intel Macs aren't supported):
+
+1. Download the newest `Fillet-<version>.dmg` from [Releases](https://github.com/Jensderond/fillet/releases/latest).
+2. Open it and drag **Fillet** into **Applications**.
+3. Fillet isn't signed with an Apple Developer ID or notarized, so macOS refuses to open it the
+   first time (it can't verify that Fillet is free of malware). Remove the download's quarantine
+   flag once, in Terminal:
+
+   ```sh
+   xattr -dr com.apple.quarantine /Applications/Fillet.app
+   ```
+
+   This also clears the flag on the `fillet-mcp` helper inside the app, which Claude Desktop
+   starts. The app itself doesn't change.
+4. Open Fillet. Updates it installs itself (*Fillet ▸ Check for Updates…*) don't carry the flag,
+   so this is a one-time step.
+
+Each release lists the DMG's SHA-256 under *Checksum*; compare it with
+`shasum -a 256 ~/Downloads/Fillet-<version>.dmg`.
+
+**iPad** (iPadOS 18 or later): Fillet isn't on the App Store or TestFlight. Build it from source
+(below) and run it on your iPad from Xcode. With a free Apple Account the app stops opening after
+seven days; run it from Xcode again to renew it.
+
+More in the guide: [Install Fillet](https://fillet.jsdr.dev/guides/install/).
+
 ## Build
 
 Requirements: Xcode 27, CMake (`brew install cmake`), XcodeGen (`brew install xcodegen`).
