@@ -107,9 +107,9 @@ extension DesignSession {
         if sectionMode == .editing { sectionMode = .on }
     }
 
-    static let sectionOffsetHandleID = "section.offset"
-    static let sectionTiltUHandleID = "section.tiltU"
-    static let sectionTiltVHandleID = "section.tiltV"
+    nonisolated static let sectionOffsetHandleID = "section.offset"
+    nonisolated static let sectionTiltUHandleID = "section.tiltU"
+    nonisolated static let sectionTiltVHandleID = "section.tiltV"
 
     /// Why Section view can't start right now, or nil when it can (one that is on can always be turned off).
     var sectionUnavailableReason: String? {
@@ -220,6 +220,7 @@ extension DesignSession {
         guard sectionIsOn else { return }
         sectionMode = .off
         sectionDrag = nil
+        resetSectionLook()
         message = "Section view off. Turn it on again to cut along the same plane."
     }
 
@@ -228,6 +229,47 @@ extension DesignSession {
         section = nil
         sectionMode = .off
         sectionDrag = nil
+        resetSectionLook()
+    }
+
+    /// Back to the whole cut model, shaded, seen from where it was before 2D.
+    private func resetSectionLook() {
+        sectionOnly = false
+        setSection2D(false)
+    }
+
+    /// Section only: just the caps, nothing else of the bodies.
+    func setSectionOnly(_ on: Bool) {
+        guard sectionIsOn || !on else { return }
+        sectionOnly = on
+    }
+
+    /// 2D section view: the cut as a drawing (the caps flat, the rest as lines, no ground), turned
+    /// to look straight at it. Off goes back to where the camera was.
+    func setSection2D(_ on: Bool) {
+        guard on != section2D, sectionIsOn || !on else { return }
+        section2D = on
+        if on {
+            cameraBeforeSection2D = camera
+            lookStraightAtSection()
+        } else if let before = cameraBeforeSection2D {
+            cameraBeforeSection2D = nil
+            camera = before
+        }
+    }
+
+    /// Orthographic, straight at the cut from the side cut away, framing what's left of the
+    /// bodies: the cap at its true shape and size, as a drawing's section view.
+    func lookStraightAtSection() {
+        guard let s = section else { return }
+        let f = s.frame
+        let plane = Plane(origin: s.center, normal: s.normal, xDir: s.flipped ? -f.u : f.u)
+        var c = camera.looking(at: plane, center: s.center)
+        c.projection = .orthographic
+        if let b = visibleBodyBounds, let kept = s.plane.kept(of: b) {
+            c = c.framing(kept, viewSize: viewSize, insets: viewInsets, margin: Self.bodyMargin)
+        }
+        camera = c
     }
 
     /// Picks a new plane, keeping this one until a new one is picked.
@@ -235,9 +277,11 @@ extension DesignSession {
         beginChoosingSectionPlane()
     }
 
-    /// The other side is cut away; the plane stays where it is.
+    /// The other side is cut away; the plane stays where it is. In 2D the view turns round to
+    /// look at the new cut face.
     func flipSection() {
         section?.flipped.toggle()
+        if section2D { lookStraightAtSection() }
     }
 
     func setSectionOffset(_ value: Double) {
@@ -248,12 +292,15 @@ extension DesignSession {
     func setSectionTilt(u: Double? = nil, v: Double? = nil) {
         if let u { section?.tiltU = Self.wrapDegrees(u) }
         if let v { section?.tiltV = Self.wrapDegrees(v) }
+        // Typed (not mid-drag) in 2D: keep looking straight at the cut.
+        if section2D, sectionDrag == nil { lookStraightAtSection() }
     }
 
     /// Back to the picked plane's direction (the offset stays).
     func resetSectionTilt() {
         section?.tiltU = 0
         section?.tiltV = 0
+        if section2D { lookStraightAtSection() }
     }
 
     /// Looks straight at the cut from the side that is cut away, the whole model in view.
@@ -289,18 +336,31 @@ extension DesignSession {
     func sectionHandles() -> [Handle] { sectionHandles(section) }
 
     func sectionHandles(_ section: SectionState?) -> [Handle] {
-        guard sectionMode == .editing, let s = section else { return [] }
+        // Looking straight at the cut in 2D the arrow and grips would be end-on dots: the pills
+        // and the panel steer it there.
+        guard sectionMode == .editing, !section2D, let s = section else { return [] }
         let color = ViewportColor(hex: 0x3B8BFF)
         let f = s.frame
         let n = s.normal
+        // About the reference's u: the grip sits out along v, which that turn keeps in the plane.
+        var tiltU = Handle(id: Self.sectionTiltUHandleID, origin: s.center, direction: f.v, value: s.tiltU, color: color,
+                           kind: .rotation(axis: s.reference.u))
+        var tiltV = Handle(id: Self.sectionTiltVHandleID, origin: s.center, direction: f.u, value: s.tiltV, color: color,
+                           kind: .rotation(axis: f.v))
+        // Where each grip sits untilted (the first tilt leaves the second's untilted axis as it is).
+        tiltU.zeroDirection = s.reference.v
+        tiltV.zeroDirection = s.reference.u
         return [
             Handle(id: Self.sectionOffsetHandleID, origin: s.center - n * s.alongNormal, direction: n, value: s.alongNormal, color: color),
-            // About the reference's u: the grip sits out along v, which that turn keeps in the plane.
-            Handle(id: Self.sectionTiltUHandleID, origin: s.center, direction: f.v, value: s.tiltU, color: color,
-                   kind: .rotation(axis: s.reference.u)),
-            Handle(id: Self.sectionTiltVHandleID, origin: s.center, direction: f.u, value: s.tiltV, color: color,
-                   kind: .rotation(axis: f.v)),
+            tiltU, tiltV,
         ]
+    }
+
+    /// A section handle was grabbed: it's held from now (the pill and the angle show it), before
+    /// it moves.
+    func pressSectionHandle(id: String) {
+        guard [Self.sectionOffsetHandleID, Self.sectionTiltUHandleID, Self.sectionTiltVHandleID].contains(id), sectionDrag != id else { return }
+        sectionDrag = id
     }
 
     /// A section handle was dragged: the offset in 0.1 mm steps, the tilts in whole degrees.

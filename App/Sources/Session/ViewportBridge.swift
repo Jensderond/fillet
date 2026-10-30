@@ -102,6 +102,13 @@ extension DesignSession {
         let section = sectionDrag != nil ? sectionUntracked : self.section
         scene.section = shownSection(section)
         scene.sectionCurves = sectionCurves
+        scene.sectionOnly = sectionOnly
+        scene.sectionDrawing = section2D
+        // A section drawing is the cut on its own: no bed, its name or the ground grid.
+        if section2D && scene.section != nil {
+            scene.plate = nil
+            scene.showsGroundGrid = false
+        }
         // Section's readouts are the value pill and angle tags on the canvas (`SectionGizmoOverlay`).
         scene.handles = pickMode == .section ? sectionHandles(section) : editingHandles()
         scene.measures = sketchMeasures() + handleMeasures(pickMode == .section ? [] : scene.handles)
@@ -511,8 +518,12 @@ extension DesignSession: ViewportDelegate {
 
     func viewportSectionDragged(id: String) -> SectionDragStep? { sectionDragStep(id: id) }
 
+    func viewportHandlePressed(id: String) { pressSectionHandle(id: id) }
+
     func viewportHandleDragEnded(id: String, value: Double) {
         if sectionDrag != nil { sectionDrag = nil }
+        // A tilt turned in 2D: look straight at the cut where it ended up.
+        if section2D, id == Self.sectionTiltUHandleID || id == Self.sectionTiltVHandleID { lookStraightAtSection() }
     }
 
     /// Select tool: a press on a shape that starts to move drags the selection, a press on a line's

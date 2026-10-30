@@ -137,6 +137,16 @@ struct SectionInspector: View {
             VStack(alignment: .leading, spacing: Theme.Space.xl) {
                 InspectorHeader(symbol: SectionSymbol.name, title: "Section view", subtitle: "Cutting along \(s.reference.name)", tint: Theme.selectInk)
                 plane(s)
+                VStack(alignment: .leading, spacing: Theme.Space.xs) {
+                    SectionLookToggle(symbol: "view.2d", title: "2D section view", isOn: session.section2D,
+                                      on: "Straight at the cut, as a drawing", off: "Turns the view straight at the cut",
+                                      help: "Look straight at the cut, flat and orthographic, the rest of the model as lines",
+                                      automationID: "section.2d") { session.setSection2D($0) }
+                    SectionLookToggle(symbol: "square.stack.3d.up.slash", title: "Section only", isOn: session.sectionOnly,
+                                      on: "Only the cut faces show", off: "Hides everything but the cut faces",
+                                      help: "Show only the cut faces, nothing else of the model",
+                                      automationID: "section.only") { session.setSectionOnly($0) }
+                }
                 VStack(alignment: .leading, spacing: Theme.Space.m) {
                     ExprField(label: "Offset", value: Expr(rounded(s.offset)), labelWidth: 92, evaluator: ev) { expr in
                         if let v = try? ev.length(expr) { session.setSectionOffset(v) }
@@ -195,6 +205,43 @@ struct SectionInspector: View {
     }
 }
 
+/// One of Section view's looks (2D, Section only) in its panel: a switch with a line saying what
+/// it does, like the panel's other options.
+struct SectionLookToggle: View {
+    let symbol: String
+    let title: String
+    let isOn: Bool
+    let on: String
+    let off: String
+    let help: String
+    let automationID: String
+    let onChange: (Bool) -> Void
+    @Environment(\.touchTargets) private var touch
+
+    var body: some View {
+        Toggle(isOn: Binding(get: { isOn }, set: onChange)) {
+            HStack(alignment: .firstTextBaseline, spacing: Theme.Space.s) {
+                Image(systemName: symbol)
+                    .font(Theme.body.weight(.semibold))
+                    .foregroundStyle(isOn ? Theme.selectInk : Theme.inkTertiary)
+                    .frame(width: 20)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(Theme.body.weight(.medium)).foregroundStyle(Theme.ink)
+                    Text(isOn ? on : off)
+                        .font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+        }
+        .tint(Theme.switchOn)
+        .frame(minHeight: Theme.Metrics.target(touch: touch))
+        .animation(Theme.Motion.hover, value: isOn)
+        .help(help)
+        .automationFrame(automationID)
+    }
+}
+
 /// Delete and Done, pinned to the bottom of the inspector while the section's handles are up.
 struct SectionFooter: View {
     let delete: () -> Void
@@ -243,7 +290,8 @@ struct SectionCurvesLoader: View {
 struct SectionGizmoOverlay: View {
     @Bindable var session: DesignSession
     let controller: ViewportController
-    @State private var typing = false
+    /// The pill being typed into, nil when none is.
+    @State private var typing: Field?
     @State private var text = ""
     /// The field opens with its value selected, so typing replaces it.
     @State private var selection: TextSelection?
@@ -251,21 +299,43 @@ struct SectionGizmoOverlay: View {
     @FocusState private var focused: Bool
     @Environment(\.touchTargets) private var touch
 
+    /// What a pill reads and sets: the offset, or one of the tilts.
+    enum Field: Equatable {
+        case offset, tiltU, tiltV
+
+        var handleID: String {
+            switch self {
+            case .offset: DesignSession.sectionOffsetHandleID
+            case .tiltU: DesignSession.sectionTiltUHandleID
+            case .tiltV: DesignSession.sectionTiltVHandleID
+            }
+        }
+    }
+
     var body: some View {
         ZStack(alignment: .topLeading) {
             if session.pickMode == .section, let s = session.section, let layout = layout(s) {
-                valuePill(s)
+                pill(.offset, s)
                     .position(layout.pill)
                 flipButton(angle: layout.axisAngle)
                     .position(layout.flip)
+                // A tilt that isn't 0 keeps its angle in a pill under the offset's, to read and type.
+                let tilts = [Field.tiltU, .tiltV].filter { value($0, s) != 0 && session.sectionDrag != $0.handleID || typing == $0 }
+                if !tilts.isEmpty {
+                    HStack(spacing: Theme.Space.xs) {
+                        ForEach(tilts, id: \.handleID) { pill($0, s) }
+                    }
+                    .position(x: layout.pill.x, y: layout.pill.y + (touch ? 44 : 30))
+                }
+                // While a grip turns, its angle rides at the tip of the arc it sweeps.
                 if let drag = session.sectionDrag, drag != DesignSession.sectionOffsetHandleID, let tag = layout.tiltTag {
                     let value = drag == DesignSession.sectionTiltUHandleID ? s.tiltU : s.tiltV
                     Text("\(DesignSession.sectionFormat(value))°")
                         .font(Theme.value)
-                        .foregroundStyle(Theme.ink)
+                        .foregroundStyle(.white)
                         .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
-                        .background(Capsule().fill(Theme.raised))
-                        .overlay(Capsule().strokeBorder(Theme.select, lineWidth: 1.5))
+                        .background(Capsule().fill(Theme.select))
+                        .shadow(color: .black.opacity(0.14), radius: 4, y: 1)
                         .fixedSize()
                         .position(tag)
                         .allowsHitTesting(false)
@@ -274,12 +344,24 @@ struct SectionGizmoOverlay: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .onChange(of: session.pickMode == .section) { _, up in if !up { typing = false } }
+        .onChange(of: session.pickMode == .section) { _, up in if !up { typing = nil } }
+    }
+
+    private func value(_ field: Field, _ s: SectionState) -> Double {
+        switch field {
+        case .offset: s.offset
+        case .tiltU: s.tiltU
+        case .tiltV: s.tiltV
+        }
+    }
+
+    private func label(_ field: Field, _ s: SectionState) -> String {
+        field == .offset ? session.sectionOffsetLabel : "\(DesignSession.sectionFormat(value(field, s)))°"
     }
 
     /// Where things go on screen: the pill out past the arrow's head, the flip button behind its
     /// base, both along the arrow as drawn. Looking straight down the arrow there is no "along",
-    /// so they sit off to the sides.
+    /// so they sit off to the sides. A turning grip's angle goes past the end of its arc.
     private func layout(_ s: SectionState) -> (pill: CGPoint, flip: CGPoint, axisAngle: Angle, tiltTag: CGPoint?)? {
         let cam = controller.liveCamera, size = controller.viewSize
         guard size.width > 0, let c = cam.project(s.center, viewSize: size) else { return nil }
@@ -299,24 +381,26 @@ struct SectionGizmoOverlay: View {
             angle = .radians(atan2(uy, ux))
         }
         var tag: CGPoint?
-        if let drag = session.sectionDrag {
+        if let drag = session.sectionDrag, drag != DesignSession.sectionOffsetHandleID {
             let f = s.frame
             let out = drag == DesignSession.sectionTiltUHandleID ? f.v : f.u
-            tag = cam.project(s.center + out * ((HandleMetrics.gripRadius + 30) * wpp), viewSize: size)
+            tag = cam.project(s.center + out * ((HandleMetrics.ringRadius + 26) * wpp), viewSize: size)
         }
         return (pill, flip, angle, tag)
     }
 
-    @ViewBuilder private func valuePill(_ s: SectionState) -> some View {
-        if typing {
+    /// A value on the canvas: tap to type one. The offset's fills in while its arrow is held, so
+    /// the press shows before anything moves.
+    @ViewBuilder private func pill(_ field: Field, _ s: SectionState) -> some View {
+        if typing == field {
             HStack(spacing: Theme.Space.xs) {
                 Image(systemName: "keyboard").font(.system(size: 10, weight: .semibold)).foregroundStyle(Theme.inkTertiary)
                     .accessibilityHidden(true)
-                TextField("Offset", text: $text, selection: $selection)
+                TextField(field == .offset ? "Offset" : "Angle", text: $text, selection: $selection)
                     .textFieldStyle(.plain)
                     .font(Theme.value)
                     .foregroundStyle(Theme.ink)
-                    .frame(width: 72)
+                    .frame(width: field == .offset ? 72 : 52)
                     .autocorrectionDisabled()
                     #if os(iOS)
                     .textInputAutocapitalization(.never)
@@ -324,12 +408,12 @@ struct SectionGizmoOverlay: View {
                     #endif
                     .focused($focused)
                     .focusedValue(\.isEditingText, focused ? true : nil)
-                    .onSubmit(apply)
+                    .onSubmit { apply(field) }
                     #if os(macOS)
-                    .onExitCommand { typing = false }
+                    .onExitCommand { typing = nil }
                     #endif
-                    .accessibilityLabel("Section offset, millimetres")
-                Text("mm").font(Theme.caption).foregroundStyle(Theme.inkSecondary)
+                    .accessibilityLabel(field == .offset ? "Section offset, millimetres" : "Section tilt, degrees")
+                Text(field == .offset ? "mm" : "°").font(Theme.caption).foregroundStyle(Theme.inkSecondary)
             }
             .padding(.horizontal, Theme.Space.s)
             .frame(minHeight: touch ? 40 : 28)
@@ -338,34 +422,37 @@ struct SectionGizmoOverlay: View {
             .shadow(color: .black.opacity(0.14), radius: 6, y: 2)
             .fixedSize()
             .onAppear { focused = true }
-            .onChange(of: focused) { _, isFocused in if !isFocused { typing = false } }
+            .onChange(of: focused) { _, isFocused in if !isFocused, typing == field { typing = nil } }
             .onChange(of: text) { _, _ in error = false }
-            .automationMarker("section-offset-field")
+            .automationMarker(field == .offset ? "section-offset-field" : "section-angle-field")
         } else {
+            let held = session.sectionDrag == field.handleID
             Button {
-                text = ExprField.format((s.offset * 100).rounded() / 100)
+                text = ExprField.format((value(field, s) * 100).rounded() / 100)
                 selection = TextSelection(range: text.startIndex..<text.endIndex)
                 error = false
-                typing = true
+                typing = field
             } label: {
-                Text(session.sectionOffsetLabel)
+                Text(label(field, s))
                     .font(Theme.value)
-                    .foregroundStyle(Theme.ink)
+                    .foregroundStyle(held ? .white : Theme.ink)
                     .padding(.horizontal, Theme.Space.s).padding(.vertical, 3)
-                    .background(Capsule().fill(Theme.raised))
+                    .background(Capsule().fill(held ? Theme.select : Theme.raised))
                     .overlay(Capsule().strokeBorder(Theme.select, lineWidth: 1.5))
-                    .shadow(color: .black.opacity(0.1), radius: 4, y: 1)
+                    .shadow(color: .black.opacity(held ? 0.18 : 0.1), radius: held ? 6 : 4, y: 1)
+                    .scaleEffect(held ? 1.08 : 1)
+                    .animation(Theme.Motion.press, value: held)
                     .fixedSize()
                     // A fingertip-sized target around the small pill.
                     .padding(touch ? 10 : 4)
                     .contentShape(Rectangle())
             }
             .buttonStyle(PressableStyle())
-            .help("The cut's offset from \(s.reference.name). Click to type one")
-            .accessibilityLabel("Section offset")
-            .accessibilityValue(session.sectionOffsetLabel)
-            .accessibilityHint("Type an offset")
-            .automationFrame("section-pill-value")
+            .help(field == .offset ? "The cut's offset from \(s.reference.name). Click to type one" : "The cut's tilt. Click to type one")
+            .accessibilityLabel(field == .offset ? "Section offset" : (field == .tiltU ? s.tiltLabels.u : s.tiltLabels.v))
+            .accessibilityValue(label(field, s))
+            .accessibilityHint(field == .offset ? "Type an offset" : "Type an angle")
+            .automationFrame(field == .offset ? "section-pill-value" : (field == .tiltU ? "section-pill-tiltU" : "section-pill-tiltV"))
         }
     }
 
@@ -388,10 +475,17 @@ struct SectionGizmoOverlay: View {
         .automationFrame("section-flip")
     }
 
-    private func apply() {
+    private func apply(_ field: Field) {
         let expr = Expr(stringLiteral: text.trimmingCharacters(in: .whitespaces))
-        guard let v = try? session.model.parameters.evaluator.length(expr) else { error = true; return }
-        session.setSectionOffset(v)
-        typing = false
+        let ev = session.model.parameters.evaluator
+        switch field {
+        case .offset:
+            guard let v = try? ev.length(expr) else { error = true; return }
+            session.setSectionOffset(v)
+        case .tiltU, .tiltV:
+            guard let v = try? ev.angleDegrees(expr) else { error = true; return }
+            if field == .tiltU { session.setSectionTilt(u: v) } else { session.setSectionTilt(v: v) }
+        }
+        typing = nil
     }
 }

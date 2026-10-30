@@ -100,6 +100,13 @@ final class DesignSession {
     var sectionDrag: String?
     /// The kernel's exact outline of the section shown (see `loadSectionCurves`), nil until it's in.
     var sectionCurves: SectionCurves?
+    /// Section only: just the caps show (`ViewportScene.sectionOnly`). Off with the section.
+    var sectionOnly = false
+    /// 2D section view: the cut as a drawing, looked at straight on (`ViewportScene.sectionDrawing`).
+    /// Off with the section.
+    var section2D = false
+    /// Where the camera was before 2D section view turned it to the cut: turning it off goes back.
+    @ObservationIgnored var cameraBeforeSection2D: Camera?
     /// How long the last exact outline took the kernel (scripted runs log it).
     @ObservationIgnored var sectionCurvesTime: Duration?
     /// `section` read without subscribing to it (the macro's storage): mid-drag the viewport takes

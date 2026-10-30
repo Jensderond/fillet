@@ -88,6 +88,11 @@ extension DebugAutomation {
             let wpp = cam.worldUnitsPerPoint(at: arrow.tip, viewSize: size)
             let grabWorld = arrow.tip + arrow.direction * (HandleMetrics.totalLength / 2 * wpp)
             if let grab = cam.project(grabWorld, viewSize: size), controller.beginHandleDrag(at: grab, pointer: pointer) {
+                // Held before it moves: the arrow lights up and the pill fills in.
+                await settle(session)
+                check(session.sectionDrag == DesignSession.sectionOffsetHandleID && controller.renderer?.activeHandleID == DesignSession.sectionOffsetHandleID,
+                      "pressing the arrow shows it's held before it moves")
+                await snap(session, "sec02b-pressed")
                 for step in 1...5 {
                     if let p = cam.project(grabWorld - arrow.direction * Double(step), viewSize: size) { controller.dragHandle(to: p) }
                 }
@@ -146,7 +151,9 @@ extension DebugAutomation {
             if let start = screen(0), controller.beginHandleDrag(at: start, pointer: pointer) {
                 for degrees in stride(from: 3.0, through: 30, by: 3) { if let p = screen(degrees) { controller.dragHandle(to: p) } }
                 await settle(session)
-                check(markers["section-angle-tag", default: 0] == 1, "the grip's angle shows beside it while it turns")
+                check(markers["section-angle-tag", default: 0] == 1, "the grip's angle shows at the end of its arc while it turns")
+                check(session.makeScene().handles.first { $0.id == DesignSession.sectionTiltVHandleID }?.zeroDirection != nil,
+                      "the grip shows its ring and the angle swept from 0 while it turns")
                 await snap(session, "sec06-tilting")
                 controller.endHandleDrag()
             } else {
@@ -154,6 +161,8 @@ extension DebugAutomation {
             }
         }
         await settle(session)
+        check(markers["section-angle-tag", default: 0] == 0 && frames["section-pill-tiltV"] != nil && frames["section-pill-tiltU"] == nil,
+              "let go, the tilt's angle stays in a pill by the offset's (the untilted one has none)")
         scene = session.makeScene()
         let tilted = Vec3(sin(30 * Double.pi / 180), -cos(30 * Double.pi / 180), 0)
         check(near(session.section?.tiltV, 30) && near(scene.section?.normal, tilted, 1e-9) && near(scene.section?.origin, Vec3(30, 7.5, 6), 1e-9),
@@ -173,6 +182,33 @@ extension DebugAutomation {
         session.resetSectionTilt()
         check(near(session.makeScene().section?.normal, Vec3(0, -1, 0), 1e-12) && near(session.section?.offset, -7.5, 1e-9),
               "Untilt turns it back, at the same offset")
+
+        // 2D section view: straight at the cut, orthographic, as a drawing; flipped, the view
+        // turns round with it; off, the camera goes back to where it was.
+        await settle(session)
+        let before2D = session.camera
+        check(frames["section.2d"] != nil && frames["section.only"] != nil, "the panel offers 2D section view and Section only")
+        session.setSection2D(true)
+        await settle(session)
+        scene = session.makeScene()
+        check(session.camera.projection == .orthographic && session.camera.back.dot(scene.section?.normal ?? .zero) > 0.9999
+              && scene.sectionDrawing && !scene.sectionOnly && scene.plate == nil && !scene.showsGroundGrid && scene.handles.isEmpty
+              && frames["section-pill-value"] != nil, "2D section view looks straight at the cut, orthographic, as a drawing (no bed, the pill steers it)")
+        await snap(session, "sec07b-2d")
+        session.flipSection()
+        await settle(session)
+        check(session.camera.back.dot(session.makeScene().section?.normal ?? .zero) > 0.9999, "flipped in 2D, the view turns to the new cut face")
+        session.flipSection()
+        session.setSectionOnly(true)
+        await settle(session)
+        check(session.makeScene().sectionOnly, "Section only shows just the caps")
+        await snap(session, "sec07c-2d-section-only")
+        session.setSection2D(false)
+        await settle(session)
+        check(session.camera.isApproximatelyEqual(to: before2D) && !session.makeScene().sectionDrawing && session.makeScene().sectionOnly,
+              "2D off goes back to the camera before it; Section only stays")
+        await snap(session, "sec07d-section-only")
+        session.setSectionOnly(false)
 
         // Escape puts the handles away; the cut stays and the pill says so.
         session.escape()
@@ -331,6 +367,19 @@ extension DebugAutomation {
         check(landed != nil, "frame rate: the exact outline comes in after letting go (\(text(landed)))")
         await settle(session)
         await snap(session, "sec11-frame-rate")
+
+        // The fixture's cut in each look: 2D, 2D with Section only, Section only.
+        session.setSection2D(true)
+        await settle(session)
+        await snap(session, "sec12-fixture-2d")
+        session.setSectionOnly(true)
+        await settle(session)
+        await snap(session, "sec13-fixture-2d-section-only")
+        session.setSection2D(false)
+        await settle(session)
+        await snap(session, "sec14-fixture-section-only")
+        session.setSectionOnly(false)
+        check(!session.section2D && !session.sectionOnly, "frame rate: the fixture's looks turn off again")
     }
 }
 #endif

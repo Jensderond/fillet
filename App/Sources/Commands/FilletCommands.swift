@@ -52,6 +52,10 @@ struct FilletCommands: Commands {
             .disabled(session == nil)
             Button("Flip Section Side") { session?.flipSection() }
                 .disabled(session?.sectionIsOn != true)
+            Toggle("2D Section View", isOn: Binding(get: { session?.section2D == true }, set: { session?.setSection2D($0) }))
+                .disabled(session?.sectionIsOn != true)
+            Toggle("Section Only", isOn: Binding(get: { session?.sectionOnly == true }, set: { session?.setSectionOnly($0) }))
+                .disabled(session?.sectionIsOn != true)
             Divider()
         }
 
