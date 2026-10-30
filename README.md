@@ -147,6 +147,7 @@ FILLET_AUTOMATION=1 build/dd/Build/Products/Debug/Fillet.app/Contents/MacOS/Fill
 rules, window and crossing boxes); `FILLET_SCENARIO=featurePattern` only the feature pattern.
 `FILLET_SCENARIO=section` runs only Section view (picking a plane, dragging the arrow and a tilt
 grip as a pointer does, flip, typed values, Escape, off and on); add
-`FILLET_SECTION_FIXTURE=<file.step or .fillet>` to log the frame rate while dragging a cut through
-it. Every run quits when it's done; launch with `-ApplePersistenceIgnoreState YES` so windows left
+`FILLET_SECTION_FIXTURE=<file.step or .fillet>` to log the frame times while dragging a cut through
+it (frames on screen a second, CPU and GPU time, input → screen, p50/p95, and how many scenes the
+drag rebuilt; see `docs/performance.md`). Every run quits when it's done; launch with `-ApplePersistenceIgnoreState YES` so windows left
 by a killed run aren't restored (the script would drive one of those).

@@ -3,7 +3,8 @@
 Recompute benchmark, the baseline numbers, and what each optimisation round changed (see
 [Round 1](#round-1-kernel-booleans-2026-10-25), [Round 1b](#round-1b-agent-steps-candidates-2-and-3),
 [Round 2](#round-2-meshing-face-infos-and-report-queries-2026-10-25) and
-[Round 3](#round-3-report-values-solid-classification-and-meshing-2026-10-26)).
+[Round 3](#round-3-report-values-solid-classification-and-meshing-2026-10-26)), then how a
+[section drag](#section-drag-2026-10-30) is measured and what it costs per frame.
 
 ## Running it
 
@@ -623,3 +624,71 @@ boolean `Build` (pave filler 50%: face/face 28%, edge/face 16%; builder 13%), 11
    migration for saved face references (see Round 1).
 6. **Single-body meshing** is 5–8 ms slower with the bigger pool (nested loops). If that matters
    more than the cold and cascade gains, mesh bodies with only a few faces serially.
+
+## Section drag (2026-10-30)
+
+How dragging Section view's arrow feels, on the frog (159 433 triangles, 11 bodies) and
+`printpart` (10 588 triangles). The bar is Shapr3D's Section View, which drags at 58 frames/s on
+the same 60 Hz display.
+
+### Running it
+
+```sh
+FILLET_AUTOMATION=1 FILLET_SCENARIO=section FILLET_SECTION_FIXTURE=$PWD/Benchmarks/frog-wizard.fillet \
+  build/dd-mac/Build/Products/Debug/Fillet.app/Contents/MacOS/Fillet -ApplePersistenceIgnoreState YES
+grep '^section' $TMPDIR/fillet-automation/log.txt
+```
+
+After the plate scenario, it opens the fixture, cuts it along XZ 3 mm off its middle and drags
+the arrow through the viewport controller as a pointer does: a step every 8 ms (125 Hz), ±9 mm,
+three times round, ending through the middle. Then it lets go and turns the camera for 1.5 s
+while the exact outline comes in. `ViewportRenderer.beginFrameTimings` / `endFrameTimings` collect
+per frame (`FrameTimingReport`, p50/p95): the interval between frames reaching the screen
+(`presentedHandler`), CPU time in `prepare` and encoding, time waiting for a drawable, GPU time
+(`gpuEndTime - gpuStartTime` of the command buffer) and input → screen (from the earliest drag
+step a frame shows to its present). It also logs how late the steps ran against their schedule and
+how many scenes were rebuilt (`sceneUpdates`) against plane moves (`sectionUpdates`); it checks the
+drag rebuilds none past the first step and that the exact outline lands.
+
+### What a drag step does now
+
+- **No new scene.** The controller hands the step to the renderer (`viewportSectionDragged` →
+  `updateSection`): the section uniform and the handles change, meshes, selection states and
+  overlays stay. `makeScene` reads the plane unsubscribed mid-drag, so SwiftUI doesn't rebuild the
+  scene; a scene that comes in for something else keeps the drag's plane. One rebuild per drag
+  (its first step sets `sectionDrag`).
+- **Caps and outline on the GPU.** The stencil caps follow the uniform. The outline is sliced from
+  each body's mesh in `section_outline_vertex` (one instance per triangle, the caps' own test), so
+  it never lags the cap and costs the CPU nothing; it was 159k triangles sliced on the CPU per
+  frame.
+- **Drawn once a refresh.** While a handle drags the view draws on its display link instead of on
+  every input event. Drawing per event (125 Hz against 60) had the main thread block waiting for a
+  drawable on every frame, with the steps queueing behind it.
+- **Exact lines when it settles.** 0.12 s after the plane stops (or on letting go),
+  `SectionCurvesLoader` cuts each body it crosses with the kernel (`fk_section`,
+  `BRepAlgoAPI_Section`) off the main thread, split to about half a pixel at the zoom, and the
+  viewport draws those in place of the mesh's. A step drops a fetch still running.
+
+### Numbers (Apple M4 Pro, 60 Hz display, debug build, other load on the machine)
+
+| | before | after |
+|---|---|---|
+| frog: 3 s of drag steps handled in | 6.05 s (steps up to 3 s late) | 3.0 s (late p50 2–60 ms, varies with load) |
+| frog: frames on screen | 59.8 fps | 60.0 fps, interval 16.7/16.7 ms, 0 hitches in 187 |
+| frog: main thread per frame | 10.2/16.6 ms (mostly waiting for a drawable) | 0.2/0.2 ms, + 0.1/6.1 ms waiting for a drawable |
+| frog: GPU per frame | – | 3.5/5.3 ms |
+| frog: input → screen | 76 ms | 60/61 ms |
+| frog: exact outline after letting go | – | 340 ms (kernel 260 ms for 11 bodies), 0 hitches while turning |
+| printpart: frames on screen | – | 59.3–59.7 fps, 1–2 hitches in 180 |
+| printpart: exact outline after letting go | – | 75–80 ms (kernel 3–4 ms) |
+
+"Before" is the drag as it was (every step rebuilt the scene and sliced the outline on the CPU);
+its input → screen is from the first instrumented build, with the scene no longer rebuilt but the
+outline still sliced on the CPU. A build with `SWIFT_OPTIMIZATION_LEVEL=-O` gives the same frame
+numbers (CPU 0.1/0.1 ms): the frame is GPU- and display-bound.
+
+What's left: input → screen is about 3.6 refreshes, two of them frames queued behind the display
+(two drawables instead of three made frames wait and dropped the rate to 57 fps; skipping a
+refresh while two frames were unshown halved it). Most main-thread time mid-drag is SwiftUI
+laying out the window for the value pill and the panel's offset field, which change every step.
+

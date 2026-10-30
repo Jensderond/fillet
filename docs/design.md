@@ -341,9 +341,14 @@ It is view state, like Measure: never a step, never in the document or the undo 
 plane stays put in the world while orbiting. Escape or Done puts the handles away and keeps the
 cut, with a pill over the viewport (Edit, Turn off); other tools and steps take over the handles
 but keep the cut. The tool turns it off and later back on at the same plane (Delete forgets it).
-A section drag rebuilds only the viewport, the panel and the pill (the mode is kept apart from
-the plane, so the rest of the editor doesn't redraw), and the cut's outline is sliced in plain
-loops over raw buffers: the frog benchmark (159k triangles) drags at 60 frames/s in a debug build.
+A section drag doesn't rebuild the scene: each step goes from the viewport controller straight to
+the renderer, which moves the section uniform (the stencil caps follow on the GPU) and slices the
+outline from the meshes on the GPU too, and the view draws once a display refresh while the handle
+is held. Only the panel and the pill redraw around it (the mode is kept apart from the plane, so
+the rest of the editor doesn't). When the plane holds still for 0.12 s, or is let go, the kernel
+cuts each body with it off the main thread (`fk_section`) and those exact lines, split to about
+half a pixel, replace the mesh's outline; a step drops a fetch still running. The frog (159k
+triangles) drags at 60 frames/s with no scene rebuilt; see `docs/performance.md`.
 
 ## Milestones
 
