@@ -3,8 +3,8 @@ title: "Install Fillet"
 short: "Install"
 group: "Get Started"
 order: 0
-blurb: "Download the Mac app and open it the first time, or build it for your iPad."
-lede: "Fillet for Mac comes as a disk image from GitHub. It isn't signed by Apple, so opening it the first time takes one extra step in Terminal."
+blurb: "Download the Mac app, or build it for your iPad."
+lede: "Fillet for Mac comes as a disk image from GitHub. It is signed and notarized by Apple, so it opens like any other app."
 related: ["getting-started", "files-and-icloud", "agents-mcp"]
 ---
 
@@ -14,21 +14,7 @@ You need a Mac with Apple silicon (M1 or newer) and macOS 15 or later. Intel Mac
 
 1. Download the newest `Fillet-<version>.dmg` from [Fillet's releases on GitHub](https://github.com/Jensderond/fillet/releases/latest).
 2. Open the disk image and drag **Fillet** into **Applications**.
-3. Open **Terminal** and run:
-
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/Fillet.app
-   ```
-
-4. Open Fillet from **Applications**.
-
-You only do this once. Updates that Fillet installs itself arrive without the quarantine flag, so they open straight away.
-
-## Why the Terminal step?
-
-Fillet isn't signed with an Apple Developer ID or notarized by Apple. macOS puts a quarantine flag on everything you download, and it won't open a quarantined app that Apple hasn't checked: it says it can't verify that Fillet is free of malware.
-
-The `xattr` command removes that flag. `-d` deletes it and `-r` does so for every file inside the app, including the `fillet-mcp` helper that Claude Desktop starts. The app itself doesn't change.
+3. Open Fillet from **Applications**.
 
 <Tip title="Check the download">Each release lists the disk image's SHA-256 checksum under **Checksum**. Run `shasum -a 256 ~/Downloads/Fillet-<version>.dmg` and check that the two match before you install.</Tip>
 
@@ -51,8 +37,6 @@ Fillet isn't on the App Store or TestFlight. To use it on iPad, build it from so
 ## Questions and answers
 
 <FAQ>
-  <QA q="macOS still says Fillet can't be opened.">Run the command on the copy in **Applications**, not the one in the disk image, and type the path exactly. Or open Fillet once, then go to **System Settings › Privacy & Security**, scroll down and click **Open Anyway** next to the message about Fillet.</QA>
-  <QA q="Claude Desktop says fillet-mcp can't be opened.">The helper inside the app is still quarantined. Run the `xattr` command above, then restart Claude Desktop.</QA>
   <QA q="Does Fillet run on an Intel Mac?">No. Fillet is built for Apple silicon only.</QA>
   <QA q="Do I need an account?">No. Fillet never asks you to sign in.</QA>
 </FAQ>

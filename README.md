@@ -15,18 +15,7 @@ The user guide is at **[fillet.jsdr.dev](https://fillet.jsdr.dev)**.
 
 1. Download the newest `Fillet-<version>.dmg` from [Releases](https://github.com/Jensderond/fillet/releases/latest).
 2. Open it and drag **Fillet** into **Applications**.
-3. Fillet isn't signed with an Apple Developer ID or notarized, so macOS refuses to open it the
-   first time (it can't verify that Fillet is free of malware). Remove the download's quarantine
-   flag once, in Terminal:
-
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/Fillet.app
-   ```
-
-   This also clears the flag on the `fillet-mcp` helper inside the app, which Claude Desktop
-   starts. The app itself doesn't change.
-4. Open Fillet. Updates it installs itself (*Fillet ▸ Check for Updates…*) don't carry the flag,
-   so this is a one-time step.
+3. Open Fillet. It is signed with a Developer ID and notarized, so macOS opens it directly.
 
 Each release lists the DMG's SHA-256 under *Checksum*; compare it with
 `shasum -a 256 ~/Downloads/Fillet-<version>.dmg`.
@@ -52,7 +41,11 @@ To run on an iPad, put your team in `App/Local.xcconfig` (gitignored): `DEVELOPM
 A team picked under *Signing & Capabilities* is lost on the next `xcodegen generate`; this one isn't.
 
 `scripts/release.sh 0.2.0` builds the Mac release: `build/release/Fillet-0.2.0.dmg`, with the
-`fillet-mcp` helper inside the app (set the version in `App/project.yml` first).
+`fillet-mcp` helper inside the app (set the version in `App/project.yml` first). It signs with the
+keychain's "Developer ID Application" identity (`$FILLET_SIGN_IDENTITY` overrides it), notarizes
+and staples the app and the DMG with the `notarytool` keychain profile `$FILLET_NOTARY_PROFILE`
+(default `fillet`), and checks both with Gatekeeper. Store the profile once with
+`xcrun notarytool store-credentials fillet --apple-id <apple id> --team-id <team id>`.
 
 ### OpenCascade
 
