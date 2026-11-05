@@ -1,0 +1,138 @@
+import Foundation
+import simd
+
+extension WorkMesh {
+    /// Data-dependent edge flips after displacement: where a crease of the texture (the fold
+    /// between two strands of yarn, the foot of a dot) runs across the subdivided grid, its
+    /// triangles zig-zag over it and it renders as a saw-tooth. Swapping the diagonal of two
+    /// neighbouring triangles to the one that bends least (the smallest sum of angles between
+    /// the normals across the quad's five edges) lines the edges up along the crease instead.
+    ///
+    /// Only flips inside one textured face, only where the quad is convex on the undisplaced
+    /// surface `base` and the new triangles don't turn over, and never onto an edge that already
+    /// exists, so the mesh stays manifold, conforming and the same shape apart from the crease.
+    mutating func alignCreases(base: [SIMD3<Double>], where include: (Int32) -> Bool, passes: Int = 6) {
+        let cosLimit = cos(80.0 * .pi / 180)
+        func normal(_ p: [SIMD3<Double>], _ a: Int32, _ b: Int32, _ c: Int32) -> SIMD3<Double> {
+            simd_cross(p[Int(b)] - p[Int(a)], p[Int(c)] - p[Int(a)])
+        }
+        func has(_ t: SIMD3<Int32>, _ v: Int32) -> Bool { t.x == v || t.y == v || t.z == v }
+        func angle(_ n1: SIMD3<Double>, _ n2: SIMD3<Double>) -> Double {
+            let l = simd_length(n1) * simd_length(n2)
+            guard l > 0 else { return .pi }
+            return acos(max(-1, min(1, simd_dot(n1, n2) / l)))
+        }
+        for _ in 0..<passes {
+            // Edge -> the (up to) two triangles on it.
+            var edges: [UInt64: SIMD2<Int32>] = [:]
+            edges.reserveCapacity(triangles.count * 3 / 2)
+            for t in triangles.indices {
+                let tri = triangles[t]
+                for k in 0..<3 {
+                    let key = Self.key(tri[k], tri[(k + 1) % 3])
+                    if var pair = edges[key] {
+                        pair.y = Int32(t)
+                        edges[key] = pair
+                    } else {
+                        edges[key] = SIMD2(Int32(t), -1)
+                    }
+                }
+            }
+            var touched = [Bool](repeating: false, count: triangles.count)
+            var flips = 0
+            var created = Set<UInt64>()
+            // Edges in triangle order (not the dictionary's, which changes from run to run), so
+            // the same design always exports the same mesh.
+            let snapshot = triangles
+            for (t, tri) in snapshot.enumerated() { for k in 0..<3 {
+                guard let pair = edges[Self.key(tri[k], tri[(k + 1) % 3])], Int(pair.x) == t, pair.y >= 0 else { continue }
+                let t1 = Int(pair.x), t2 = Int(pair.y)
+                guard !touched[t1], !touched[t2], faces[t1] == faces[t2], include(faces[t1]) else { continue }
+                // t1 = (a, b, c) and t2 = (b, a, d) in their winding order.
+                let tri1 = triangles[t1], tri2 = triangles[t2]
+                var k1 = -1
+                for k in 0..<3 where has(tri2, tri1[k]) && has(tri2, tri1[(k + 1) % 3]) { k1 = k }
+                guard k1 >= 0 else { continue }
+                let a = tri1[k1], b = tri1[(k1 + 1) % 3], c = tri1[(k1 + 2) % 3]
+                guard let d = [tri2.x, tri2.y, tri2.z].first(where: { $0 != a && $0 != b }), d != c else { continue }
+                guard edges[Self.key(c, d)] == nil, !created.contains(Self.key(c, d)) else { continue }
+
+                // Valid on the undisplaced surface: both new triangles face the same way as the old.
+                let baseNormal = normal(base, a, b, c) + normal(base, b, a, d)
+                let bn1 = normal(base, a, d, c), bn2 = normal(base, d, b, c)
+                let baseArea = simd_length(baseNormal)
+                guard baseArea > 0,
+                      simd_dot(bn1, baseNormal) > 0.02 * simd_length(bn1) * baseArea,
+                      simd_dot(bn2, baseNormal) > 0.02 * simd_length(bn2) * baseArea,
+                      simd_length(bn1) > 0.05 * baseArea, simd_length(bn2) > 0.05 * baseArea else { continue }
+                // And displaced, they don't turn over.
+                let n1 = normal(points, a, d, c), n2 = normal(points, d, b, c)
+                guard simd_dot(n1, baseNormal) > cosLimit * simd_length(n1) * baseArea,
+                      simd_dot(n2, baseNormal) > cosLimit * simd_length(n2) * baseArea else { continue }
+
+                // Bending across the diagonal and the four outer edges, before and after.
+                let o1 = normal(points, a, b, c), o2 = normal(points, b, a, d)
+                func outside(_ p: Int32, _ q: Int32, _ own: Int) -> SIMD3<Double>? {
+                    guard let e = edges[Self.key(p, q)] else { return nil }
+                    let other = Int(e.x) == own ? Int(e.y) : Int(e.x)
+                    guard other >= 0 else { return nil }
+                    let t = triangles[other]
+                    return normal(points, t.x, t.y, t.z)
+                }
+                let nbc = outside(b, c, t1), nca = outside(c, a, t1)
+                let nad = outside(a, d, t2), ndb = outside(d, b, t2)
+                var before = angle(o1, o2), after = angle(n1, n2)
+                if let n = nbc { before += angle(o1, n); after += angle(n2, n) }
+                if let n = nca { before += angle(o1, n); after += angle(n1, n) }
+                if let n = nad { before += angle(o2, n); after += angle(n1, n) }
+                if let n = ndb { before += angle(o2, n); after += angle(n2, n) }
+                guard after < before - 0.05 else { continue }
+
+                triangles[t1] = SIMD3(a, d, c)
+                triangles[t2] = SIMD3(d, b, c)
+                touched[t1] = true
+                touched[t2] = true
+                created.insert(Self.key(c, d))
+                // Their neighbours' entries in `edges` are stale now; leave them for the next pass.
+                for (p, q) in [(b, c), (c, a), (a, d), (d, b)] {
+                    if let e = edges[Self.key(p, q)] {
+                        if e.x >= 0 { touched[Int(e.x)] = true }
+                        if e.y >= 0 { touched[Int(e.y)] = true }
+                    }
+                }
+                flips += 1
+            } }
+            if flips == 0 { return }
+        }
+    }
+}
+
+extension WorkMesh {
+    /// Of `candidates` (vertices on an edge between textured faces whose triangles meet at more
+    /// than `angle`), the ones where the faces really meet at an angle: compares each face's
+    /// area-weighted normal around the vertex rather than single triangles, so a tangent seam,
+    /// such as a side wall running into a rounded rim that the kernel tessellated into coarse
+    /// facets, isn't mistaken for a sharp edge (and the texture isn't pinned to it in patches).
+    func sharpCreaseVertices(_ candidates: Set<Int>, angle: Double, where include: (Int32) -> Bool) -> Set<Int> {
+        guard !candidates.isEmpty else { return candidates }
+        var sums: [Int: [Int32: SIMD3<Double>]] = [:]
+        for (t, tri) in triangles.enumerated() where include(faces[t]) {
+            let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
+            let n = simd_cross(b - a, c - a)
+            for v in [tri.x, tri.y, tri.z] where candidates.contains(Int(v)) {
+                sums[Int(v), default: [:]][faces[t], default: .zero] += n
+            }
+        }
+        let cosLimit = cos(angle)
+        return candidates.filter { v in
+            let normals = (sums[v] ?? [:]).values.compactMap { n -> SIMD3<Double>? in
+                let l = simd_length(n)
+                return l > 0 ? n / l : nil
+            }
+            for i in normals.indices {
+                for j in normals.indices where j > i && simd_dot(normals[i], normals[j]) < cosLimit { return true }
+            }
+            return false
+        }
+    }
+}

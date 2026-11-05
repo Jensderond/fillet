@@ -297,6 +297,7 @@ extension DesignSession {
         switch editingFeature?.kind {
         case .shell(let s): s.removeFaces
         case .pressPull(let p): p.faces
+        case .texture(let t): t.faces
         default: []
         }
     }

@@ -246,6 +246,12 @@ FKShape *fk_subshape_vertex(const FKShape *shape, int32_t vertexIndex);
 
 /// Radius of a cylindrical or spherical face. Returns false for any other surface.
 bool fk_face_radius(const FKShape *shape, int32_t faceIndex, double *radius);
+/// Axis of a face that turns around one: a cylinder, cone, sphere, torus or surface of revolution.
+/// `kind` is 1 cylinder, 2 cone, 3 sphere, 4 torus, 5 revolution. `radius` is the cylinder's,
+/// cone's reference (at origin), sphere's or torus' major radius; `minor` the torus' minor radius;
+/// `angle` the cone's semi-angle (radians). Returns false for any other surface.
+bool fk_face_axis(const FKShape *shape, int32_t faceIndex, int32_t *kind, FKVec3 *origin, FKVec3 *direction,
+                  double *radius, double *minor, double *angle);
 /// Angle between two (sub)shapes, each a flat face or a straight edge, in radians. Between two
 /// edges, or an edge and a face, 0…π/2 (a line has no direction); between two faces, the angle
 /// between their outward normals, 0…π (adjacent box faces 90°, opposite ones 180°). Returns

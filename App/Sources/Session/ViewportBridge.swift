@@ -1,3 +1,4 @@
+import FilletAgent
 import FilletCore
 import FilletKernel
 import FilletViewport
@@ -41,7 +42,7 @@ extension DesignSession {
         case .extrude(let e): return .regions(sketch: e.sketch)
         case .revolve(let r): return .regions(sketch: r.sketch)
         case .fillet, .chamfer: return .edges
-        case .shell, .pressPull: return .faces
+        case .shell, .pressPull, .texture: return .faces
         case .layFlat: return .singleFace
         case .hole: return .holePoints
         // A feature pattern picks its steps in the timeline, not bodies in the viewport.
@@ -78,10 +79,13 @@ extension DesignSession {
             } else if selection.contains(.body(body.ref)) {
                 highlight = .selected
             }
-            scene.bodies.append(SceneBody(
-                id: body.ref.feature, mesh: mesh, version: ObjectIdentifier(body.shape).hashValue,
+            var shown = SceneBody(
+                id: body.ref.feature, mesh: mesh, version: body.displayVersion,
                 color: document.bodyColors[body.ref].flatMap(ViewportColor.init(hexString:)),
-                visible: !hiddenBodies.contains(body.ref), highlight: highlight))
+                visible: !hiddenBodies.contains(body.ref), highlight: highlight)
+            // A textured body keeps its edges but not the silhouettes of its relief.
+            shown.showsSilhouettes = body.textures.isEmpty
+            scene.bodies.append(shown)
         }
         scene.selection = selected.union(editingSelectionTargets())
         scene.hover = hover?.pickTarget
@@ -172,6 +176,8 @@ extension DesignSession {
             }
         case .pressPull(let p):
             targets.formUnion(pressPullSelectionTargets(p))
+        // A texture's faces aren't tinted: the live texture on them shows what is picked, and a
+        // selection tint would hide the very relief being tuned.
         default: break
         }
         return targets

@@ -400,6 +400,19 @@ public final class Shape: @unchecked Sendable {
         return r
     }
 
+    /// The axis a face turns around (cylinder, cone, sphere, torus, surface of revolution);
+    /// nil for other faces or invalid indices.
+    public func faceAxis(_ index: Int) -> FaceAxis? {
+        var kind: Int32 = 0
+        var origin = FKVec3(), direction = FKVec3()
+        var radius = 0.0, minor = 0.0, angle = 0.0
+        guard index >= 0, fk_face_axis(handle, Int32(clamping: index), &kind, &origin, &direction, &radius, &minor, &angle),
+            let k = FaceAxis.Kind(rawValue: kind)
+        else { return nil }
+        return FaceAxis(kind: k, origin: Vec3(origin), direction: Vec3(direction).normalized, radius: radius,
+                        minorRadius: minor, semiAngle: angle)
+    }
+
     /// The solids of this shape as separate shapes.
     public func solids() -> [Shape] {
         guard let list = fk_solids(handle) else { return [] }

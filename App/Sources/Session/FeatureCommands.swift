@@ -4,7 +4,7 @@ import Foundation
 
 /// Modelling tools on the tool strip whose availability depends on the design.
 enum ModelTool {
-    case extrude, revolve, fillet, chamfer, shell, combine, move, mirror, pattern, layFlat, overhangs, hole, pressPull
+    case extrude, revolve, fillet, chamfer, shell, texture, combine, move, mirror, pattern, layFlat, overhangs, hole, pressPull
 }
 
 /// Creating and editing features from the current selection.
@@ -231,7 +231,7 @@ extension DesignSession {
             guard let sketch = profileSketch else { return "Needs a sketch. Draw a closed shape with Sketch first." }
             if (model.sketches[sketch]?.regions?.count ?? 0) == 0 { return "Needs a closed shape in the sketch, like a rectangle or circle." }
             return nil
-        case .fillet, .chamfer, .shell, .move, .mirror, .pattern, .overhangs, .hole:
+        case .fillet, .chamfer, .shell, .texture, .move, .mirror, .pattern, .overhangs, .hole:
             return model.bodies.isEmpty ? noBody : nil
         case .combine:
             return model.bodies.count < 2 ? (model.bodies.isEmpty ? noBody : "Needs two bodies. Make another one to join, cut or intersect with.") : nil
@@ -445,6 +445,11 @@ extension DesignSession {
                 guard p.body == body else { return }
                 if let i = p.faces.firstIndex(of: ref) { p.faces.remove(at: i) } else { p.faces.append(ref) }
                 feature.kind = .pressPull(p)
+            case .texture(var t):
+                if t.faces.isEmpty { t.body = body }
+                guard t.body == body else { return }
+                if let i = t.faces.firstIndex(of: ref) { t.faces.remove(at: i) } else { t.faces.append(ref) }
+                feature.kind = .texture(t)
             case .layFlat:
                 guard single, let before = model.bodyBefore(body)?.shape,
                     let i = ReferenceResolver.resolve(ref.signature, in: before.faceInfos), before.facePlane(i) != nil

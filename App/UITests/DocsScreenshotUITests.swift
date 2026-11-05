@@ -148,6 +148,13 @@ final class DocsScreenshotUITests: DocumentWindowUITestCase {
                 app.buttons["Browse"].firstMatch.tap()
                 sleep(2)
             }
+            if !cell(prefix: file + ",").waitForExistence(timeout: 3) {
+                // Browse can land in an empty iCloud Drive: go to On My iPad › Fillet.
+                let local = app.cells["DOC.sidebar.item.On My iPad"].firstMatch
+                if local.exists { local.tap(); sleep(2) }
+                let folder = cell(prefix: "Fillet,")
+                if folder.waitForExistence(timeout: 3) { folder.tap(); sleep(2) }
+            }
             if openFromBrowser(prefix: file + ",", attempts: 2) { return }
         }
         throw openFailure(file)

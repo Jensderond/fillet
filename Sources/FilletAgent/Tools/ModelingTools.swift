@@ -6,7 +6,7 @@ import simd
 extension FilletTools {
     var modelingTools: [MCPTool] {
         [setParameter, deleteParameter, createSketch, addSketchShapes, extrude, revolve, primitive,
-         loft, fillet, chamfer, shell, hole, pressPull, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
+         loft, fillet, chamfer, shell, hole, pressPull, texture, combine, moveBodies, scaleBodies, mirror, pattern, layFlat,
          editFeature, deleteFeature, setBodyColor, setBodyVisibility, export]
     }
 
@@ -714,6 +714,7 @@ extension FilletTools {
             takesEdges = true
         case .shell(let s): (takesEdges, current) = (false, s.body)
         case .pressPull(let p): (takesEdges, current) = (false, p.body)
+        case .texture(let t): (takesEdges, current) = (false, t.body)
         case .layFlat(let l): (takesEdges, current) = (false, l.body)
         case .hole(let h): (takesEdges, current) = (false, h.face?.body)
         case .sketch(let s): (takesEdges, current) = (false, s.plane.referencedBodies.first)
@@ -769,6 +770,11 @@ extension FilletTools {
             p.faces = refs(indices) { r.model.faceRef(body: b.ref, face: $0) }
             guard !p.faces.isEmpty else { throw ToolError("`faces` matched no faces of “\(label)”") }
             f.kind = .pressPull(p)
+        case .texture(var t):
+            indices = try r.faces(of: b, value, key: "faces")
+            t.body = b.ref
+            t.faces = refs(indices) { r.model.faceRef(body: b.ref, face: $0) }
+            f.kind = .texture(t)
         case .layFlat(var l):
             let (_, i, ref) = try r.faceRef(one, key: "faces")
             (l.body, l.face, indices) = (b.ref, ref, [i])
@@ -893,10 +899,10 @@ extension FilletTools {
                 ?? FileManager.default.temporaryDirectory.appendingPathComponent("\(base).\(ext)")
             switch format {
             case "3mf":
-                let objects = try bodies.map { (name: r.bodyLabel($0), mesh: try $0.shape.tessellate(linearDeflection: 0.01, angularDeflection: 0.1)) }
+                let objects = zip(bodies, try bodies.printMeshes()).map { (name: r.bodyLabel($0), mesh: $1) }
                 try ThreeMFWriter.write(objects: objects, preset: ws.document.printerPreset, title: base).write(to: url, options: .atomic)
             case "stl":
-                let meshes = try bodies.map { try $0.shape.tessellate(linearDeflection: 0.01, angularDeflection: 0.1) }
+                let meshes = try bodies.printMeshes()
                 try STLWriter.binary(meshes: meshes).write(to: url, options: .atomic)
             case "step":
                 try Shape.exportSTEP(bodies.map { ($0.shape, r.bodyLabel($0)) }, url: url)

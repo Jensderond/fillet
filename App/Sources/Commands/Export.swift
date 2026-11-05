@@ -56,14 +56,18 @@ extension DesignSession {
         guard !bodies.isEmpty else { throw KernelError("There is nothing to export yet") }
         let preset = document.printerPreset
         let title = exportName
+        // A textured body's print mesh is built at full detail now, which can take a while.
+        exportStatus = format != .step && bodies.contains { !$0.textures.isEmpty }
+            ? "Building the textured print mesh" : "Exporting"
+        defer { exportStatus = nil }
         return try await Task.detached(priority: .userInitiated) {
             switch format {
+            // Textured bodies export their textured mesh (see `EvaluatedBody.printMesh`).
             case .threeMF:
-                let objects = try bodies.map { (name: $0.name, mesh: try $0.shape.tessellate(linearDeflection: 0.01, angularDeflection: 0.1)) }
+                let objects = zip(bodies, try bodies.printMeshes()).map { (name: $0.name, mesh: $1) }
                 return try ThreeMFWriter.write(objects: objects, preset: preset, title: title)
             case .stl:
-                let meshes = try bodies.map { try $0.shape.tessellate(linearDeflection: 0.01, angularDeflection: 0.1) }
-                return STLWriter.binary(meshes: meshes)
+                return STLWriter.binary(meshes: try bodies.printMeshes())
             case .step:
                 let url = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).step")
                 defer { try? FileManager.default.removeItem(at: url) }

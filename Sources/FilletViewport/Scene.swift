@@ -69,6 +69,9 @@ public struct SceneBody: Identifiable, Sendable {
     public var showsEdges: Bool
     /// Whether the body takes part in picking.
     public var pickable: Bool
+    /// Whether its curved faces get silhouette outlines (with edges shown). Off for a textured
+    /// body: every stitch or dot would be outlined, burying the relief in ink.
+    public var showsSilhouettes = true
 
     public init(id: UUID, mesh: Mesh, version: Int = 0, color: ViewportColor? = nil, opacity: Float = 1,
                 visible: Bool = true, highlight: BodyHighlight = .none, showsEdges: Bool = true, pickable: Bool = true) {

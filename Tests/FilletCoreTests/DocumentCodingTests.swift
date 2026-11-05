@@ -81,6 +81,8 @@ func everyFeatureKind() -> [FeatureKind] {
         .hole(Hole(face: face, holeType: .counterbore, tipAngle: 0, counterboreDiameter: 8, counterboreDepth: "2 mm")),
         .hole(Hole(face: nil, holeType: .countersink, countersinkAngle: 82)),
         .pressPull(PressPull(body: b, faces: [face], distance: "-lift")),
+        .texture(Texture(body: b, faces: [face], pattern: .knit, values: ["depth": "0.6", "stitchWidth": "w/8"])),
+        .texture(Texture(body: b, pattern: "brick-from-the-future", values: ["mortar": 1])),
     ]
 }
 

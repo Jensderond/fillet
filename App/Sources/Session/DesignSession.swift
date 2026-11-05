@@ -71,6 +71,9 @@ final class DesignSession {
     private(set) var document: Document
     private(set) var model: EvaluatedModel
     private(set) var isRecomputing = false
+    /// What an export running in the background is doing ("Building the textured print mesh"),
+    /// shown in the viewport's status pill; nil when none runs.
+    var exportStatus: String?
 
     var selection: [Selection] = []
     var hover: Selection?

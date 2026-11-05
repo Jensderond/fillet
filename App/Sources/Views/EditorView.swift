@@ -193,7 +193,10 @@ struct EditorContent: View {
         // Only show "Updating" when a recompute takes long enough to notice.
         .task(id: session.isRecomputing) {
             guard session.isRecomputing else { showUpdating = false; return }
-            try? await Task.sleep(for: .milliseconds(180))
+            // A texture being tuned always takes a while to rebuild, and until it has, the viewport
+            // still shows the previous relief: say so at once, so a new profile or size isn't
+            // mistaken for the old one.
+            if session.editingKind != "texture" { try? await Task.sleep(for: .milliseconds(180)) }
             if session.isRecomputing { showUpdating = true }
         }
     }
@@ -341,11 +344,12 @@ struct EditorContent: View {
             .animation(Theme.Motion.enter, value: session.document.activeFeatureCount < session.document.features.count)
             .animation(Theme.Motion.enter, value: session.message)
             .animation(Theme.Motion.enter, value: agentWorking)
+            .animation(Theme.Motion.enter, value: session.exportStatus)
 
-            if showUpdating {
+            if showUpdating || session.exportStatus != nil {
                 HStack(spacing: Theme.Space.s) {
                     ProgressView().controlSize(.mini)
-                    Text("Updating")
+                    Text(session.exportStatus ?? "Updating")
                 }
                 .font(Theme.caption.weight(.medium))
                 .foregroundStyle(Theme.inkSecondary)
@@ -425,6 +429,7 @@ struct EditorContent: View {
         case .edges: return ("\(pick) edges to add or remove them, \(Theme.Copy.doublePick.lowercased()) for a loop", "hand.tap", "pick")
         case .faces:
             if session.editingKind == "pressPull" { return ("\(pick) faces to move, or again to drop them", "hand.tap", "pick") }
+            if session.editingKind == "texture" { return ("\(pick) faces to texture, or again to drop them", "hand.tap", "pick") }
             return ("\(pick) faces to remove them", "hand.tap", "pick")
         case .singleFace: return ("\(pick) the face that should touch the bed", "hand.tap", "pick")
         case .bodies: return ("\(pick) bodies to add or remove them", "hand.tap", "pick")
@@ -650,6 +655,9 @@ struct ToolStrip: View {
                                    unavailable: session.unavailableReason(.chamfer)) { session.startEdgeFeature(fillet: false) }
                         ToolButton("Shell", "cube.transparent", active: session.editingKind == "shell",
                                    unavailable: session.unavailableReason(.shell)) { session.startShell() }
+                        ToolButton("Texture", TextureCatalog.toolSymbol, active: session.editingKind == "texture",
+                                   unavailable: session.unavailableReason(.texture),
+                                   detail: "knit, dots and other surface patterns for printing") { session.startTexture() }
                         ToolButton("Hole", "smallcircle.filled.circle", active: session.editingKind == "hole",
                                    unavailable: session.unavailableReason(.hole), shortcut: "H") { session.startHole() }
                         ToolButton("Combine", "square.on.square", active: session.editingKind == "combine",

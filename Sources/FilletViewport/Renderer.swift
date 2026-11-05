@@ -763,7 +763,7 @@ public final class ViewportRenderer: NSObject {
         hull.width = 1.3
         enc.setVertexBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
         enc.setFragmentBytes(&hull, length: MemoryLayout<HullDraw>.stride, index: 4)
-        for b in outlined where showsEdges {
+        for b in outlined where showsEdges && b.showsSilhouettes {
             drawMesh(enc, body: b, hover: hover, overhang: false)
         }
         // Their edges: the hidden ones first, so an edge in front always draws over them.

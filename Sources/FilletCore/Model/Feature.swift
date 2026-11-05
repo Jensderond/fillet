@@ -64,6 +64,8 @@ public enum FeatureKind: Hashable, Sendable, Codable {
     case layFlat(LayFlat)
     case hole(Hole)
     case pressPull(PressPull)
+    /// A surface texture on faces of a body: a mesh displacement, the B-rep is unchanged.
+    case texture(Texture)
     /// A feature type from a newer app version, preserved verbatim (never recomputed).
     case unknown(type: String, fields: [String: JSONValue])
 
@@ -87,6 +89,7 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case .layFlat: "layFlat"
         case .hole: "hole"
         case .pressPull: "pressPull"
+        case .texture: "texture"
         case .unknown(let type, _): type
         }
     }
@@ -110,6 +113,7 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case .layFlat(let p): p
         case .hole(let p): p
         case .pressPull(let p): p
+        case .texture(let p): p
         case .unknown: nil
         }
     }
@@ -146,6 +150,7 @@ public enum FeatureKind: Hashable, Sendable, Codable {
         case "layFlat": self = .layFlat(try LayFlat(from: decoder))
         case "hole": self = .hole(try Hole(from: decoder))
         case "pressPull": self = .pressPull(try PressPull(from: decoder))
+        case "texture": self = .texture(try Texture(from: decoder))
         default:
             var fields = try decoder.singleValueContainer().decode([String: JSONValue].self)
             fields["type"] = nil

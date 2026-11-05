@@ -33,7 +33,7 @@ public enum DesignRendering {
         for body in model.bodies {
             scene.bodies.append(SceneBody(
                 id: body.ref.feature, mesh: model.meshes[body.ref] ?? .empty,
-                version: ObjectIdentifier(body.shape).hashValue,
+                version: body.displayVersion,
                 color: document.bodyColors[body.ref].flatMap(ViewportColor.init(hexString:)),
                 visible: !options.hidden.contains(body.ref),
                 highlight: options.highlightBodies.contains(body.ref) ? .selected : .none))
@@ -99,5 +99,20 @@ public enum DesignRendering {
         CGImageDestinationAddImage(dest, image, nil)
         guard CGImageDestinationFinalize(dest) else { throw ToolError("PNG encoding failed") }
         return data as Data
+    }
+}
+
+extension EvaluatedBody {
+    /// What a viewport keys this body's GPU buffers and picking on (`SceneBody.version`): its
+    /// shape, plus its textures, since a texture step changes the shown mesh without changing the
+    /// shape. Keyed on the shape alone, a new dot profile kept the old mesh on screen: the relief
+    /// moves only the points on the dots, and the viewport's mesh fingerprint samples a few points
+    /// that mostly lie between them.
+    public var displayVersion: Int {
+        guard !textures.isEmpty else { return ObjectIdentifier(shape).hashValue }
+        var h = Hasher()
+        h.combine(ObjectIdentifier(shape))
+        h.combine(textures)
+        return h.finalize()
     }
 }

@@ -218,6 +218,30 @@ public struct EdgeInfo: Hashable, Codable, Sendable {
     }
 }
 
+/// The axis a curved face turns around, with its analytic sizes (see ``Shape/faceAxis(_:)``).
+public struct FaceAxis: Hashable, Sendable {
+    public enum Kind: Int32, Sendable {
+        case cylinder = 1, cone, sphere, torus, revolution
+    }
+
+    public var kind: Kind
+    /// A point on the axis: the sphere's or torus' centre, the cone's reference circle centre.
+    public var origin: Vec3
+    /// Unit direction of the axis.
+    public var direction: Vec3
+    /// Cylinder or sphere radius, cone radius at `origin`, torus major radius; 0 for a revolution.
+    public var radius: Double
+    /// Torus minor radius, else 0.
+    public var minorRadius: Double
+    /// Cone semi-angle in radians, else 0.
+    public var semiAngle: Double
+
+    public init(kind: Kind, origin: Vec3, direction: Vec3, radius: Double = 0, minorRadius: Double = 0, semiAngle: Double = 0) {
+        self.kind = kind; self.origin = origin; self.direction = direction
+        self.radius = radius; self.minorRadius = minorRadius; self.semiAngle = semiAngle
+    }
+}
+
 /// Display/export triangulation of a shape.
 public struct Mesh: Sendable {
     public var positions: [SIMD3<Float>]

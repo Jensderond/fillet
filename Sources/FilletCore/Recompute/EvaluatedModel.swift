@@ -9,6 +9,9 @@ public struct EvaluatedBody: Identifiable, Sendable {
     public var shape: Shape
     /// The last feature that changed this body.
     public var lastFeature: UUID
+    /// Surface textures on its faces, in timeline order. They change its meshes (display and
+    /// export), not its shape. Use ``printMesh()`` for anything that gets printed.
+    public var textures: [BodyTexture] = []
 
     public var id: BodyRef { ref }
 }
