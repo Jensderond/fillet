@@ -38,7 +38,8 @@ struct MeshDraw {
     var highlight = SIMD4<Float>()
     var faceStateCount: UInt32 = 0
     var flags: UInt32 = 0
-    var pad0: Float = 0
+    /// How far the body's faded faces (`SceneBody.fadedFaces`) are faded, 0…1.
+    var fade: Float = 0
     var pad1: Float = 0
 
     static let overhang: UInt32 = 1

@@ -233,6 +233,17 @@ public final class ViewportRenderer: NSObject {
     /// The view this renderer draws into (used to un-pause during animations).
     public weak var view: MTKView?
 
+    // Faded faces (`SceneBody.fadedFaces`), eased in and out.
+    /// How far each body's faces are faded (0…1, linear in time; eased when drawn).
+    private var fadeLevels: [UUID: Float] = [:]
+    /// The faces each body fades: kept while it fades out, after the scene no longer asks for them.
+    private var fadeFaces: [UUID: Set<Int>] = [:]
+    /// When the fades last stepped; nil while none is under way.
+    private var fadeTick: CFTimeInterval?
+    /// Seconds to fade in and out: slow enough to start that a recompute of a few hundred
+    /// milliseconds barely dims the part, quick enough to clear once the new relief is in.
+    static let fadeIn = 0.45, fadeOut = 0.25
+
     public init(device: MTLDevice? = MTLCreateSystemDefaultDevice()) throws {
         guard let device else { throw ViewportRendererError(description: "Metal is not available") }
         self.device = device
@@ -330,6 +341,51 @@ public final class ViewportRenderer: NSObject {
         statesDirty = true
         overlaysDirty = true
         sceneUpdates += 1
+        for b in scene.bodies where !b.fadedFaces.isEmpty { fadeFaces[b.id] = b.fadedFaces }
+        if isFading, fadeTick == nil {
+            fadeTick = CACurrentMediaTime()
+            resumeView()
+        }
+    }
+
+    /// The fade the scene asks of a body's faces: 1 while it lists faded faces, 0 otherwise.
+    private func fadeTarget(_ id: UUID) -> Float {
+        scene.bodies.contains { $0.id == id && !$0.fadedFaces.isEmpty } ? 1 : 0
+    }
+
+    /// Some body's fade hasn't reached what the scene asks for.
+    private var isFading: Bool {
+        fadeFaces.keys.contains { (fadeLevels[$0] ?? 0) != fadeTarget($0) }
+    }
+
+    /// Moves each fade towards its target by the time since the last frame. Once all have
+    /// arrived the view goes back to drawing only when asked; faces that faded out are dropped.
+    private func stepFades() {
+        guard let last = fadeTick else { return }
+        let now = CACurrentMediaTime()
+        let dt = Float(min(now - last, 0.1))
+        fadeTick = now
+        for id in fadeFaces.keys {
+            let level = fadeLevels[id] ?? 0, target = fadeTarget(id)
+            guard level != target else { continue }
+            let step = dt / Float(target > level ? Self.fadeIn : Self.fadeOut)
+            fadeLevels[id] = target > level ? min(level + step, target) : max(level - step, target)
+        }
+        for (id, level) in fadeLevels where level <= 0 && fadeTarget(id) == 0 {
+            fadeLevels[id] = nil
+            fadeFaces[id] = nil
+            statesDirty = true
+        }
+        if !isFading {
+            fadeTick = nil
+            pauseView()
+        }
+    }
+
+    /// A body's fade as drawn: eased in slowly, so a short recompute only just tints the part.
+    private func drawnFade(_ id: UUID) -> Float {
+        let t = fadeLevels[id] ?? 0
+        return t * t * (3 - 2 * t)
     }
 
     /// Moves the section plane and swaps the handles, keeping the rest of the scene: what a step
@@ -441,6 +497,9 @@ public final class ViewportRenderer: NSObject {
             case .edge(let b, let i) where edgeMarks[b]?[i] == nil: edgeMarks[b, default: [:]][i] = 1
             default: break
             }
+        }
+        for (id, faces) in fadeFaces {
+            for i in faces { faceMarks[id, default: [:]][i, default: 0] |= 4 }
         }
         for (id, g) in bodies {
             g.faceStates = stateBuffer(faceMarks[id], count: g.faceCount)
@@ -622,7 +681,7 @@ public final class ViewportRenderer: NSObject {
     }
 
     private func pauseView() {
-        guard let v = view, !drawsEveryRefresh else { return }
+        guard let v = view, !drawsEveryRefresh, animation == nil, fadeTick == nil else { return }
         v.isPaused = true
         v.enableSetNeedsDisplay = true
     }
@@ -872,6 +931,7 @@ public final class ViewportRenderer: NSObject {
         if pull { d.flags |= MeshDraw.pull }
         if paper { d.flags |= MeshDraw.unlit }
         if highlightOnly { d.flags |= MeshDraw.highlightOnly }
+        d.fade = drawnFade(b.id)
         if let fs = g.faceStates {
             d.faceStateCount = UInt32(g.faceCount)
             enc.setFragmentBuffer(fs, offset: 0, index: 3)
@@ -1462,12 +1522,18 @@ public final class ViewportRenderer: NSObject {
     public func snapshot(scene: ViewportScene, camera: Camera, size: CGSize, scale: CGFloat = 2,
                          appearance: ViewportAppearance = .light, customPalette: ViewportPalette? = nil) -> CGImage? {
         let savedScene = self.scene, savedCamera = self.camera, savedPalette = palette
+        let savedFades = (fadeLevels, fadeFaces, fadeTick)
         defer {
             update(scene: savedScene)
+            (fadeLevels, fadeFaces, fadeTick) = savedFades
+            statesDirty = true
+            if fadeTick == nil { pauseView() }
             self.camera = savedCamera
             palette = savedPalette
         }
         update(scene: scene)
+        // A still shows each fade where it is heading, not a frame of it.
+        for id in fadeFaces.keys { fadeLevels[id] = fadeTarget(id) }
         self.camera = camera
         palette = customPalette ?? appearance.palette
         prepare()
@@ -1560,6 +1626,7 @@ extension ViewportRenderer: MTKViewDelegate {
         let start = CACurrentMediaTime()
         framesDrawn += 1
         stepAnimation()
+        stepFades()
         prepare()
         let prepared = CACurrentMediaTime()
         guard let rp = view.currentRenderPassDescriptor, let drawable = view.currentDrawable,
