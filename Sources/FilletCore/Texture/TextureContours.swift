@@ -22,25 +22,44 @@ extension WorkMesh {
         for (t, tri) in triangles.enumerated() {
             for v in [tri.x, tri.y, tri.z] { around[fill[Int(v)]] = Int32(t); fill[Int(v)] += 1 }
         }
+        // The layouts by face index, and the points that may move (inside one such face, its
+        // normal known) with the measure where they are now, worked out across the cores first:
+        // a point only ever moves at its own turn below, so this is where it still is then.
+        var solidByFace = [(any SolidTexture)?](repeating: nil, count: Int(max(faces.max() ?? -1, -1)) + 1)
+        for (f, solid) in solids where f >= 0 && Int(f) < solidByFace.count { solidByFace[Int(f)] = solid }
+        var candidates: [Int32] = [], candidateNormals: [SIMD3<Double>] = []
+        var candidate = [Int32](repeating: -1, count: points.count)
         for v in points.indices where start[v + 1] > start[v] && movable(v) {
             let f = faces[Int(around[start[v]])]
-            guard let solid = solids[f] else { continue }
-            let levels = solid.contourLevels
-            guard !levels.isEmpty else { continue }
-            // One face all round, and its normal known.
-            var shortest = Double.infinity
+            guard f >= 0, let solid = solidByFace[Int(f)], !solid.contourLevels.isEmpty else { continue }
             var oneFace = true
-            for k in start[v]..<start[v + 1] {
-                let t = Int(around[k])
-                if faces[t] != f { oneFace = false; break }
-                let tri = triangles[t]
-                for w in [tri.x, tri.y, tri.z] where Int(w) != v { shortest = min(shortest, simd_distance(points[Int(w)], points[v])) }
-            }
-            guard oneFace, shortest.isFinite else { continue }
+            for k in start[v]..<start[v + 1] where faces[Int(around[k])] != f { oneFace = false; break }
+            guard oneFace else { continue }
             let n = surfaceNormal(Int32(v), face: f)
             guard n != .zero else { continue }
+            candidate[v] = Int32(candidates.count)
+            candidates.append(Int32(v))
+            candidateNormals.append(n)
+        }
+        let start0 = points
+        let measured = concurrentMap(candidates.count) { i -> Double? in
+            let v = Int(candidates[i])
+            return solidByFace[Int(faces[Int(around[start[v]])])]!.contour(at: start0[v], normal: candidateNormals[i])
+        }
+        for v in points.indices where candidate[v] >= 0 {
+            let f = faces[Int(around[start[v]])]
+            let solid = solidByFace[Int(f)]!
+            let levels = solid.contourLevels
+            // One face all round (above), and its normal known.
+            var shortest = Double.infinity
+            for k in start[v]..<start[v + 1] {
+                let tri = triangles[Int(around[k])]
+                for w in [tri.x, tri.y, tri.z] where Int(w) != v { shortest = min(shortest, simd_distance(points[Int(w)], points[v])) }
+            }
+            guard shortest.isFinite else { continue }
+            let n = candidateNormals[Int(candidate[v])]
             let p = points[v]
-            guard let e = solid.contour(at: p, normal: n) else { continue }
+            guard let e = measured[Int(candidate[v])] else { continue }
             var level = levels[0]
             for l in levels where abs(l - e) < abs(level - e) { level = l }
             let delta = level - e
