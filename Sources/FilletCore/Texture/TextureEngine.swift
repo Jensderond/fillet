@@ -867,59 +867,64 @@ struct WorkMesh {
     /// so skipping it changes neither the flips nor which triangle owns each other edge. Nil
     /// looks at every edge (the first pass after a split of a mesh never improved).
     mutating func improve(where include: (Int32) -> Bool, passes: Int = 1, dirty: inout [Bool]?) {
-        let coplanar = cos(25.0 * .pi / 180)
         for _ in 0..<passes {
-            // The triangles with an edge to look at, in order.
-            var visit: [Int] = []
-            if let dirty {
-                for t in triangles.indices where include(faces[t]) {
-                    let tri = triangles[t]
-                    if (dirty[Int(tri.x)] ? 1 : 0) + (dirty[Int(tri.y)] ? 1 : 0) + (dirty[Int(tri.z)] ? 1 : 0) >= 2 { visit.append(t) }
-                }
-            } else {
-                visit = triangles.indices.filter { include(faces[$0]) }
+            // The triangles with an edge to look at, in order (block by block across the cores).
+            let visit: [Int]
+            do {
+                let triangles = triangles, faces = faces, dirtyNow = dirty
+                let blockSize = 16384
+                visit = concurrentMap((triangles.count + blockSize - 1) / blockSize, chunk: 1) { block -> [Int] in
+                    var out: [Int] = []
+                    for t in (block * blockSize)..<min(triangles.count, (block + 1) * blockSize) where include(faces[t]) {
+                        if let dirtyNow {
+                            let tri = triangles[t]
+                            guard (dirtyNow[Int(tri.x)] ? 1 : 0) + (dirtyNow[Int(tri.y)] ? 1 : 0) + (dirtyNow[Int(tri.z)] ? 1 : 0) >= 2 else { continue }
+                        }
+                        out.append(t)
+                    }
+                    return out
+                }.flatMap { $0 }
             }
-            var owner = EdgeMap<Int32>(capacity: visit.count * 3 / 2, filler: -1)
             var touched = [Bool](repeating: false, count: triangles.count)
             var flipped: [Int] = []
-            for t in visit {
-                let tri = triangles[t]
-                for k in 0..<3 {
-                    let a = tri[k], b = tri[(k + 1) % 3]
-                    if let dirty, !dirty[Int(a)] || !dirty[Int(b)] { continue }
-                    let (slot, found) = owner.findOrInsert(Self.key(a, b))
-                    guard found else { owner.set(slot: slot, Int32(t)); continue }
-                    let u = Int(owner.values[slot])
-                    guard !touched[t], !touched[u], faces[u] == faces[t] else { continue }
-                    let c = tri[(k + 2) % 3]
-                    let o = triangles[u]
-                    // The other triangle runs b → a; its third corner is d.
-                    var d: Int32 = -1
-                    for j in 0..<3 where o[j] == b && o[(j + 1) % 3] == a { d = o[(j + 2) % 3] }
-                    guard d >= 0, d != c else { continue }
-                    let pa = points[Int(a)], pb = points[Int(b)], pc = points[Int(c)], pd = points[Int(d)]
-                    // Both opposite angles acute: each atan2 below comes out at most π/2 (to an
-                    // ulp), their sum nowhere near the 1e-9 over π the flip needs. Most edges
-                    // are, and this spares them the two atan2.
-                    if simd_dot(pa - pc, pb - pc) > 0, simd_dot(pb - pd, pa - pd) > 0 { continue }
-                    func angle(_ at: SIMD3<Double>, _ p: SIMD3<Double>, _ q: SIMD3<Double>) -> Double {
-                        let x = p - at, y = q - at
-                        return atan2(simd_length(simd_cross(x, y)), simd_dot(x, y))
-                    }
-                    guard angle(pc, pa, pb) + angle(pd, pb, pa) > .pi + 1e-9 else { continue }
-                    let n1 = simd_cross(pb - pa, pc - pa), n2 = simd_cross(pa - pb, pd - pb)
-                    let l1 = simd_length(n1), l2 = simd_length(n2)
-                    guard l1 > 0, l2 > 0, simd_dot(n1, n2) > coplanar * l1 * l2 else { continue }
-                    // New triangles (c, a, d) and (c, d, b) must face the same way as before.
-                    let m1 = simd_cross(pa - pc, pd - pc), m2 = simd_cross(pd - pc, pb - pc)
-                    guard simd_dot(m1, n1) > 0, simd_dot(m2, n1) > 0, simd_dot(m1, n2) > 0, simd_dot(m2, n2) > 0 else { continue }
-                    triangles[t] = SIMD3(c, a, d)
-                    triangles[u] = SIMD3(c, d, b)
+            if let flips = visit.count >= 8192 ? improveCandidates(visit, dirty: dirty) : nil {
+                // Taken in the order the loop below would come to them: a flip whose triangles
+                // are both untouched so far is one it makes, and a later edge of a triangle that
+                // flipped is one it never got to (it stops at its triangle's first flip).
+                for flip in flips {
+                    let t = visit[Int(flip.edge) / 3], k = Int(flip.edge) % 3, u = Int(flip.other)
+                    guard !touched[t], !touched[u] else { continue }
+                    let tri = triangles[t]
+                    let a = tri[k], b = tri[(k + 1) % 3], c = tri[(k + 2) % 3]
+                    triangles[t] = SIMD3(c, a, flip.d)
+                    triangles[u] = SIMD3(c, flip.d, b)
                     touched[t] = true
                     touched[u] = true
                     flipped.append(t)
                     flipped.append(u)
-                    break
+                }
+            } else {
+                var owner = EdgeMap<Int32>(capacity: visit.count * 3 / 2, filler: -1)
+                for t in visit {
+                    let tri = triangles[t]
+                    for k in 0..<3 {
+                        let a = tri[k], b = tri[(k + 1) % 3]
+                        if let dirty, !dirty[Int(a)] || !dirty[Int(b)] { continue }
+                        let (slot, found) = owner.findOrInsert(Self.key(a, b))
+                        guard found else { owner.set(slot: slot, Int32(t)); continue }
+                        let u = Int(owner.values[slot])
+                        guard !touched[t], !touched[u], faces[u] == faces[t] else { continue }
+                        let c = tri[(k + 2) % 3]
+                        let d = Self.flipCorner(a, b, c, across: triangles[u], points: points)
+                        guard d >= 0 else { continue }
+                        triangles[t] = SIMD3(c, a, d)
+                        triangles[u] = SIMD3(c, d, b)
+                        touched[t] = true
+                        touched[u] = true
+                        flipped.append(t)
+                        flipped.append(u)
+                        break
+                    }
                 }
             }
             var next = [Bool](repeating: false, count: points.count)
@@ -930,6 +935,86 @@ struct WorkMesh {
             dirty = next
             if flipped.isEmpty { return }
         }
+    }
+
+    /// The flips one pass of ``improve(where:passes:dirty:)`` would test true on `visit`, found
+    /// across the cores: each as the edge (`3 i + k`: edge k of `visit[i]`), the triangle across
+    /// it and that one's far corner, in edge order. Nil when an edge lies on three or more of the
+    /// triangles (or twice on one and once on another), where the pass must run one by one.
+    ///
+    /// The serial pass finds each edge's two triangles through one hash map of every edge, two
+    /// cache misses per lookup (the map is tens of MB at export detail), all on one core. Here
+    /// each of `shards` workers goes through `visit` in the same order but keeps only the edges
+    /// its share of the hashes picks, in a small map of its own; each edge is in exactly one, so
+    /// together they pair the same triangles. With at most two triangles on every edge, the
+    /// serial pass tests exactly these pairs: it tests the second triangle on an edge against
+    /// the first, and each test reads only the two triangles and the points, untouched until one
+    /// of them flips (a flip only changes its own pair) — and a triangle that flipped is skipped
+    /// by the caller's `touched` check where the serial loop stops or skips it.
+    func improveCandidates(_ visit: [Int], dirty: [Bool]?) -> [(edge: Int32, other: Int32, d: Int32)]? {
+        let shards = 16
+        let triangles = triangles, faces = faces, points = points
+        let found = concurrentMap(shards, chunk: 1) { shard -> [(edge: Int32, other: Int32, d: Int32)]? in
+            // Each key's first triangle, then -2 once a second has come.
+            var owner = EdgeMap<Int32>(capacity: visit.count * 3 / 2 / shards + 64, filler: -1)
+            var out: [(edge: Int32, other: Int32, d: Int32)] = []
+            for (i, t) in visit.enumerated() {
+                let tri = triangles[t]
+                for k in 0..<3 {
+                    let a = tri[k], b = tri[(k + 1) % 3]
+                    if let dirty, !dirty[Int(a)] || !dirty[Int(b)] { continue }
+                    let key = Self.key(a, b)
+                    // A hash other than the map's own, whose top bits pick its slot.
+                    guard Int(truncatingIfNeeded: (key &* 0xD6E8_FEB8_6659_FD93) >> 60) & (shards - 1) == shard else { continue }
+                    let (slot, seen) = owner.findOrInsert(key)
+                    guard seen else { owner.set(slot: slot, Int32(t)); continue }
+                    let u = Int(owner.values[slot])
+                    guard u >= 0 else { return nil }
+                    owner.set(slot: slot, -2)
+                    guard faces[u] == faces[t] else { continue }
+                    let d = Self.flipCorner(a, b, tri[(k + 2) % 3], across: triangles[u], points: points)
+                    if d >= 0 { out.append((Int32(3 * i + k), Int32(u), d)) }
+                }
+            }
+            return out
+        }
+        var flips: [(edge: Int32, other: Int32, d: Int32)] = []
+        for shard in found {
+            guard let shard else { return nil }
+            flips += shard
+        }
+        flips.sort { $0.edge < $1.edge }
+        return flips
+    }
+
+    /// The far corner d of triangle `o` across edge (`a`, `b`) of triangle (`a`, `b`, `c`) when
+    /// ``improve(where:passes:dirty:)`` swaps the edge for (c, d), else -1: when the angles
+    /// opposite it add up to more than 180°, the two triangles are nearly coplanar and the
+    /// triangles made face the same way as these.
+    @inline(__always)
+    static func flipCorner(_ a: Int32, _ b: Int32, _ c: Int32, across o: SIMD3<Int32>, points: [SIMD3<Double>]) -> Int32 {
+        // The other triangle runs b → a; its third corner is d.
+        var d: Int32 = -1
+        for j in 0..<3 where o[j] == b && o[(j + 1) % 3] == a { d = o[(j + 2) % 3] }
+        guard d >= 0, d != c else { return -1 }
+        let pa = points[Int(a)], pb = points[Int(b)], pc = points[Int(c)], pd = points[Int(d)]
+        // Both opposite angles acute: each atan2 below comes out at most π/2 (to an
+        // ulp), their sum nowhere near the 1e-9 over π the flip needs. Most edges
+        // are, and this spares them the two atan2.
+        if simd_dot(pa - pc, pb - pc) > 0, simd_dot(pb - pd, pa - pd) > 0 { return -1 }
+        func angle(_ at: SIMD3<Double>, _ p: SIMD3<Double>, _ q: SIMD3<Double>) -> Double {
+            let x = p - at, y = q - at
+            return atan2(simd_length(simd_cross(x, y)), simd_dot(x, y))
+        }
+        guard angle(pc, pa, pb) + angle(pd, pb, pa) > .pi + 1e-9 else { return -1 }
+        let n1 = simd_cross(pb - pa, pc - pa), n2 = simd_cross(pa - pb, pd - pb)
+        let l1 = simd_length(n1), l2 = simd_length(n2)
+        let coplanar = cos(25.0 * .pi / 180)
+        guard l1 > 0, l2 > 0, simd_dot(n1, n2) > coplanar * l1 * l2 else { return -1 }
+        // New triangles (c, a, d) and (c, d, b) must face the same way as before.
+        let m1 = simd_cross(pa - pc, pd - pc), m2 = simd_cross(pd - pc, pb - pc)
+        guard simd_dot(m1, n1) > 0, simd_dot(m2, n1) > 0, simd_dot(m1, n2) > 0, simd_dot(m2, n2) > 0 else { return -1 }
+        return d
     }
 
     /// Faces around each vertex: most vertices have one, those on face boundaries several.
