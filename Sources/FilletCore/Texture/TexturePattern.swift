@@ -185,6 +185,11 @@ public protocol TexturePattern: Sendable {
     /// `scale` (1 for export, more for the display) coarsens them. Default: none.
     func rims(lo: SIMD2<Double>, hi: SIMD2<Double>, scale: Double) -> [TextureRim]
 
+    /// True when ``rims(lo:hi:scale:)`` can return any (for this pattern or as fitted to a face):
+    /// only then does the engine map each face's points to look for them, work wasted on every
+    /// other pattern. A pattern that implements `rims` sets it. Default: false.
+    var hasRims: Bool { get }
+
     /// The parameters as the inspector and the MCP tool present them: a chance to adjust labels,
     /// help or ``TextureParameter/shownWhen`` from a file beside the pattern's own. Ids, kinds,
     /// defaults and ranges must stay as declared. Default: `parameters` unchanged.
@@ -271,6 +276,7 @@ extension TexturePattern {
     public func detail(at p: SIMD2<Double>) -> Double { detail }
     public var fitsAround: Bool { false }
     public func rims(lo: SIMD2<Double>, hi: SIMD2<Double>, scale: Double) -> [TextureRim] { [] }
+    public var hasRims: Bool { false }
     public static func presented(_ parameters: [TextureParameter]) -> [TextureParameter] { parameters }
     public static func fadesAtBorders(_ values: TextureValues) -> Bool { true }
     public func solid(over surface: TextureSurface) -> (any SolidTexture)? { nil }

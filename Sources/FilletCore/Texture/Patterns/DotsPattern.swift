@@ -112,6 +112,8 @@ public struct DotsPattern: TexturePattern {
     /// A flat disc's outline as curves for the mesh to follow: its foot, the top of its side and
     /// steps along its edge round, each a true circle around the disc's own axis (on a cylinder:
     /// placed where the point, moved out to its height, is that far from the axis).
+    public var hasRims: Bool { true }
+
     public func rims(lo: SIMD2<Double>, hi: SIMD2<Double>, scale: Double) -> [TextureRim] {
         guard profile == .flat, dotHeight > 0, diameter > 0 else { return [] }
         // Discs that touch or nearly touch share their surroundings: leave those to the plain mesh.

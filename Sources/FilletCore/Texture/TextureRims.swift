@@ -18,6 +18,9 @@ extension WorkMesh {
     @discardableResult
     mutating func followRims(_ specs: [Int32: TextureEngine.FaceTexture], borders: [Int32: [FaceEdge]] = [:],
                              scale: Double) -> [Int32: SurfaceMapping] {
+        // Only faces whose pattern has rims: on the others nothing would change.
+        let specs = specs.filter { $0.value.pattern.hasRims }
+        guard !specs.isEmpty else { return [:] }
         var facePoints: [Int32: [SIMD3<Double>]] = [:]
         var faceTriangles: [Int32: [Int]] = [:]
         for (t, f) in faces.enumerated() where specs[f] != nil {

@@ -135,7 +135,7 @@ Every hook has a default, so a plain pattern like the ribs above needs none of t
 | `fitted(to: TextureFace)` | `fitted(to:wraps:)` | features must stay inside a face that isn't a rectangle in (u, v), or off the seams where it meets another textured face smoothly: `clearance(at:)` is the distance to its nearest edge (`seamsOnly:` to its nearest seam) |
 | `detail(at:)` | `detail` everywhere | only some places need fine triangles (a dot's rim) |
 | `fitsAround` | `false` | `fitted` spaces the pattern around a closed face itself, so `u` stays plain arc length |
-| `rims(lo:hi:scale:)` | none | a sharp round outline should be meshed along its own curve |
+| `rims(lo:hi:scale:)` | none | a sharp round outline should be meshed along its own curve (set `hasRims` to `true` with it) |
 | `presented(_:)` | unchanged | relabel or condition parameters from a separate file |
 | `fadesAtBorders(_:)` | `true` | the pattern keeps clear of face borders itself, so the fade field is hidden |
 | `solid(over:)` | `nil` (per-face (u, v)) | features must run on unbroken across the edges between faces (a fillet next to a flat face, a corner blend): the pattern is laid out once in space over the whole textured surface |
