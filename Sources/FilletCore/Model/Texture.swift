@@ -1,6 +1,6 @@
 import Foundation
 
-/// Identifies a surface texture pattern in ``TextureCatalog`` ("knit", "dots"). Stored as a plain
+/// Identifies a surface texture pattern in ``TextureCatalog`` ("knit", "dots", "flagstone"). Stored as a plain
 /// string, so files keep their pattern when newer versions add patterns, and a file naming a
 /// pattern this version doesn't know still opens (the step then reports it can't be recomputed).
 public struct TexturePatternID: RawRepresentable, Hashable, Sendable, Codable, ExpressibleByStringLiteral,
@@ -23,6 +23,7 @@ public struct TexturePatternID: RawRepresentable, Hashable, Sendable, Codable, E
 
     public static let knit: TexturePatternID = "knit"
     public static let dots: TexturePatternID = "dots"
+    public static let flagstone: TexturePatternID = "flagstone"
 }
 
 /// Puts a surface texture (a knitted stitch pattern, dots, …) on faces of a body. The B-rep is

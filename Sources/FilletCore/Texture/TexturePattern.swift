@@ -194,6 +194,14 @@ public protocol TexturePattern: Sendable {
     /// values. False when the pattern keeps its features clear of face borders itself (dots with
     /// "Whole dots only"), so the inspector leaves the field out. Default: true.
     static func fadesAtBorders(_ values: TextureValues) -> Bool
+
+    /// This pattern laid out over the whole surface the texture covers, in space, instead of in
+    /// each face's own (u, v): the engine then samples ``SolidTexture/height(at:normal:)`` at each
+    /// point and ``SolidTexture/detail(at:normal:)`` for the triangles, and ``height(at:)`` only
+    /// draws the swatch. Use it for features that must run on across the edges between faces
+    /// (each face's (u, v) is laid out on its own, so where a fillet meets a flat face two layouts
+    /// butt together). Nil (the default): the per-face (u, v) path.
+    func solid(over surface: TextureSurface) -> (any SolidTexture)?
 }
 
 /// A round feature's outline for the mesh to follow (see ``TexturePattern/rims(lo:hi:scale:)``):
@@ -265,6 +273,7 @@ extension TexturePattern {
     public func rims(lo: SIMD2<Double>, hi: SIMD2<Double>, scale: Double) -> [TextureRim] { [] }
     public static func presented(_ parameters: [TextureParameter]) -> [TextureParameter] { parameters }
     public static func fadesAtBorders(_ values: TextureValues) -> Bool { true }
+    public func solid(over surface: TextureSurface) -> (any SolidTexture)? { nil }
 }
 
 /// All texture patterns, and the parameters every texture has.
@@ -273,6 +282,7 @@ public enum TextureCatalog {
     public static let patterns: [any TexturePattern.Type] = [
         KnitPattern.self,
         DotsPattern.self,
+        FlagstonePattern.self,
     ]
 
     /// Parameters the engine itself reads, appended to every pattern's own.

@@ -44,8 +44,9 @@ public struct TextureQuality: Hashable, Sendable {
 /// 3. Gives each point surface coordinates following its face (``SurfaceMapping``) and moves it
 ///    along the normal by the pattern's height. A point shared by several textured faces gets the
 ///    average, so shared points move once. The displacement fades to zero towards untextured
-///    faces and sharp edges between textured ones (over the `fade` parameter), and never
-///    pushes below the lowest point (the bed).
+///    faces and sharp edges between textured ones (over the `fade` parameter), a cut never goes
+///    deeper than ``cutSlope`` times its distance from them, and nothing pushes below the lowest
+///    point (the bed).
 /// 4. Shortens any displacement that would reach through a thin wall or across a narrow gap
 ///    (``WorkMesh/limitThroughWalls(_:ramp:where:)``), and walks back any that would fold a triangle over.
 /// 5. Splits the result back into per-face vertices (for flat shading at face edges) with
@@ -83,11 +84,11 @@ public enum TextureEngine {
     /// `mesh` (a tessellation of `shape`) with `textures` applied; `mesh` itself when none applies.
     public static func apply(_ textures: [BodyTexture], to mesh: Mesh, of shape: Shape, quality: TextureQuality) -> Mesh {
         var specs: [Int32: FaceTexture] = [:]
-        for t in textures {
+        for (i, t) in textures.enumerated() {
             guard let pattern = TextureCatalog.make(t.pattern, t.values) else { continue }
             let fade = max(0, t.values.values["fade"] ?? 0)
             for f in faces(of: t, on: shape) {
-                specs[Int32(f)] = FaceTexture(surface: FaceSurface(face: f, of: shape), pattern: pattern, fade: fade)
+                specs[Int32(f)] = FaceTexture(surface: FaceSurface(face: f, of: shape), pattern: pattern, fade: fade, group: i)
             }
         }
         guard !specs.isEmpty else { return mesh }
@@ -99,25 +100,48 @@ public enum TextureEngine {
         var surface: FaceSurface
         var pattern: any TexturePattern
         var fade: Double
+        /// Faces with the same group come from the same texture step: a pattern laid out in space
+        /// (``TexturePattern/solid(over:)``) is laid out once over all of them.
+        var group = 0
     }
 
     /// Dihedral angle above which an edge between two textured faces counts as sharp (the texture
     /// fades out towards it instead of tearing the corner).
     static let creaseAngle = 30.0 * .pi / 180
+    /// Deepest a cut may go per mm of distance from a sharp edge or an untextured face. Deeper,
+    /// and a cut next to a convex corner reaches past the corner's bisector into the cut of the
+    /// face on the other side (self-intersecting triangles), whatever the fade.
+    static let cutSlope = 0.75
+    /// How much coarser than asked for the trial subdivision is that sizes a layout in space to
+    /// the triangle budget (see ``displace(_:faces:quality:)``). Its count times this squared
+    /// came within 4% of the real one on the review designs (a little over: the coarser mesh has
+    /// relatively more triangles in its transitions).
+    static let trialScale = 1.6
+    /// The share of the triangle budget the trial subdivision aims the mesh at (see
+    /// ``displace(_:faces:quality:)``), leaving room for its error.
+    static let budgetAim = 0.92
+    /// Radius in mm over which the curvature of the surface under a layout in space is evened out
+    /// (``WorkMesh/fairing(along:where:radius:)``).
+    static let fairingRadius = 2.5
 
     /// The textured mesh for `faces` (by B-rep face index in `mesh.triangleFaces`).
     static func displace(_ mesh: Mesh, faces specs: [Int32: FaceTexture], quality: TextureQuality) -> Mesh {
         var m = WorkMesh(welding: mesh)
         guard !m.triangles.isEmpty else { return mesh }
         let textured: (Int32) -> Bool = { specs[$0] != nil }
+        // Patterns laid out over their whole surface in space, by face.
+        let solids = m.solidTextures(specs, detailScale: quality.edgeScale * quality.edgeScale)
 
         // Target edge length: the finest pattern's detail, coarsened to respect the triangle budget.
         var edge = specs.values.map { $0.pattern.detail }.min() ?? 1
         edge = max(edge * quality.edgeScale, 1e-3)
         let area = m.area { textured($0) }
         let budget = Double(max(quality.maxTriangles - m.triangles.count, 1000))
-        // A triangle of edge e covers about 0.43 e²; splitting leaves them a little smaller on average.
-        edge = max(edge, (1.6 * area / (0.433 * budget)).squareRoot())
+        let localScale = quality.edgeScale * quality.edgeScale
+        if solids.isEmpty {
+            // A triangle of edge e covers about 0.43 e²; splitting leaves them a little smaller on average.
+            edge = max(edge, (1.6 * area / (0.433 * budget)).squareRoot())
+        }
         // Finer triangles where a pattern asks for them (``TexturePattern/detail(at:)``), laid out
         // as on the final mesh. The display coarsens these more than the rest.
         var coarse: [Int32: (SurfaceMapping, any TexturePattern)] = [:]
@@ -132,20 +156,54 @@ public enum TextureEngine {
                 let tri = m.triangles[t]
                 points[f, default: []] += [m.points[Int(tri.x)], m.points[Int(tri.y)], m.points[Int(tri.z)]]
             }
-            for (f, spec) in specs {
+            for (f, spec) in specs where solids[f] == nil {
                 let mapping = bands[f]
                     ?? SurfaceMapping(surface: spec.surface, cell: Self.mappingCell(spec.pattern), points: points[f] ?? [])
                 guard !mapping.isTriplanar else { continue }
                 coarse[f] = (mapping, spec.pattern.fitted(to: mapping.face(border: borders[f] ?? [])))
             }
         }
-        let localScale = quality.edgeScale * quality.edgeScale
-        m.subdivide(maxEdge: edge, where: textured, maxTriangles: quality.maxTriangles) { p, f in
+        // How much longer than asked for every triangle comes out, to stay within the budget.
+        var budgetScale = 1.0
+        func wanted(_ p: SIMD3<Double>, _ normal: SIMD3<Double>, _ f: Int32) -> Double {
+            if let solid = solids[f] { return max(solid.detail(at: p, normal: normal) * localScale * budgetScale, 1e-3) }
             guard let (mapping, pattern) = coarse[f] else { return .infinity }
-            return max(pattern.detail(at: mapping.uv(p)) * localScale, 1e-3)
+            return max(pattern.detail(at: mapping.uv(p)) * localScale * budgetScale, 1e-3)
         }
+        if !solids.isEmpty {
+            // A layout in space asks for fine triangles only along its features (a stone's
+            // rounded edge) and coarse ones elsewhere. Capping every triangle at the length a
+            // uniform mesh would need (as for the other patterns) spent the viewport's budget on
+            // the stone tops: the edges came out no finer than the tops, and frayed. Instead
+            // every wanted length grows by the same factor, just enough for the mesh to fit,
+            // measured on a trial subdivision a little coarser (the count goes with 1 / length²).
+            // The trial is skipped when a quick estimate from samples is well under the budget:
+            // it leaves out the triangles between fine and coarse, so it counts up to about half.
+            let estimate = m.estimatedTriangles(maxEdge: edge, where: textured) { p, normal, f in
+                solids[f].map { $0.detail(at: p, normal: normal) * localScale }
+            }
+            if 2.5 * estimate > budget {
+                let trial = Self.trialScale
+                budgetScale = trial
+                var probe = m
+                probe.subdivide(maxEdge: edge * trial, where: textured, maxTriangles: .max, local: wanted)
+                let needed = Double(probe.triangles.count - m.triangles.count) * trial * trial
+                // Aimed a little under: the estimate comes within a few percent either way, and a
+                // mesh that runs into the cap ends on a partial pass, uneven along the stone edges.
+                let aim = Self.budgetAim * budget
+                budgetScale = needed > aim ? (needed / aim).squareRoot() : 1
+                edge *= budgetScale
+            }
+        }
+        m.subdivide(maxEdge: edge, where: textured, maxTriangles: quality.maxTriangles, local: wanted)
         // Sharp round outlines (a disc's edge) meshed along their own curves (``TextureRim``).
         let rimMappings = m.followRims(specs, borders: borders, scale: quality.edgeScale)
+        // Points in rows along the level lines of a pattern laid out in space (a stone's round).
+        do {
+            let open = m.openEdgeVertices()
+            m.snapToContours(solids) { !open.contains($0) }
+        }
+        m.dissolveSlivers(where: textured)
 
         let n = m.points.count
         let adjacency = m.vertexFaces()
@@ -162,9 +220,10 @@ public enum TextureEngine {
         for v in m.openEdgeVertices() { pinned[v] = true }
 
         // Faded weight from the distance (along the surface) to the nearest pinned point.
+        // Also far enough out to keep the deepest cut off the edges (see ``cutSlope``).
         let maxFade = specs.values.map(\.fade).max() ?? 0
-        let distance = maxFade > 0 ? m.distances(from: pinned, upTo: maxFade) : nil
-
+        let reach = max(maxFade, Self.cutLimitRange(amplitude: specs.values.map(\.pattern.amplitude).max() ?? 0))
+        let distance = reach > 0 ? m.distances(from: pinned, upTo: reach) : nil
         // Surface mapping per face, from its points.
         var facePoints: [Int32: [SIMD3<Double>]] = [:]
         for (t, f) in m.faces.enumerated() where textured(f) {
@@ -174,7 +233,7 @@ public enum TextureEngine {
         var mappings: [Int32: SurfaceMapping] = [:]
         // Each face's pattern laid out for that face (see ``TexturePattern/fitted(to:)``).
         var patterns: [Int32: any TexturePattern] = [:]
-        for (f, spec) in specs {
+        for (f, spec) in specs where solids[f] == nil {
             // A face re-meshed along rims keeps the mapping its rims were laid out in.
             let mapping = rimMappings[f] ?? bands[f]
                 ?? SurfaceMapping(surface: spec.surface, cell: Self.mappingCell(spec.pattern), points: facePoints[f] ?? [])
@@ -182,15 +241,49 @@ public enum TextureEngine {
             patterns[f] = spec.pattern.fitted(to: mapping.face(border: borders[f] ?? []))
         }
 
+        let amplitudeLimit = max(specs.values.map(\.pattern.amplitude).max() ?? 0, 1e-3)
         var offsets = [SIMD3<Double>](repeating: .zero, count: n)
+        // Displacement along each point's direction, and whether the point is under a layout in
+        // space (its normal smoothed and the surface faired there).
+        var directions = [SIMD3<Double>](repeating: .zero, count: n)
+        var amounts = [Double](repeating: 0, count: n)
+        var smoothed = [Bool](repeating: false, count: n)
+        // A layout in space runs across every face, including the kernel's corner blends, whose
+        // normals can swing by several degrees within a tenth of a millimetre: a joint cut 1 mm
+        // deep along them spreads its points sideways enough to fold the fine triangles over, and
+        // the layout itself (measured in the tangent plane) jumps with them. So the normals there
+        // are smoothed over about a joint's depth in space first (see
+        // ``WorkMesh/smoothDirections(_:where:radius:)``), and the layout sampled and cut along them.
+        var solidNormals = [SIMD3<Double>](repeating: .zero, count: n)
+        if !solids.isEmpty {
+            for v in 0..<n where !pinned[v] {
+                var sum = SIMD3<Double>.zero
+                for f in adjacency.faces(of: v) where solids[f] != nil {
+                    let own = m.surfaceNormal(Int32(v), face: f)
+                    sum += own != .zero ? own : normals[v]
+                }
+                guard simd_length(sum) > 1e-9 else { continue }
+                solidNormals[v] = simd_normalize(sum)
+                smoothed[v] = true
+            }
+            let solidAmplitude = specs.filter { solids[$0.key] != nil }.map(\.value.pattern.amplitude).max() ?? 0
+            m.smoothDirections(&solidNormals, where: smoothed, radius: max(solidAmplitude, 0.1))
+        }
         for v in 0..<n where !pinned[v] {
             var height = 0.0, direction = SIMD3<Double>.zero, count = 0.0, fade = 0.0
             for f in adjacency.faces(of: v) {
-                guard let spec = specs[f], let mapping = mappings[f], let pattern = patterns[f] else { continue }
+                guard let spec = specs[f] else { continue }
                 // Along the surface's own normal: the triangles' differs by a degree or two from one
                 // facet of the tessellation to the next, enough to fold a disc's thin rim strips.
                 let own = m.surfaceNormal(Int32(v), face: f)
-                let s = mapping.sample(m.points[v], normal: own != .zero ? own : normals[v], pattern)
+                let s: (height: Double, normal: SIMD3<Double>)
+                if let solid = solids[f] {
+                    s = (solid.height(at: m.points[v], normal: solidNormals[v]), solidNormals[v])
+                } else if let mapping = mappings[f], let pattern = patterns[f] {
+                    s = mapping.sample(m.points[v], normal: own != .zero ? own : normals[v], pattern)
+                } else {
+                    continue
+                }
                 height += s.height
                 direction += s.normal
                 fade = max(fade, spec.fade)
@@ -202,8 +295,35 @@ public enum TextureEngine {
                 let t = d / fade
                 weight = t * t * (3 - 2 * t)
             }
-            offsets[v] = simd_normalize(direction) * (height / count * weight)
+            var offset = height / count * weight
+            if offset < 0, let d = distance?[v] {
+                // Rounded into the limit rather than clipped by it, so where the limit takes
+                // over the cut doesn't break into a crease.
+                let limit = Self.cutLimit(at: d, amplitude: amplitudeLimit)
+                if limit.isFinite {
+                    let width = min(0.3 * amplitudeLimit, limit)
+                    offset = width > 0 ? min(Self.smoothMax(offset, -limit, width: width), 0) : 0
+                }
+            }
+            directions[v] = simd_normalize(direction)
+            amounts[v] = offset
         }
+        // Where a flat face meets a fillet the curvature jumps, which shades as a crisp line at any
+        // fine tessellation; across a stone it read as a seam slicing it. Faired out under a
+        // layout in space (see ``WorkMesh/fairing(along:where:radius:)``), faded in from the
+        // pinned edges.
+        if smoothed.contains(true) {
+            let fair = m.fairing(along: directions, where: smoothed, radius: Self.fairingRadius)
+            for v in 0..<n where smoothed[v] && !pinned[v] {
+                var weight = 1.0
+                if reach > 0, let d = distance?[v], d < reach {
+                    let t = d / reach
+                    weight = t * t * (3 - 2 * t)
+                }
+                amounts[v] += fair[v] * weight
+            }
+        }
+        for v in 0..<n where amounts[v] != 0 { offsets[v] = directions[v] * amounts[v] }
 
         // A crevice deeper than the wall is thick must not come out the other side.
         let amplitude = specs.values.map(\.pattern.amplitude).max() ?? 0
@@ -215,8 +335,45 @@ public enum TextureEngine {
             if offsets[v] != .zero { p.z = max(p.z, lowest) }
             m.points[v] = p
         }
-        m.alignCreases(base: base, where: textured)
+        // Not on a layout in space: its relief has no creases (a stone's edge is a smooth round),
+        // and flipping towards the least bend there chained into fans of needle triangles that
+        // shaded as spikes along the stone edges.
+        m.alignCreases(base: base) { textured($0) && solids[$0] == nil }
         return m.mesh(keeping: mesh)
+    }
+
+    /// Deepest a cut may go `d` mm (straight) from a sharp or untextured edge, for patterns at
+    /// most `amplitude` deep; infinite (no limit) from ``cutLimitRange(amplitude:)`` on.
+    ///
+    /// Never deeper than ``cutSlope`` · `d`, but rising from the edge along a smootherstep rather
+    /// than that straight line: it leaves the edge level and runs into the full depth level, with
+    /// no bend for the triangles to cut across. A straight ramp met the joint floor in a bend
+    /// a few tenths of a millimetre wide, finer than the joint floor's triangles, and the joints
+    /// ran into a rim or the bed in a saw-toothed line. It tops out a little over `amplitude`, so
+    /// the full depth meets it (and the rounding into it) before it ends.
+    static func cutLimit(at d: Double, amplitude: Double) -> Double {
+        let range = cutLimitRange(amplitude: amplitude)
+        guard d < range else { return .infinity }
+        let t = max(d, 0) / range
+        return cutLimitTop * amplitude * t * t * t * (t * (t * 6 - 15) + 10)
+    }
+
+    /// How far from an edge ``cutLimit(at:amplitude:)`` holds: where its smootherstep, whose
+    /// steepest secant from the edge is 1.2 (just over, to be safe) times its average slope, stays
+    /// within ``cutSlope``.
+    static func cutLimitRange(amplitude: Double) -> Double {
+        1.21 * cutLimitTop * amplitude / cutSlope
+    }
+
+    /// ``cutLimit(at:amplitude:)`` tops out this many times the amplitude: room for the rounding
+    /// into it (0.3 of the amplitude) before it ends.
+    static let cutLimitTop = 1.3
+
+    /// The larger of `a` and `b`, rounded over `width` where they are close (never smaller than
+    /// either).
+    static func smoothMax(_ a: Double, _ b: Double, width: Double) -> Double {
+        let h = max(width - abs(a - b), 0) / width
+        return max(a, b) + h * h * width / 4
     }
 
     /// The repeat a face's u is fitted to: the pattern's cell, or (for a pattern that spaces
@@ -358,6 +515,37 @@ struct WorkMesh {
         return out
     }
 
+    /// About how many triangles ``subdivide(maxEdge:where:maxTriangles:local:)`` makes of the faces
+    /// `include` accepts with these lengths: `local` (nil: none asked for) is sampled at points
+    /// spread evenly over them, each standing for its share of the area, capped at `maxEdge`.
+    func estimatedTriangles(maxEdge: Double, where include: (Int32) -> Bool,
+                            local: (SIMD3<Double>, SIMD3<Double>, Int32) -> Double?) -> Double {
+        let total = area(where: include)
+        guard total > 0, maxEdge > 0 else { return 0 }
+        // About 40 000 samples in all, at least one per triangle.
+        let share = total / 40_000
+        var count = 0.0
+        for (t, tri) in triangles.enumerated() where include(faces[t]) {
+            let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
+            let cross = simd_cross(b - a, c - a)
+            let size = simd_length(cross) / 2
+            guard size > 0 else { continue }
+            let normal = cross / (2 * size)
+            let samples = max(1, Int((size / share).rounded(.up)))
+            for k in 0..<samples {
+                // A low-discrepancy (R2) sequence folded into the triangle.
+                var u = (0.5 + 0.754_877_666 * Double(k + 1)).truncatingRemainder(dividingBy: 1)
+                var v = (0.5 + 0.569_840_291 * Double(k + 1)).truncatingRemainder(dividingBy: 1)
+                if u + v > 1 { u = 1 - u; v = 1 - v }
+                let p = a + u * (b - a) + v * (c - a)
+                let e = min(local(p, normal, faces[t]) ?? maxEdge, maxEdge)
+                // A triangle of edge e covers about 0.43 e²; splitting leaves them a little smaller on average.
+                count += 1.6 * (size / Double(samples)) / (0.433 * max(e * e, 1e-6))
+            }
+        }
+        return count
+    }
+
     func area(where include: (Int32) -> Bool) -> Double {
         var total = 0.0
         for (t, tri) in triangles.enumerated() where include(faces[t]) {
@@ -380,7 +568,7 @@ struct WorkMesh {
     /// `maxEdge`); a triangle is split while its longest edge is longer than the smallest
     /// length wanted at its corners.
     mutating func subdivide(maxEdge: Double, where include: (Int32) -> Bool, maxTriangles: Int,
-                            local: ((SIMD3<Double>, Int32) -> Double)? = nil) {
+                            local: ((SIMD3<Double>, SIMD3<Double>, Int32) -> Double)? = nil) {
         let limit = maxEdge * maxEdge
         var wanted: [Double] = []
         func wantedLimit(_ v: Int32, _ f: Int32) -> Double {
@@ -388,13 +576,15 @@ struct WorkMesh {
             let i = Int(v)
             if i >= wanted.count { wanted.append(contentsOf: repeatElement(-1, count: points.count - wanted.count)) }
             if wanted[i] < 0 {
-                let e = min(local(points[i], f), maxEdge)
+                let e = min(local(points[i], surfaceNormal(v, face: f), f), maxEdge)
                 wanted[i] = e * e
             }
             return wanted[i]
         }
         for _ in 0..<64 {
-            var mids: [UInt64: Int32] = [:]
+            // Edges to split this pass, in triangle order, with how far each is over its length.
+            var wantedSplits: [(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)] = []
+            var seen = Set<UInt64>()
             for t in triangles.indices where include(faces[t]) {
                 let tri = triangles[t]
                 var best = -1.0, bestK = 0
@@ -403,23 +593,36 @@ struct WorkMesh {
                     if d > best { best = d; bestK = k }
                 }
                 let f = faces[t]
-                guard best > (local == nil ? limit : min(wantedLimit(tri.x, f), wantedLimit(tri.y, f), wantedLimit(tri.z, f)))
-                else { continue }
+                let wantedHere = local == nil ? limit : min(wantedLimit(tri.x, f), wantedLimit(tri.y, f), wantedLimit(tri.z, f))
+                guard best > wantedHere else { continue }
                 let a = tri[bestK], b = tri[(bestK + 1) % 3]
                 let k = Self.key(a, b)
-                if mids[k] == nil {
-                    mids[k] = Int32(points.count)
-                    points.append(curvedMidpoint(a, b, face: f))
-                    if surfaceNormals.count == points.count - 1 {
-                        surfaceNormals.append(Self.unit(surfaceNormal(a, face: f) + surfaceNormal(b, face: f)))
-                    }
-                }
+                if seen.insert(k).inserted { wantedSplits.append((k, a, b, f, best / max(wantedHere, 1e-12))) }
             }
-            if mids.isEmpty { break }
-            if triangles.count + 2 * mids.count > maxTriangles {
-                if surfaceNormals.count == points.count { surfaceNormals.removeLast(mids.count) }
-                points.removeLast(mids.count)
-                break
+            if wantedSplits.isEmpty { break }
+            // Over the budget: only the edges furthest over their length, as many as fit (each
+            // split adds about two triangles), and this is the last pass.
+            let room = (maxTriangles - triangles.count) / 2
+            var last = false
+            if wantedSplits.count > room {
+                guard room > 0 else { break }
+                let cut = wantedSplits.map(\.excess).sorted(by: >)[room - 1]
+                var kept = 0
+                wantedSplits = wantedSplits.filter { split in
+                    guard split.excess >= cut, kept < room else { return false }
+                    kept += 1
+                    return true
+                }
+                last = true
+            }
+            var mids: [UInt64: Int32] = [:]
+            mids.reserveCapacity(wantedSplits.count)
+            for split in wantedSplits {
+                mids[split.key] = Int32(points.count)
+                points.append(curvedMidpoint(split.a, split.b, face: split.face))
+                if surfaceNormals.count == points.count - 1 {
+                    surfaceNormals.append(Self.unit(surfaceNormal(split.a, face: split.face) + surfaceNormal(split.b, face: split.face)))
+                }
             }
             var newTriangles: [SIMD3<Int32>] = []
             var newFaces: [Int32] = []
@@ -477,6 +680,7 @@ struct WorkMesh {
             triangles = newTriangles
             faces = newFaces
             improve(where: include)
+            if last { break }
         }
         improve(where: include, passes: 4)
     }
@@ -559,6 +763,12 @@ struct WorkMesh {
             if let extra = more[v] { return extra }
             return first[v] == Int32.min ? [] : [first[v]]
         }
+
+        /// Whether vertex `v` is on face `f`.
+        func contains(_ v: Int, _ f: Int32) -> Bool {
+            if first[v] == f { return true }
+            return more.isEmpty ? false : more[v]?.contains(f) ?? false
+        }
     }
 
     func vertexFaces() -> VertexFaces {
@@ -626,6 +836,249 @@ struct WorkMesh {
         return out
     }
 
+    /// Each face whose pattern lays itself out in space (``TexturePattern/solid(over:)``): the
+    /// layout over all faces of its texture step, made from their triangles as they are now.
+    /// `detailScale` is how much coarser than the patterns' own detail the mesh is made.
+    func solidTextures(_ specs: [Int32: TextureEngine.FaceTexture], detailScale: Double) -> [Int32: any SolidTexture] {
+        var groups: [Int: [Int32]] = [:]
+        for (f, spec) in specs { groups[spec.group, default: []].append(f) }
+        var out: [Int32: any SolidTexture] = [:]
+        for (_, faces) in groups {
+            let members = Set(faces)
+            var remap: [Int32: Int32] = [:]
+            var surfacePoints: [SIMD3<Double>] = [], surfaceTriangles: [SIMD3<Int32>] = []
+            func index(_ v: Int32) -> Int32 {
+                if let i = remap[v] { return i }
+                let i = Int32(surfacePoints.count)
+                remap[v] = i
+                surfacePoints.append(points[Int(v)])
+                return i
+            }
+            for (t, tri) in triangles.enumerated() where members.contains(self.faces[t]) {
+                surfaceTriangles.append(SIMD3(index(tri.x), index(tri.y), index(tri.z)))
+            }
+            let first = faces.min()!
+            guard let solid = specs[first]!.pattern.solid(over: TextureSurface(points: surfacePoints, triangles: surfaceTriangles,
+                                                                                 detailScale: detailScale))
+            else { continue }
+            for f in faces { out[f] = solid }
+        }
+        return out
+    }
+
+    /// Smooths the unit vectors `directions` of the points `include` marks over the marked points
+    /// within `radius` mm in space (weighted by distance, and only those facing the same way),
+    /// keeping them unit length.
+    ///
+    /// In space rather than along the mesh's edges: a kernel blend's tessellation has vertices a
+    /// few microns apart whose normals differ by a degree, on either side of a sliver triangle,
+    /// and averaging along edges leaves them that far apart (each side averages its own fan).
+    ///
+    /// Each is the value at the point of a plane fitted through the directions over the tangent
+    /// plane (a local linear fit), face by face: on each face the point is on, through the points
+    /// on that face, the fits averaged. Not one plain average of every point near: where a flat
+    /// face meets a fillet the surface starts to curve, and an average over both leans towards
+    /// the fillet (up to 0.8° on a box's 8 mm corners, and towards wherever the mesh has more
+    /// points). Cut 1 mm deep along those leaning directions, a stone's edge came out with a
+    /// straight crease along every such line, a ghost outline of the fillets across the stones.
+    /// On one face the surface is smooth, and a fitted plane follows its turn exactly, however
+    /// unevenly the points are spaced, while it still evens out a blend's jitter.
+    ///
+    /// Where two faces' fits disagree along their shared edge (a kernel blend whose normals are a
+    /// degree off its neighbour's), the difference is spread out over `radius` either side of the
+    /// edge (see ``edgeSteps``), rather than left as a step that folds the fine triangles there.
+    func smoothDirections(_ directions: inout [SIMD3<Double>], where include: [Bool], radius: Double) {
+        let r = max(radius, 1e-6)
+        var cells: [SIMD3<Int32>: [Int32]] = [:]
+        func cell(_ p: SIMD3<Double>) -> SIMD3<Int32> { SIMD3<Int32>(floor3(p / r)) }
+        for v in points.indices where include[v] { cells[cell(points[v]), default: []].append(Int32(v)) }
+        let targets = points.indices.filter { include[$0] }
+        guard !targets.isEmpty else { return }
+        let source = directions, points = self.points
+        let vertexFaces = self.vertexFaces()
+        // Each target's fit per face (up to `slots` faces), face index in `fitFaces`.
+        let slots = 4
+        let fits = UnsafeMutableBufferPointer<SIMD3<Double>>.allocate(capacity: targets.count * slots)
+        let fitFaces = UnsafeMutableBufferPointer<Int32>.allocate(capacity: targets.count * slots)
+        defer { fits.deallocate(); fitFaces.deallocate() }
+        fitFaces.initialize(repeating: Int32.min)
+        let fitOut = SendableDirections(buffer: fits), faceOut = SendableFaces(buffer: fitFaces)
+        let chunk = 1024
+        let blocks = (targets.count + chunk - 1) / chunk
+        DispatchQueue.concurrentPerform(iterations: blocks) { block in
+            for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
+                let v = targets[i]
+                let p = points[v], own = source[v]
+                let c = cell(p)
+                let faces = Array(vertexFaces.faces(of: v).prefix(slots))
+                // Per face: weighted least squares of n ≈ a + b·x + c·y over the tangent plane (x, y
+                // in units of `r`), as the normal equations' sums.
+                let helper: SIMD3<Double> = abs(own.x) < 0.9 ? SIMD3(1, 0, 0) : SIMD3(0, 1, 0)
+                let e1 = simd_normalize(helper - simd_dot(helper, own) * own), e2 = simd_cross(own, e1)
+                var m = [simd_double3x3](repeating: simd_double3x3(0), count: max(faces.count, 1))
+                var rhs = m
+                for dz in Int32(-1)...1 {
+                    for dy in Int32(-1)...1 {
+                        for dx in Int32(-1)...1 {
+                            for w in cells[c &+ SIMD3(dx, dy, dz)] ?? [] {
+                                let d = (points[Int(w)] - p) / r
+                                let d2 = simd_length_squared(d)
+                                guard d2 < 1 else { continue }
+                                let n = source[Int(w)]
+                                guard simd_dot(n, own) > 0.5 else { continue }
+                                let k = (1 - d2) * (1 - d2)
+                                let x = SIMD3(1, simd_dot(d, e1), simd_dot(d, e2))
+                                for (j, f) in faces.enumerated() where vertexFaces.contains(Int(w), f) {
+                                    m[j] += simd_double3x3(columns: (k * x[0] * x, k * x[1] * x, k * x[2] * x))
+                                    // Row q of the right-hand side, Σ k x_q n, as column q here.
+                                    rhs[j] += simd_double3x3(columns: (k * x[0] * n, k * x[1] * n, k * x[2] * n))
+                                }
+                            }
+                        }
+                    }
+                }
+                for j in faces.indices {
+                    var mj = m[j]
+                    let total = mj[0][0]
+                    var fitted = own
+                    if total > 0 {
+                        // A trace of ridge on the slopes, so points all along one line (or too few)
+                        // fall back towards the plain average rather than a wild slope. Not more:
+                        // on one side of a face's edge the points all lie to one side, and a
+                        // shrunken slope moves the value at the point towards their average.
+                        mj[1][1] += 1e-4 * total
+                        mj[2][2] += 1e-4 * total
+                        fitted = Self.unit(rhs[j].columns.0)
+                        if abs(mj.determinant) > 1e-12 * total * total * total {
+                            // The value at the point: a = Σ_q (M⁻¹)₀q · rhs_q.
+                            let inverse = mj.inverse
+                            let plane = Self.unit(rhs[j] * SIMD3(inverse[0][0], inverse[1][0], inverse[2][0]))
+                            if simd_dot(plane, own) > 0.5 { fitted = plane }
+                        }
+                    }
+                    fitOut.buffer[i * slots + j] = fitted == .zero ? own : fitted
+                    faceOut.buffer[i * slots + j] = faces[j]
+                }
+                if faces.isEmpty {
+                    fitOut.buffer[i * slots] = own
+                }
+            }
+        }
+        // Points on more than one face, by cell, for spreading out the steps between faces.
+        var edgeCells: [SIMD3<Int32>: [Int32]] = [:]
+        for (i, v) in targets.enumerated() where fitFaces[i * slots + 1] != Int32.min {
+            edgeCells[cell(points[v]), default: []].append(Int32(i))
+        }
+        func mean(_ i: Int) -> SIMD3<Double> {
+            var sum = SIMD3<Double>.zero
+            for j in 0..<slots where j == 0 || fitFaces[i * slots + j] != Int32.min { sum += fits[i * slots + j] }
+            return Self.unit(sum)
+        }
+        let found = UnsafeMutableBufferPointer<SIMD3<Double>>.allocate(capacity: targets.count)
+        defer { found.deallocate() }
+        let out = SendableDirections(buffer: found)
+        DispatchQueue.concurrentPerform(iterations: blocks) { block in
+            for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
+                let v = targets[i]
+                let own = fits[i * slots]
+                let face = fitFaces[i * slots]
+                // On an edge between faces: the faces' fits averaged.
+                guard fitFaces[i * slots + 1] == Int32.min, face != Int32.min else {
+                    out.buffer[i] = mean(i)
+                    continue
+                }
+                // Inside one face: shifted by the step to the edge's average at the nearby points of
+                // the face's edges, fully at the edge and fading out over `r`.
+                let p = points[v], c = cell(p)
+                var step = SIMD3<Double>.zero, weight = 0.0, nearest = 1.0
+                for dz in Int32(-1)...1 {
+                    for dy in Int32(-1)...1 {
+                        for dx in Int32(-1)...1 {
+                            for e in edgeCells[c &+ SIMD3(dx, dy, dz)] ?? [] {
+                                let b = Int(e)
+                                let d2 = simd_distance_squared(points[targets[b]], p) / (r * r)
+                                guard d2 < 1 else { continue }
+                                guard let j = (0..<slots).first(where: { fitFaces[b * slots + $0] == face }) else { continue }
+                                let k = (1 - d2) * (1 - d2)
+                                step += k * (mean(b) - fits[b * slots + j])
+                                weight += k
+                                nearest = min(nearest, d2.squareRoot())
+                            }
+                        }
+                    }
+                }
+                guard weight > 0 else { out.buffer[i] = own; continue }
+                let fade = 1 - nearest * nearest * (3 - 2 * nearest)
+                out.buffer[i] = Self.unit(own + fade * step / weight)
+            }
+        }
+        for (i, v) in targets.enumerated() { directions[v] = found[i] == .zero ? source[v] : found[i] }
+    }
+
+    /// How far to move each point the `include` marks along its unit `direction` (the surface's
+    /// normal) to even out a jump in the surface's curvature, such as where a flat face meets a
+    /// fillet (tangent, but suddenly curved): the distance along it to the area-weighted average
+    /// of the surface within `radius` in space (points facing within about 45° of the same way).
+    ///
+    /// The surface averaged so is smooth through such a jump, its curvature running from one
+    /// side's to the other's over about `radius`, rather than as a step that shades as a crisp line
+    /// where the fillet starts. On a flat face nothing moves (every point is in its plane); round
+    /// a curve of radius r the surface sinks evenly by about radius² / (20 r) (0.04 mm on an 8 mm
+    /// fillet), its shape kept.
+    func fairing(along directions: [SIMD3<Double>], where include: [Bool], radius: Double) -> [Double] {
+        var out = [Double](repeating: 0, count: points.count)
+        let r = max(radius, 1e-6)
+        // Each point's share of the surface: a third of its triangles' area.
+        var area = [Double](repeating: 0, count: points.count)
+        for tri in triangles {
+            let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
+            let third = simd_length(simd_cross(b - a, c - a)) / 6
+            area[Int(tri.x)] += third; area[Int(tri.y)] += third; area[Int(tri.z)] += third
+        }
+        var cells: [SIMD3<Int32>: [Int32]] = [:]
+        func cell(_ p: SIMD3<Double>) -> SIMD3<Int32> { SIMD3<Int32>(floor3(p / r)) }
+        for v in points.indices where include[v] && directions[v] != .zero {
+            cells[cell(points[v]), default: []].append(Int32(v))
+        }
+        let targets = points.indices.filter { include[$0] && directions[$0] != .zero }
+        guard !targets.isEmpty else { return out }
+        let points = self.points
+        let found = UnsafeMutableBufferPointer<Double>.allocate(capacity: targets.count)
+        defer { found.deallocate() }
+        let sink = SendableHeights(buffer: found)
+        let chunk = 1024
+        DispatchQueue.concurrentPerform(iterations: (targets.count + chunk - 1) / chunk) { block in
+            for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
+                let v = targets[i]
+                let p = points[v], n = directions[v], c = cell(p)
+                var sum = 0.0, weight = 0.0
+                for dz in Int32(-1)...1 {
+                    for dy in Int32(-1)...1 {
+                        for dx in Int32(-1)...1 {
+                            for w in cells[c &+ SIMD3(dx, dy, dz)] ?? [] {
+                                let d = points[Int(w)] - p
+                                let d2 = simd_length_squared(d) / (r * r)
+                                guard d2 < 1 else { continue }
+                                // Faded out from 45° to 78° apart rather than cut off: round a tight
+                                // blend a cut-off took points in or out a micron apart, and the
+                                // average jumped there.
+                                let t = (simd_dot(directions[Int(w)], n) - 0.2) / 0.5
+                                guard t > 0 else { continue }
+                                let facing = t >= 1 ? 1 : t * t * (3 - 2 * t)
+                                let k = (1 - d2) * (1 - d2) * (1 - d2) * area[Int(w)] * facing
+                                sum += k * simd_dot(d, n)
+                                weight += k
+                            }
+                        }
+                    }
+                }
+                sink.buffer[i] = weight > 0 ? sum / weight : 0
+            }
+        }
+        for (i, v) in targets.enumerated() { out[v] = found[i] }
+        return out
+    }
+
     /// Endpoints of edges used by only one triangle (a mesh that wasn't closed to begin with).
     func openEdgeVertices() -> Set<Int> {
         var count: [UInt64: Int] = [:]
@@ -641,8 +1094,11 @@ struct WorkMesh {
         return out
     }
 
-    /// Distance along mesh edges from each vertex to the nearest `sources` vertex, up to `limit`
-    /// (farther vertices: nil).
+    /// Distance from each vertex to the nearest `sources` vertex reached along mesh edges, up to
+    /// `limit` (farther vertices: nil): measured in a straight line to that source's edges with
+    /// other sources (the outline the sources make), not summed along the zigzag of mesh edges,
+    /// which wanders by a good part of an edge from one point to the next and left anything
+    /// shaped by the distance (a cut kept shallow near an edge) frayed along it.
     func distances(from sources: [Bool], upTo limit: Double) -> [Double?] {
         // Compressed adjacency.
         var degree = [Int32](repeating: 0, count: points.count + 1)
@@ -659,20 +1115,42 @@ struct WorkMesh {
                 neighbours[fill[Int(q)]] = p; fill[Int(q)] += 1
             }
         }
+        // Distance from `p` to the outline at source `s`: its edges to neighbouring sources.
+        func outline(_ p: SIMD3<Double>, _ s: Int) -> Double {
+            let a = points[s]
+            var best = simd_distance(p, a)
+            for k in start[s]..<start[s + 1] {
+                let b = points[Int(neighbours[k])]
+                guard sources[Int(neighbours[k])] else { continue }
+                let ab = b - a
+                let l2 = simd_length_squared(ab)
+                guard l2 > 0 else { continue }
+                let t = max(0, min(1, simd_dot(p - a, ab) / l2))
+                best = min(best, simd_distance(p, a + t * ab))
+            }
+            return best
+        }
         var dist = [Double](repeating: .infinity, count: points.count)
+        var nearest = [Int32](repeating: -1, count: points.count)
         var heap = MinHeap()
         for (v, s) in sources.enumerated() where s {
             dist[v] = 0
+            nearest[v] = Int32(v)
             heap.push(0, Int32(v))
         }
         while let (d, v) = heap.pop() {
             let vi = Int(v)
             guard d <= dist[vi], d < limit else { continue }
+            let source = Int(nearest[vi])
             for k in start[vi]..<start[vi + 1] {
                 let w = Int(neighbours[k])
-                let nd = d + simd_distance(points[vi], points[w])
+                guard !sources[w] else { continue }
+                // Never nearer than one edge beyond this point along the surface allows: the
+                // straight line may not cut through the body to the far side of a thin wall.
+                let nd = max(outline(points[w], source), d)
                 if nd < dist[w] {
                     dist[w] = nd
+                    nearest[w] = Int32(source)
                     heap.push(nd, Int32(w))
                 }
             }
@@ -680,10 +1158,88 @@ struct WorkMesh {
         return dist.map { $0 < limit ? $0 : nil }
     }
 
-    /// Shrinks displacements that would turn a triangle over (or nearly edge-on to where it was),
-    /// halving them where needed, until no triangle folds; what still folds after that is dropped.
+    /// Undoes displacements that would turn a triangle over (or nearly edge-on to where it was).
+    /// First the corners of such a triangle are given one shared direction, keeping how far each
+    /// moves: a needle-thin triangle whose corners move along directions a few degrees apart
+    /// (a kernel blend's normals can be that uneven) folds over, though it only needs to move as
+    /// one. Then the points of what still folds take their neighbours' average displacement, a
+    /// few times over: a patch moved all one way can't fold, and where a joint crossed a spot the
+    /// surface turns too tightly to cut that deep along its normals (the tip of a kernel's corner
+    /// blend), halving cut the joint off there in a torn notch. What still folds after that is
+    /// halved, round after round, until no triangle folds; what still folds after that is dropped.
+    /// Removes slivers lying along an edge between faces: a triangle whose third corner is all but
+    /// on its longest edge (three points in a row along a curved face edge, as the kernel and the
+    /// splitting leave them), where that edge is shared with another face's triangle. The other
+    /// triangle is split at the third corner instead, and the sliver goes.
+    ///
+    /// A sliver faces no particular way: cut along a joint, the least difference in depth between
+    /// its corners stood it on edge or turned it over, and undoing that (``relax(_:floor:)``)
+    /// spread into torn flaps round the tip of a box's corner blend. Inside one face the
+    /// splitting's flips already keep them out.
+    mutating func dissolveSlivers(where include: (Int32) -> Bool) {
+        var owner: [UInt64: Int] = [:]
+        owner.reserveCapacity(triangles.count * 3 / 2)
+        for (t, tri) in triangles.enumerated() {
+            for k in 0..<3 { owner[Self.directedKey(tri[k], tri[(k + 1) % 3])] = t }
+        }
+        var removed = [Bool](repeating: false, count: triangles.count)
+        var added: [(SIMD3<Int32>, Int32)] = []
+        for t in triangles.indices where !removed[t] && include(faces[t]) {
+            let tri = triangles[t]
+            var longest = 0, length2 = -1.0
+            for k in 0..<3 {
+                let d = simd_distance_squared(points[Int(tri[k])], points[Int(tri[(k + 1) % 3])])
+                if d > length2 { length2 = d; longest = k }
+            }
+            let a = tri[longest], b = tri[(longest + 1) % 3], c = tri[(longest + 2) % 3]
+            let pa = points[Int(a)], pb = points[Int(b)], pc = points[Int(c)]
+            guard length2 > 0, simd_length(simd_cross(pb - pa, pc - pa)) < WorkMesh.sliver * length2 else { continue }
+            let f = simd_dot(pc - pa, pb - pa) / length2
+            guard f > 0.02, f < 0.98 else { continue }
+            // The triangle across (a, b), running b → a.
+            guard let u = owner[Self.directedKey(b, a)], u >= 0, u != t, !removed[u], faces[u] != faces[t] else { continue }
+            let other = triangles[u]
+            guard let k = (0..<3).first(where: { other[$0] == b && other[($0 + 1) % 3] == a }) else { continue }
+            let d = other[(k + 2) % 3]
+            // Its two halves must face as it did and not be slivers themselves.
+            let pd = points[Int(d)]
+            let n = simd_cross(pa - pb, pd - pb)
+            let first = simd_cross(pc - pb, pd - pb), second = simd_cross(pa - pc, pd - pc)
+            guard simd_dot(first, n) > 0, simd_dot(second, n) > 0,
+                  simd_length(first) > WorkMesh.sliver * max(simd_distance_squared(pb, pd), simd_distance_squared(pb, pc)),
+                  simd_length(second) > WorkMesh.sliver * max(simd_distance_squared(pa, pd), simd_distance_squared(pa, pc))
+            else { continue }
+            removed[t] = true
+            removed[u] = true
+            added.append((SIMD3(b, c, d), faces[u]))
+            added.append((SIMD3(c, a, d), faces[u]))
+            // The new triangles' edges aren't split again in this pass.
+            for (new, _) in added.suffix(2) {
+                for j in 0..<3 { owner[Self.directedKey(new[j], new[(j + 1) % 3])] = -1 }
+            }
+        }
+        guard !added.isEmpty else { return }
+        var kept: [SIMD3<Int32>] = [], keptFaces: [Int32] = []
+        kept.reserveCapacity(triangles.count)
+        keptFaces.reserveCapacity(triangles.count)
+        for t in triangles.indices where !removed[t] { kept.append(triangles[t]); keptFaces.append(faces[t]) }
+        for (tri, f) in added { kept.append(tri); keptFaces.append(f) }
+        triangles = kept
+        faces = keptFaces
+    }
+
+    /// Key of the edge running from `a` to `b` (``key(_:_:)`` ignores the direction).
+    static func directedKey(_ a: Int32, _ b: Int32) -> UInt64 {
+        UInt64(UInt32(bitPattern: a)) << 32 | UInt64(UInt32(bitPattern: b))
+    }
+
+    /// Twice a triangle's area over its longest edge squared (its height over that edge, as a
+    /// share of the edge) below which ``relax(_:floor:)`` counts it a sliver.
+    static let sliver = 0.01
+
     func relax(_ offsets: inout [SIMD3<Double>], floor: Double) {
         let cosLimit = cos(85.0 * .pi / 180)
+        let rounds = 20, aligning = 4, evening = 4
         func moved(_ v: Int) -> SIMD3<Double> {
             var p = points[v] + offsets[v]
             if offsets[v] != .zero { p.z = max(p.z, floor) }
@@ -693,9 +1249,38 @@ struct WorkMesh {
             let tri = triangles[t]
             return offsets[Int(tri.x)] != .zero || offsets[Int(tri.y)] != .zero || offsets[Int(tri.z)] != .zero
         }
-        for round in 0..<12 {
+        // Slivers (corners all but in a line, as the kernel lays them along a curved edge between
+        // faces) face no particular way: the least difference in depth stands one on edge or
+        // turns it over. So the middle corner of each moves with its long edge from the start
+        // (where that moves it less than a tenth of the edge), all of them a few times over (they come in chains along an edge, each one's middle
+        // corner the end of the next): fixed only once they folded, one at a time, they kept
+        // undoing each other, and the cuts round them were halved away into a notch in the joint.
+        var slivers: [(apex: Int, a: Int, b: Int, f: Double)] = []
+        for t in candidates {
+            let tri = triangles[t]
+            let corners = [Int(tri.x), Int(tri.y), Int(tri.z)]
+            var longest = 0
+            for k in 1..<3 where simd_distance_squared(points[corners[(k + 1) % 3]], points[corners[(k + 2) % 3]])
+                > simd_distance_squared(points[corners[(longest + 1) % 3]], points[corners[(longest + 2) % 3]]) { longest = k }
+            let apex = corners[longest], ea = corners[(longest + 1) % 3], eb = corners[(longest + 2) % 3]
+            let edge = points[eb] - points[ea]
+            let length2 = simd_length_squared(edge)
+            let area2 = simd_length(simd_cross(points[corners[1]] - points[corners[0]], points[corners[2]] - points[corners[0]]))
+            guard length2 > 0, area2 < Self.sliver * length2 else { continue }
+            slivers.append((apex, ea, eb, max(0, min(1, simd_dot(points[apex] - points[ea], edge) / length2))))
+        }
+        for _ in 0..<(slivers.isEmpty ? 0 : 8) {
+            for s in slivers {
+                let along = offsets[s.a] + s.f * (offsets[s.b] - offsets[s.a])
+                // Only a small correction (the cut barely changing along the edge): moved further,
+                // the middle corner folded the ordinary triangles round it instead.
+                guard simd_distance_squared(offsets[s.apex], along) < 0.01 * simd_distance_squared(points[s.a], points[s.b]) else { continue }
+                offsets[s.apex] = along
+            }
+        }
+        for round in 0..<rounds {
             var bad = Set<Int>()
-            var still: [Int] = []
+            var folded: [Int] = []
             for t in candidates {
                 let tri = triangles[t]
                 let a = Int(tri.x), b = Int(tri.y), c = Int(tri.z)
@@ -704,18 +1289,96 @@ struct WorkMesh {
                 let n1 = simd_cross(pb - pa, pc - pa)
                 let l0 = simd_length(n0), l1 = simd_length(n1)
                 guard l0 > 0 else { continue }
+                // A sliver whose middle corner moves with its long edge (above) stays one.
+                let ab2 = simd_distance_squared(points[a], points[b]), bc2 = simd_distance_squared(points[b], points[c])
+                let ca2 = simd_distance_squared(points[c], points[a])
+                let longest = max(ab2, bc2, ca2)
+                if l0 < Self.sliver * longest {
+                    let (apex, ea, eb) = ab2 == longest ? (c, a, b) : (bc2 == longest ? (a, b, c) : (b, c, a))
+                    let edge = points[eb] - points[ea]
+                    let f = max(0, min(1, simd_dot(points[apex] - points[ea], edge) / longest))
+                    let drift = simd_length(offsets[apex] - (offsets[ea] + f * (offsets[eb] - offsets[ea])))
+                    if drift < 1e-3 * longest.squareRoot() { continue }
+                }
                 if l1 < 1e-3 * l0 || simd_dot(n0, n1) < cosLimit * l0 * l1 {
                     bad.insert(a); bad.insert(b); bad.insert(c)
-                    still.append(t)
+                    folded.append(t)
                 }
             }
             if bad.isEmpty { return }
-            for v in bad { offsets[v] = round == 11 ? .zero : offsets[v] * 0.5 }
-            candidates = still + candidates.filter { t in
+            if round < aligning + evening {
+                var stubborn = Set<Int>()
+                for t in folded {
+                    let tri = triangles[t]
+                    let corners = [Int(tri.x), Int(tri.y), Int(tri.z)]
+                    let n0 = simd_cross(points[corners[1]] - points[corners[0]], points[corners[2]] - points[corners[0]])
+                    // A sliver (one corner almost on the opposite edge) flips over from the
+                    // smallest difference in height: that corner moves with the edge instead.
+                    var longest = 0
+                    for k in 1..<3 where simd_distance_squared(points[corners[(k + 1) % 3]], points[corners[(k + 2) % 3]])
+                        > simd_distance_squared(points[corners[(longest + 1) % 3]], points[corners[(longest + 2) % 3]]) { longest = k }
+                    let apex = corners[longest], ea = corners[(longest + 1) % 3], eb = corners[(longest + 2) % 3]
+                    let edge = points[eb] - points[ea]
+                    let length2 = simd_length_squared(edge)
+                    if length2 > 0, simd_length(n0) / length2 < 0.1 {
+                        let f = max(0, min(1, simd_dot(points[apex] - points[ea], edge) / length2))
+                        offsets[apex] = offsets[ea] + f * (offsets[eb] - offsets[ea])
+                        continue
+                    }
+                    guard round < aligning else {
+                        stubborn.formUnion(corners)
+                        continue
+                    }
+                    // Each corner's direction, signed so that all point out of the triangle.
+                    var sum = SIMD3<Double>.zero
+                    for v in corners {
+                        let l = simd_length(offsets[v])
+                        guard l > 0 else { continue }
+                        sum += offsets[v] / l * (simd_dot(offsets[v], n0) >= 0 ? 1 : -1)
+                    }
+                    let direction = Self.unit(sum)
+                    guard direction != .zero else { continue }
+                    for v in corners {
+                        let l = simd_length(offsets[v])
+                        guard l > 0 else { continue }
+                        offsets[v] = direction * (l * (simd_dot(offsets[v], n0) >= 0 ? 1 : -1))
+                    }
+                }
+                if !stubborn.isEmpty {
+                    // The folded points and a few rings round them (more each round), so the
+                    // change fades out rather than folding the next ring.
+                    var region = stubborn
+                    var around: [Int: Set<Int>] = [:]
+                    for _ in 0...(round - aligning + 1) {
+                        var grown = region
+                        for tri in triangles {
+                            let corners = [Int(tri.x), Int(tri.y), Int(tri.z)]
+                            guard corners.contains(where: { region.contains($0) }) else { continue }
+                            for v in corners {
+                                grown.insert(v)
+                                if region.contains(v) { for w in corners where w != v { around[v, default: []].insert(w) } }
+                            }
+                        }
+                        region = grown
+                    }
+                    for _ in 0..<8 {
+                        let before = offsets
+                        for (v, near) in around where before[v] != .zero {
+                            var sum = before[v]
+                            for w in near { sum += before[w] }
+                            offsets[v] = sum / Double(near.count + 1)
+                        }
+                    }
+                }
+            } else {
+                for v in bad { offsets[v] = round == rounds - 1 ? .zero : offsets[v] * 0.5 }
+            }
+            // Every triangle touching a point that moved (not only the ones checked this round:
+            // moving a point can fold a neighbour that was fine before).
+            candidates = triangles.indices.filter { t in
                 let tri = triangles[t]
                 return bad.contains(Int(tri.x)) || bad.contains(Int(tri.y)) || bad.contains(Int(tri.z))
             }
-            candidates = Array(Set(candidates))
         }
     }
 
@@ -760,6 +1423,19 @@ struct WorkMesh {
         return Mesh(positions: positions, normals: normals, indices: indices, triangleFaces: faces,
                     edges: original.edges, brepVertices: original.brepVertices)
     }
+}
+
+/// Lets `concurrentPerform` write distinct slots of one buffer.
+private struct SendableDirections: @unchecked Sendable {
+    let buffer: UnsafeMutableBufferPointer<SIMD3<Double>>
+}
+
+private struct SendableHeights: @unchecked Sendable {
+    let buffer: UnsafeMutableBufferPointer<Double>
+}
+
+private struct SendableFaces: @unchecked Sendable {
+    let buffer: UnsafeMutableBufferPointer<Int32>
 }
 
 /// Binary min-heap of (distance, vertex).

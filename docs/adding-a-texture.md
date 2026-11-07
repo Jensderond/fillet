@@ -74,7 +74,8 @@ through the MCP tool, and both exports checked watertight.
 - **Bounded by `amplitude`**: `|height| <= amplitude`. The engine budgets triangles and limits
   displacement near thin walls by it.
 - **Positive raises, negative cuts in.** Fading to zero at face borders, keeping the bed flat,
-  stopping short of the inside of a thin wall and keeping the mesh closed are the engine's job,
+  stopping short of the inside of a thin wall, keeping deep cuts clear of sharp corners and
+  keeping the mesh closed are the engine's job,
   not the pattern's.
 - **`detail`** is the triangle edge length for export: a fifth to a tenth of the smallest feature.
   Too coarse and edges come out ragged; too fine and a big part hits the 2.5 million triangle
@@ -137,6 +138,55 @@ Every hook has a default, so a plain pattern like the ribs above needs none of t
 | `rims(lo:hi:scale:)` | none | a sharp round outline should be meshed along its own curve |
 | `presented(_:)` | unchanged | relabel or condition parameters from a separate file |
 | `fadesAtBorders(_:)` | `true` | the pattern keeps clear of face borders itself, so the fade field is hidden |
+| `solid(over:)` | `nil` (per-face (u, v)) | features must run on unbroken across the edges between faces (a fillet next to a flat face, a corner blend): the pattern is laid out once in space over the whole textured surface |
+
+### Laying a pattern out in space: `solid(over:)`
+
+Each face gets its own (u, v), so where two faces meet smoothly (a fillet and the flat face it
+rounds into, two fillets and the corner blend between them) two unrelated layouts butt together.
+Nothing is pinned at a smooth edge, so a feature that crosses it is sliced by a straight seam
+with a step. Knit and dots get away with it (knit runs along walls that share one mapping; dots
+stay off seams). An irregular pattern that should cover a rounded box cannot.
+
+`solid(over: TextureSurface)` returns a `SolidTexture`, or nil to stay on the per-face path. The
+surface is every face of the texture step as triangles in space. `scatter(spacing:jitter:seed:)`
+spreads points evenly over it: fixed in space, so they don't change with the tessellation, and
+two sides of a thin wall (normals more than 120° apart, `TextureSurface.opposite`) don't crowd
+each other out. Each lattice point is dropped straight onto a triangle below or above it, never
+clamped onto a triangle's edge: clamping piled whole wedges of space onto the convex folds of the
+tessellation (a fillet's facets, a tight curve, the surface's border), and the seeds lined up
+there into straight seams and sliver stones. Points are kept no nearer than the spacing along
+the surface (`surfaceDistanceSquared`, not the shorter chord round a curve), and candidates on a
+tight convex bend go first (`bendPriority`), so stones wrap a rounded corner like quoins instead
+of a joint running down it. Its `detailScale` is how much coarser than
+asked the mesh comes out (1 for export, about 2 for the viewport). A pattern can widen features
+that mesh can't follow, so they render smooth rather than frayed. The engine then calls
+`SolidTexture.height(at:normal:)` and `detail(at:normal:)` with each point in space and the surface's
+normal there, for every face of the step, instead of the per-face mapping. Fading at sharp edges
+and untextured faces, the thin-wall limit and fold relaxing work as for any pattern.
+`height(at:)` in (u, v) is still required: the inspector swatch draws it.
+
+The triangle budget treats a solid pattern differently. Other patterns get every triangle capped at
+the length a uniform mesh would need to fit. A solid pattern's `detail(at:normal:)` keeps its
+proportions instead: a trial subdivision 1.6 times coarser measures how many triangles it needs,
+and when that is over the budget every wanted length grows by the same factor. A uniform cap made
+the viewport's stone edges no finer than their tops, and they frayed. The crease flips
+(`alignCreases`) skip solid patterns' faces: their relief has no creases, and the flips chained
+into fans of needle triangles that shaded as spikes along the stone edges.
+
+Optionally, `contour(at:normal:)` returns a smooth measure along the surface whose level lines
+`contourLevels` the relief bends along (flagstone: the distance into a stone across its edge
+round). Before displacing, the engine slides points within about a third of an edge of a level
+line onto it, so the triangles run along the bend instead of zigzagging across it (which shades
+as a saw-toothed fringe, worst on the viewport's coarser mesh). The default (nil) leaves the mesh
+as subdivided.
+
+Points of a solid pattern are cut along their surface normals averaged over about the pattern's
+`amplitude` in space (a kernel blend's normals jitter by a degree between points microns apart),
+and a cut is kept within `cutSlope` times its straight distance from a sharp or untextured edge
+(`cutLimit(at:amplitude:)`): the limit rises from the edge along a smootherstep, level at both
+ends, and the cut is rounded into it, so a joint running into the bed or a rim ramps out
+smoothly instead of ending in a saw-toothed line.
 
 ## Worked example: knit (`KnitPattern.swift`)
 
@@ -184,6 +234,49 @@ Dots use most hooks, because a flat disc needs a crisp, round, whole outline.
   what files store.
 - **`fadesAtBorders(_:)`** returns `!whole`: whole dots never reach a border, so the fade field is
   hidden.
+
+## Worked example: flagstone (`FlagstonePattern.swift` and `FlagstonePattern+Solid.swift`)
+
+Flagstone lays irregular stones over everything, fillets and corner blends included.
+
+- **`solid(over:)`** scatters one seed per stone over the surface (`scatter`, spacing 0.83 ×
+  `size`). Each stone is the part of the surface nearer to its seed than to any other. A point's
+  distance to its stone's outline is measured to the bisector with each neighbouring seed, in
+  the surface's tangent plane, with every seed first unfolded into that plane
+  (`TextureSurface.unfold`: as far away as the way along the surface, exactly so round a
+  cylinder). With the seeds as they are in space, round a tight corner the distance came out short
+  on one side of a joint and long on the other, and the edge round was squeezed into a crease.
+  The corners are rounded by a disc (`rounded`: the outline opened
+  by a circle reaching just past the top of the edge round, so a sharp corner ends in a round
+  rather than a low wedge melting into the joint). Seeds facing away
+  from the point by more than `TextureSurface.opposite` (the far side of a thin wall) count as
+  farther, smoothly, so they never cut a stone off; seeds round a convex corner or a tight curve
+  count at their plain distance.
+- **Sampled along smoothed normals.** The engine smooths the kernel's normals under a layout in
+  space before sampling it (`smoothDirections`: a plane fitted per face, so a flat face's normals
+  stay true where it meets a fillet), evens out the jump in curvature where a flat face meets a
+  fillet (`fairing`: a crisp line across every stone otherwise), and removes slivers along face
+  edges (`dissolveSlivers`) before cutting.
+- **The profile** across a joint (`shoulder`) rises with its curvature half a sine wave up over
+  the first 35 % of the edge round (the foot, down in the joint) and a longer, gentler one down
+  over the rest (the shoulder onto the top): no kink and no jump in curvature where it leaves the
+  joint floor or meets the stone top. The shoulder is what catches the light, so it gets the room:
+  at the defaults (2.5 mm edge, 1 mm deep) it bends over onto the top at a radius of about 1.9 mm
+  and is at most 35° steep. A symmetric smootherstep over the old 1 mm default bent at 0.4 mm,
+  about two triangles, and rendered as a dotted line along every crest; at 1.5 mm (0.9 mm, 47°)
+  the highlight along the crest still traced every stone with a hard bright line. The round
+  is widened by two triangles (`softeningSteps`), at export and at the viewport's coarser detail
+  (`detailScale`) alike.
+- **`contour(at:normal:)`** is the distance into the stone, with level lines where the round
+  leaves the floor, where the foot bends most, where it turns into the shoulder, in quarters
+  across the shoulder, and where it meets the top.
+- **`detail`** is the coarse size for the stone tops, and **`detail(at:)`** /
+  `detail(at:normal:)` is fine (a ninth of the joint or edge, whichever is smaller) across the
+  edge round and grows quickly away from it.
+- **The grain** on the stone tops (`roughness`) has its fine octave at a fifth of a stone, so
+  the slope changes by under a degree across one of the tops' triangles. At a ninth it changed
+  by 1.7°, and seen at a glancing angle the tops shaded as streaks along the triangles' rows.
+- **`height(at:)`** in (u, v) is a jittered-grid version of the same stones, for the swatch.
 
 ## What a pattern never touches
 
