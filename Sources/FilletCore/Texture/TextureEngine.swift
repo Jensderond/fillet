@@ -617,6 +617,8 @@ struct WorkMesh {
         // The squared length wanted at each point (-1: not yet known), on the face of the first
         // triangle (in order) that needed it.
         var wanted: [Double] = []
+        // The points whose edges ``improve(where:passes:dirty:)`` must look at again (nil: all).
+        var dirty: [Bool]? = nil
         for _ in 0..<64 {
             if let local {
                 // The points this pass looks at for the first time, on that face, looked up
@@ -686,6 +688,7 @@ struct WorkMesh {
             func mid(_ a: Int32, _ b: Int32) -> Int32? {
                 splitEnd[Int(a)] && splitEnd[Int(b)] ? mids[Self.key(a, b)] : nil
             }
+            if dirty != nil { dirty!.append(contentsOf: repeatElement(false, count: points.count - dirty!.count)) }
             var newTriangles: [SIMD3<Int32>] = []
             var newFaces: [Int32] = []
             newTriangles.reserveCapacity(triangles.count + 2 * mids.count)
@@ -697,6 +700,7 @@ struct WorkMesh {
                 func add(_ a: Int32, _ b: Int32, _ c: Int32) {
                     newTriangles.append(SIMD3(a, b, c))
                     newFaces.append(f)
+                    dirty?[Int(a)] = true; dirty?[Int(b)] = true; dirty?[Int(c)] = true
                 }
                 func e(_ r: Int) -> Int32? { r == 0 ? e0 : (r == 1 ? e1 : e2) }
                 // A point splitting an edge between faces: each face's normal there.
@@ -741,10 +745,10 @@ struct WorkMesh {
             }
             triangles = newTriangles
             faces = newFaces
-            improve(where: include)
+            improve(where: include, dirty: &dirty)
             if last { break }
         }
-        improve(where: include, passes: 4)
+        improve(where: include, passes: 4, dirty: &dirty)
     }
 
     /// The point halfway along edge (`a`, `b`) on the face's curved surface rather than on the
@@ -771,16 +775,41 @@ struct WorkMesh {
     /// Delaunay edge flips inside each face `include` accepts: an edge whose opposite angles add
     /// up to more than 180° is swapped for the other diagonal (when the two triangles are nearly
     /// coplanar and the quad is convex), so splitting leaves round triangles, not needles.
-    mutating func improve(where include: (Int32) -> Bool, passes: Int = 1) {
+    ///
+    /// `dirty`, when given, marks the points whose edges can have changed since the last pass
+    /// looked at them: every corner of a triangle made or changed since (by splitting or a flip).
+    /// Only edges with both ends dirty are looked at, and on return it marks the corners of the
+    /// triangles this call flipped (none dirty when it ended on a pass without flips). Subdividing
+    /// runs a pass after every split, and in the later ones only the stone edges or other fine
+    /// bands still split: looking up every edge of the mesh each time was most of subdividing.
+    /// The flips come out the same as looking at every edge: an edge with an end that isn't dirty
+    /// lies only between triangles unchanged since a pass that looked at it (any triangle made or
+    /// changed on it would have dirtied both its ends), in the same order (splitting and flips
+    /// keep it), with the points fixed. That pass found nothing to flip there, which depends on
+    /// nothing else, and no triangle on it can flip in this pass either (it would have changed),
+    /// so skipping it changes neither the flips nor which triangle owns each other edge. Nil
+    /// looks at every edge (the first pass after a split of a mesh never improved).
+    mutating func improve(where include: (Int32) -> Bool, passes: Int = 1, dirty: inout [Bool]?) {
         let coplanar = cos(25.0 * .pi / 180)
         for _ in 0..<passes {
-            var owner = EdgeMap<Int32>(capacity: triangles.count * 3 / 2, filler: -1)
+            // The triangles with an edge to look at, in order.
+            var visit: [Int] = []
+            if let dirty {
+                for t in triangles.indices where include(faces[t]) {
+                    let tri = triangles[t]
+                    if (dirty[Int(tri.x)] ? 1 : 0) + (dirty[Int(tri.y)] ? 1 : 0) + (dirty[Int(tri.z)] ? 1 : 0) >= 2 { visit.append(t) }
+                }
+            } else {
+                visit = triangles.indices.filter { include(faces[$0]) }
+            }
+            var owner = EdgeMap<Int32>(capacity: visit.count * 3 / 2, filler: -1)
             var touched = [Bool](repeating: false, count: triangles.count)
-            var flips = 0
-            for t in triangles.indices where include(faces[t]) {
+            var flipped: [Int] = []
+            for t in visit {
                 let tri = triangles[t]
                 for k in 0..<3 {
                     let a = tri[k], b = tri[(k + 1) % 3]
+                    if let dirty, !dirty[Int(a)] || !dirty[Int(b)] { continue }
                     let (slot, found) = owner.findOrInsert(Self.key(a, b))
                     guard found else { owner.set(slot: slot, Int32(t)); continue }
                     let u = Int(owner.values[slot])
@@ -811,11 +840,18 @@ struct WorkMesh {
                     triangles[u] = SIMD3(c, d, b)
                     touched[t] = true
                     touched[u] = true
-                    flips += 1
+                    flipped.append(t)
+                    flipped.append(u)
                     break
                 }
             }
-            if flips == 0 { return }
+            var next = [Bool](repeating: false, count: points.count)
+            for t in flipped {
+                let tri = triangles[t]
+                next[Int(tri.x)] = true; next[Int(tri.y)] = true; next[Int(tri.z)] = true
+            }
+            dirty = next
+            if flipped.isEmpty { return }
         }
     }
 
