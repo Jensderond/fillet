@@ -130,7 +130,11 @@ public enum TextureEngine {
         let stages = TextureStageTimes.current
         var m = WorkMesh(welding: mesh)
         guard !m.triangles.isEmpty else { return mesh }
-        let textured: (Int32) -> Bool = { specs[$0] != nil }
+        // Whether each face is textured, by face index: asked for every triangle in most passes
+        // (dozens of them while subdividing), where hashing into `specs` cost more than the work.
+        var texturedFaces = [Bool](repeating: false, count: Int(max(specs.keys.max() ?? -1, -1)) + 1)
+        for f in specs.keys where f >= 0 { texturedFaces[Int(f)] = true }
+        let textured: (Int32) -> Bool = { [texturedFaces] f in f >= 0 && Int(f) < texturedFaces.count && texturedFaces[Int(f)] }
         stages?.mark("weld")
         // Patterns laid out over their whole surface in space, by face.
         let solids = m.solidTextures(specs, detailScale: quality.edgeScale * quality.edgeScale)
