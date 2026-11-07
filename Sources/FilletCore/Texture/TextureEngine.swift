@@ -1227,19 +1227,47 @@ struct WorkMesh {
     }
 
     /// Endpoints of edges used by only one triangle (a mesh that wasn't closed to begin with).
+    ///
+    /// Each edge is listed under its lower end, and each point's few edges counted among
+    /// themselves: rather than a hash map of every edge, whose lookups land all over memory.
     func openEdgeVertices() -> Set<Int> {
-        var count = EdgeMap<Int32>(capacity: triangles.count * 3 / 2, filler: 0)
+        var start = [Int](repeating: 0, count: points.count + 1)
         for tri in triangles {
-            for (p, q) in [(tri.x, tri.y), (tri.y, tri.z), (tri.z, tri.x)] {
-                let slot = count.findOrInsert(Self.key(p, q)).slot
-                count.set(slot: slot, count.values[slot] + 1)
+            start[Int(min(tri.x, tri.y)) + 1] += 1
+            start[Int(min(tri.y, tri.z)) + 1] += 1
+            start[Int(min(tri.z, tri.x)) + 1] += 1
+        }
+        for v in 0..<points.count { start[v + 1] += start[v] }
+        var fill = start
+        var upper = [Int32](repeating: 0, count: start[points.count])
+        for tri in triangles {
+            for k in 0..<3 {
+                let p = tri[k], q = tri[(k + 1) % 3]
+                let lo = Int(min(p, q))
+                upper[fill[lo]] = max(p, q)
+                fill[lo] += 1
             }
         }
         var out = Set<Int>()
-        count.forEach { k, c in
-            guard c == 1 else { return }
-            out.insert(Int(Int32(bitPattern: UInt32(k >> 32))))
-            out.insert(Int(Int32(bitPattern: UInt32(k & 0xFFFF_FFFF))))
+        for v in 0..<points.count where start[v + 1] - start[v] > 0 {
+            let list = upper[start[v]..<start[v + 1]]
+            if list.count > 32 {
+                // A fan round a pole: sorted, an edge's copies lie together.
+                let sorted = list.sorted()
+                var i = 0
+                while i < sorted.count {
+                    var j = i + 1
+                    while j < sorted.count, sorted[j] == sorted[i] { j += 1 }
+                    if j - i == 1 { out.insert(v); out.insert(Int(sorted[i])) }
+                    i = j
+                }
+            } else {
+                for i in list.indices {
+                    var copies = 0
+                    for j in list.indices where list[j] == list[i] { copies += 1 }
+                    if copies == 1 { out.insert(v); out.insert(Int(list[i])) }
+                }
+            }
         }
         return out
     }
@@ -1327,13 +1355,10 @@ struct WorkMesh {
     /// spread into torn flaps round the tip of a box's corner blend. Inside one face the
     /// splitting's flips already keep them out.
     mutating func dissolveSlivers(where include: (Int32) -> Bool) {
-        var owner = EdgeMap<Int>(capacity: triangles.count * 3, filler: -1)
-        for (t, tri) in triangles.enumerated() {
-            for k in 0..<3 { owner.set(Self.directedKey(tri[k], tri[(k + 1) % 3]), t) }
-        }
-        var removed = [Bool](repeating: false, count: triangles.count)
-        var added: [(SIMD3<Int32>, Int32)] = []
-        for t in triangles.indices where !removed[t] && include(faces[t]) {
+        // The slivers to dissolve, each with its longest edge (a, b) and third corner c: that
+        // depends on the triangle alone, which nothing below changes before it comes to it.
+        var slivers: [(t: Int, a: Int32, b: Int32, c: Int32)] = []
+        for t in triangles.indices where include(faces[t]) {
             let tri = triangles[t]
             var longest = 0, length2 = -1.0
             for k in 0..<3 {
@@ -1345,6 +1370,27 @@ struct WorkMesh {
             guard length2 > 0, simd_length(simd_cross(pb - pa, pc - pa)) < WorkMesh.sliver * length2 else { continue }
             let f = simd_dot(pc - pa, pb - pa) / length2
             guard f > 0.02, f < 0.98 else { continue }
+            slivers.append((t, a, b, c))
+        }
+        guard !slivers.isEmpty else { return }
+        // The last triangle with each edge the slivers look across, b → a, (-1: none). Only
+        // those edges: the rest are never looked up, and a map of every edge was most of the
+        // time here. Points that start such an edge are flagged, so most edges skip the lookup.
+        var owner = EdgeMap<Int>(capacity: 4 * slivers.count, filler: -1)
+        var starts = [Bool](repeating: false, count: points.count)
+        for s in slivers {
+            _ = owner.findOrInsert(Self.directedKey(s.b, s.a))
+            starts[Int(s.b)] = true
+        }
+        for (t, tri) in triangles.enumerated() {
+            for k in 0..<3 where starts[Int(tri[k])] {
+                if let slot = owner.slot(of: Self.directedKey(tri[k], tri[(k + 1) % 3])) { owner.set(slot: slot, t) }
+            }
+        }
+        var removed = [Bool](repeating: false, count: triangles.count)
+        var added: [(SIMD3<Int32>, Int32)] = []
+        for (t, a, b, c) in slivers where !removed[t] {
+            let pa = points[Int(a)], pb = points[Int(b)], pc = points[Int(c)]
             // The triangle across (a, b), running b → a.
             guard let u = owner[Self.directedKey(b, a)], u >= 0, u != t, !removed[u], faces[u] != faces[t] else { continue }
             let other = triangles[u]
@@ -1362,9 +1408,12 @@ struct WorkMesh {
             removed[u] = true
             added.append((SIMD3(b, c, d), faces[u]))
             added.append((SIMD3(c, a, d), faces[u]))
-            // The new triangles' edges aren't split again in this pass.
+            // The new triangles' edges aren't split again in this pass (only those a sliver
+            // looks across matter).
             for (new, _) in added.suffix(2) {
-                for j in 0..<3 { owner.set(Self.directedKey(new[j], new[(j + 1) % 3]), -1) }
+                for j in 0..<3 {
+                    if let slot = owner.slot(of: Self.directedKey(new[j], new[(j + 1) % 3])) { owner.set(slot: slot, -1) }
+                }
             }
         }
         guard !added.isEmpty else { return }
