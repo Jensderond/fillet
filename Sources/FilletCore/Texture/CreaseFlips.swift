@@ -22,7 +22,24 @@ extension WorkMesh {
             guard l > 0 else { return .pi }
             return acos(max(-1, min(1, simd_dot(n1, n2) / l)))
         }
-        for _ in 0..<passes {
+        // Nothing to do on a mesh without such faces (a layout in space only).
+        var lastFace = Int32.min, any = false
+        for f in faces where f != lastFace {
+            lastFace = f
+            if include(f) { any = true; break }
+        }
+        guard any else { return }
+        // The pass in which each point was last a corner of a flipped quad (-1: never). After
+        // the first pass only edges of triangles with such a corner from the pass before, or
+        // from earlier in this one, are tried again: every other quad is the same as when it
+        // was turned down in the pass before. Its two triangles, its four neighbours, its edges
+        // and whether its other diagonal exists each involve two of its corners, at least one
+        // of them a corner of the triangle its edge is listed under (a, b or c below), and a
+        // flip changes only triangles and edges among its own quad's corners (and only
+        // touches triangles sharing two of them).
+        var flipped = [Int32](repeating: -1, count: points.count)
+        for pass in 0..<passes {
+            let recent = Int32(pass - 1)
             // Edge -> the (up to) two triangles on it.
             var edges = EdgeMap<SIMD2<Int32>>(capacity: triangles.count * 3 / 2, filler: SIMD2(-1, -1))
             for t in triangles.indices {
@@ -45,6 +62,7 @@ extension WorkMesh {
             // the same design always exports the same mesh.
             let snapshot = triangles
             for (t, tri) in snapshot.enumerated() { for k in 0..<3 {
+                if pass > 0, flipped[Int(tri.x)] < recent, flipped[Int(tri.y)] < recent, flipped[Int(tri.z)] < recent { break }
                 guard let pair = edges[Self.key(tri[k], tri[(k + 1) % 3])], Int(pair.x) == t, pair.y >= 0 else { continue }
                 let t1 = Int(pair.x), t2 = Int(pair.y)
                 guard !touched[t1], !touched[t2], faces[t1] == faces[t2], include(faces[t1]) else { continue }
@@ -92,6 +110,7 @@ extension WorkMesh {
                 triangles[t2] = SIMD3(d, b, c)
                 touched[t1] = true
                 touched[t2] = true
+                for v in [a, b, c, d] { flipped[Int(v)] = Int32(pass) }
                 created.set(Self.key(c, d), true)
                 // Their neighbours' entries in `edges` are stale now; leave them for the next pass.
                 for (p, q) in [(b, c), (c, a), (a, d), (d, b)] {
