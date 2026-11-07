@@ -68,9 +68,12 @@ extension DesignSession {
 
     // MARK: Scene
 
-    func makeScene() -> ViewportScene {
+    /// The viewport's scene. With `fadesStaleRelief`, a relief that is being rebuilt shows faded
+    /// (`staleReliefBodies`); the editor turns that on once a recompute has run long enough to notice.
+    func makeScene(fadesStaleRelief: Bool = false) -> ViewportScene {
         var scene = ViewportScene()
         let selected = Set(selection.compactMap(\.pickTarget))
+        let stale = fadesStaleRelief ? staleReliefBodies : []
         for body in model.bodies {
             let mesh = model.meshes[body.ref] ?? .empty
             var highlight = BodyHighlight.none
@@ -85,6 +88,9 @@ extension DesignSession {
                 visible: !hiddenBodies.contains(body.ref), highlight: highlight)
             // A textured body keeps its edges but not the silhouettes of its relief.
             shown.showsSilhouettes = body.textures.isEmpty
+            // Only the relief fades: it's what takes the time to rebuild, and the faces it's on
+            // say which texture is out of date.
+            if stale.contains(body.ref) { shown.fadedFaces = texturedFaces(of: body) }
             scene.bodies.append(shown)
         }
         scene.selection = selected.union(editingSelectionTargets())

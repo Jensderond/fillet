@@ -70,6 +70,9 @@ struct ToastMessage: Equatable, ExpressibleByStringInterpolation {
 final class DesignSession {
     private(set) var document: Document
     private(set) var model: EvaluatedModel
+    /// The document `model` was evaluated from; `document` runs ahead of it while a recompute
+    /// runs (see `staleReliefBodies`).
+    private(set) var modelDocument: Document
     private(set) var isRecomputing = false
     /// What an export running in the background is doing ("Building the textured print mesh"),
     /// shown in the viewport's status pill; nil when none runs.
@@ -188,6 +191,7 @@ final class DesignSession {
     init(document: Document) {
         self.document = document
         self.model = EvaluatedModel(parameters: document.parameterTable)
+        self.modelDocument = document
         recompute()
     }
 
@@ -375,6 +379,7 @@ final class DesignSession {
                 let previousBodies = self.model.bodies.count
                 let previousStatus = self.model.status
                 self.model = result
+                self.modelDocument = doc
                 self.measure?.dropStale(in: result)
                 self.reframeAfterRecompute(previousBodyCount: previousBodies)
                 self.announceFailures(previous: previousStatus)

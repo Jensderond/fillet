@@ -251,7 +251,8 @@ struct EditorContent: View {
     private var viewport: some View {
         ZStack(alignment: .top) {
             EditorViewport(session: session, controller: controller, visualStyle: $visualStyle, fingerDraws: fingerDraws,
-                           animatesCameraChanges: !reduceMotion, cameraAnimationDuration: cameraAnimationDuration)
+                           animatesCameraChanges: !reduceMotion, cameraAnimationDuration: cameraAnimationDuration,
+                           fadesStaleRelief: showUpdating)
                 .background(GeometryReader { proxy in
                     Color.clear
                         .onAppear { session.viewportGeometryChanged(size: proxy.size, chrome: chromeInsets) }
@@ -356,8 +357,11 @@ struct EditorContent: View {
                 .padding(.horizontal, Theme.Space.m).padding(.vertical, Theme.Space.xs)
                 .background(Capsule().fill(Theme.raised))
                 .overlay(Capsule().strokeBorder(Theme.hairline))
+                .automationFrame("updating-pill")
                 .padding(Theme.Space.m)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                // Bottom trailing: nothing floats there in any layout. The leading edge is where
+                // the browser floats below regular width, and it covered the pill there.
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                 .transition(.opacity.animation(Theme.Motion.exit))
             }
         }
@@ -455,10 +459,13 @@ struct EditorViewport: View {
     let fingerDraws: Bool
     let animatesCameraChanges: Bool
     let cameraAnimationDuration: Double
+    /// A relief being rebuilt shows faded: on with the Updating pill, so a quick recompute
+    /// doesn't flicker the part.
+    let fadesStaleRelief: Bool
 
     var body: some View {
         ViewportView(
-            scene: session.makeScene(),
+            scene: session.makeScene(fadesStaleRelief: fadesStaleRelief),
             camera: $session.camera,
             filter: session.pickFilter,
             // Reduce Motion: camera moves (sketch entry, view cube, fit) cut instead of flying.

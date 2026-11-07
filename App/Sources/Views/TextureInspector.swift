@@ -31,6 +31,8 @@ struct TextureInspector: View {
                 set(x)
             }
         }
+        // On the label's line, where the eyes are while tuning; an overlay, so nothing below moves.
+        .overlay(alignment: .topTrailing) { TextureUpdating(shown: session.isEditedTextureUpdating) }
         if let p = TextureCatalog.pattern(t.pattern) {
             Hint(p.summary, symbol: "info.circle")
         } else {
@@ -186,6 +188,30 @@ extension TextureParameter {
         case .angle: .angle
         default: .scalar
         }
+    }
+}
+
+/// "Updating texture…" with a spinner while the step's relief is being rebuilt: until it lands the
+/// viewport shows the previous one, which a new profile or size mustn't be mistaken for.
+private struct TextureUpdating: View {
+    let shown: Bool
+
+    var body: some View {
+        ZStack {
+            if shown {
+                HStack(spacing: Theme.Space.xs) {
+                    ProgressView().controlSize(.mini)
+                    Text("Updating texture…")
+                }
+                .font(Theme.caption.weight(.medium))
+                .foregroundStyle(Theme.inkSecondary)
+                .accessibilityElement(children: .combine)
+                .accessibilityLabel("Updating texture")
+                .automationMarker("texture-updating")
+                .transition(.opacity)
+            }
+        }
+        .animation(shown ? Theme.Motion.enter : Theme.Motion.exit, value: shown)
     }
 }
 
