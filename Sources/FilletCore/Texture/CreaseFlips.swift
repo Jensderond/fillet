@@ -24,23 +24,23 @@ extension WorkMesh {
         }
         for _ in 0..<passes {
             // Edge -> the (up to) two triangles on it.
-            var edges: [UInt64: SIMD2<Int32>] = [:]
-            edges.reserveCapacity(triangles.count * 3 / 2)
+            var edges = EdgeMap<SIMD2<Int32>>(capacity: triangles.count * 3 / 2, filler: SIMD2(-1, -1))
             for t in triangles.indices {
                 let tri = triangles[t]
                 for k in 0..<3 {
-                    let key = Self.key(tri[k], tri[(k + 1) % 3])
-                    if var pair = edges[key] {
+                    let (slot, found) = edges.findOrInsert(Self.key(tri[k], tri[(k + 1) % 3]))
+                    if found {
+                        var pair = edges.values[slot]
                         pair.y = Int32(t)
-                        edges[key] = pair
+                        edges.set(slot: slot, pair)
                     } else {
-                        edges[key] = SIMD2(Int32(t), -1)
+                        edges.set(slot: slot, SIMD2(Int32(t), -1))
                     }
                 }
             }
             var touched = [Bool](repeating: false, count: triangles.count)
             var flips = 0
-            var created = Set<UInt64>()
+            var created = EdgeMap<Bool>(capacity: 1024, filler: true)
             // Edges in triangle order (not the dictionary's, which changes from run to run), so
             // the same design always exports the same mesh.
             let snapshot = triangles
@@ -92,7 +92,7 @@ extension WorkMesh {
                 triangles[t2] = SIMD3(d, b, c)
                 touched[t1] = true
                 touched[t2] = true
-                created.insert(Self.key(c, d))
+                created.set(Self.key(c, d), true)
                 // Their neighbours' entries in `edges` are stale now; leave them for the next pass.
                 for (p, q) in [(b, c), (c, a), (a, d), (d, b)] {
                     if let e = edges[Self.key(p, q)] {

@@ -605,7 +605,7 @@ struct WorkMesh {
         for _ in 0..<64 {
             // Edges to split this pass, in triangle order, with how far each is over its length.
             var wantedSplits: [(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)] = []
-            var seen = Set<UInt64>()
+            var seen = EdgeMap<Bool>(capacity: 1024, filler: true)
             for t in triangles.indices where include(faces[t]) {
                 let tri = triangles[t]
                 var best = -1.0, bestK = 0
@@ -618,7 +618,7 @@ struct WorkMesh {
                 guard best > wantedHere else { continue }
                 let a = tri[bestK], b = tri[(bestK + 1) % 3]
                 let k = Self.key(a, b)
-                if seen.insert(k).inserted { wantedSplits.append((k, a, b, f, best / max(wantedHere, 1e-12))) }
+                if !seen.findOrInsert(k).found { wantedSplits.append((k, a, b, f, best / max(wantedHere, 1e-12))) }
             }
             if wantedSplits.isEmpty { break }
             // Over the budget: only the edges furthest over their length, as many as fit (each
@@ -636,14 +636,19 @@ struct WorkMesh {
                 }
                 last = true
             }
-            var mids: [UInt64: Int32] = [:]
-            mids.reserveCapacity(wantedSplits.count)
+            var mids = EdgeMap<Int32>(capacity: wantedSplits.count, filler: -1)
+            // The ends of the edges split: only an edge with both ends among them can be one.
+            var splitEnd = [Bool](repeating: false, count: points.count)
             for split in wantedSplits {
-                mids[split.key] = Int32(points.count)
+                mids.set(split.key, Int32(points.count))
                 points.append(curvedMidpoint(split.a, split.b, face: split.face))
                 if surfaceNormals.count == points.count - 1 {
                     surfaceNormals.append(Self.unit(surfaceNormal(split.a, face: split.face) + surfaceNormal(split.b, face: split.face)))
                 }
+            }
+            for s in wantedSplits { splitEnd[Int(s.a)] = true; splitEnd[Int(s.b)] = true }
+            func mid(_ a: Int32, _ b: Int32) -> Int32? {
+                splitEnd[Int(a)] && splitEnd[Int(b)] ? mids[Self.key(a, b)] : nil
             }
             var newTriangles: [SIMD3<Int32>] = []
             var newFaces: [Int32] = []
@@ -651,17 +656,17 @@ struct WorkMesh {
             newFaces.reserveCapacity(triangles.count + 2 * mids.count)
             for t in triangles.indices {
                 let v = triangles[t]
-                let e0 = mids[Self.key(v[0], v[1])], e1 = mids[Self.key(v[1], v[2])], e2 = mids[Self.key(v[2], v[0])]
+                let e0 = mid(v[0], v[1]), e1 = mid(v[1], v[2]), e2 = mid(v[2], v[0])
                 let f = faces[t]
                 func add(_ a: Int32, _ b: Int32, _ c: Int32) {
                     newTriangles.append(SIMD3(a, b, c))
                     newFaces.append(f)
                 }
-                let e = [e0, e1, e2]
+                func e(_ r: Int) -> Int32? { r == 0 ? e0 : (r == 1 ? e1 : e2) }
                 // A point splitting an edge between faces: each face's normal there.
                 if !edgeNormals.isEmpty {
                     for r in 0..<3 {
-                        guard let m = e[r] else { continue }
+                        guard let m = e(r) else { continue }
                         let a = v[r], b = v[(r + 1) % 3]
                         guard edgeNormals[Self.pointFace(a, f)] != nil, edgeNormals[Self.pointFace(b, f)] != nil else { continue }
                         edgeNormals[Self.pointFace(m, f)] = Self.unit(surfaceNormal(a, face: f) + surfaceNormal(b, face: f))
@@ -673,7 +678,7 @@ struct WorkMesh {
                     newFaces.append(f)
                 case 1:
                     let r = e0 != nil ? 0 : (e1 != nil ? 1 : 2)
-                    let a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3], m = e[r]!
+                    let a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3], m = e(r)!
                     add(a, m, c)
                     add(m, b, c)
                 case 2:
@@ -681,7 +686,7 @@ struct WorkMesh {
                     let k = e0 == nil ? 0 : (e1 == nil ? 1 : 2)
                     let r = (k + 1) % 3
                     let a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3]
-                    let mab = e[r]!, mbc = e[(r + 1) % 3]!
+                    let mab = e(r)!, mbc = e((r + 1) % 3)!
                     add(mab, b, mbc)
                     if simd_distance_squared(points[Int(a)], points[Int(mbc)]) < simd_distance_squared(points[Int(mab)], points[Int(c)]) {
                         add(a, mab, mbc)
@@ -733,17 +738,16 @@ struct WorkMesh {
     mutating func improve(where include: (Int32) -> Bool, passes: Int = 1) {
         let coplanar = cos(25.0 * .pi / 180)
         for _ in 0..<passes {
-            var owner: [UInt64: Int32] = [:]
-            owner.reserveCapacity(triangles.count * 3 / 2)
+            var owner = EdgeMap<Int32>(capacity: triangles.count * 3 / 2, filler: -1)
             var touched = [Bool](repeating: false, count: triangles.count)
             var flips = 0
             for t in triangles.indices where include(faces[t]) {
                 let tri = triangles[t]
                 for k in 0..<3 {
                     let a = tri[k], b = tri[(k + 1) % 3]
-                    let key = Self.key(a, b)
-                    guard let other = owner[key] else { owner[key] = Int32(t); continue }
-                    let u = Int(other)
+                    let (slot, found) = owner.findOrInsert(Self.key(a, b))
+                    guard found else { owner.set(slot: slot, Int32(t)); continue }
+                    let u = Int(owner.values[slot])
                     guard !touched[t], !touched[u], faces[u] == faces[t] else { continue }
                     let c = tri[(k + 2) % 3]
                     let o = triangles[u]
@@ -833,7 +837,10 @@ struct WorkMesh {
     /// more than `angle`.
     func creaseVertices(angle: Double, where include: (Int32) -> Bool) -> Set<Int> {
         let boundary = vertexFaces()
-        var seen: [UInt64: (face: Int32, normal: SIMD3<Double>)] = [:]
+        // Points on more than one face (only their edges can be between faces).
+        var shared = [Bool](repeating: false, count: points.count)
+        for v in boundary.more.keys { shared[v] = true }
+        var seen = EdgeMap<(face: Int32, normal: SIMD3<Double>)>(capacity: 1024, filler: (-1, .zero))
         var out = Set<Int>()
         let cosLimit = cos(angle)
         for (t, tri) in triangles.enumerated() where include(faces[t]) {
@@ -842,15 +849,16 @@ struct WorkMesh {
             let l = simd_length(cross)
             let normal = l > 0 ? cross / l : .zero
             for (p, q) in [(tri.x, tri.y), (tri.y, tri.z), (tri.z, tri.x)] {
-                guard boundary.more[Int(p)] != nil, boundary.more[Int(q)] != nil else { continue }
-                let k = Self.key(p, q)
-                if let other = seen[k] {
+                guard shared[Int(p)], shared[Int(q)] else { continue }
+                let (slot, found) = seen.findOrInsert(Self.key(p, q))
+                if found {
+                    let other = seen.values[slot]
                     if other.face != faces[t], simd_dot(other.normal, normal) < cosLimit {
                         out.insert(Int(p))
                         out.insert(Int(q))
                     }
                 } else {
-                    seen[k] = (faces[t], normal)
+                    seen.set(slot: slot, (faces[t], normal))
                 }
             }
         }
@@ -1102,13 +1110,16 @@ struct WorkMesh {
 
     /// Endpoints of edges used by only one triangle (a mesh that wasn't closed to begin with).
     func openEdgeVertices() -> Set<Int> {
-        var count: [UInt64: Int] = [:]
-        count.reserveCapacity(triangles.count * 3 / 2)
+        var count = EdgeMap<Int32>(capacity: triangles.count * 3 / 2, filler: 0)
         for tri in triangles {
-            for (p, q) in [(tri.x, tri.y), (tri.y, tri.z), (tri.z, tri.x)] { count[Self.key(p, q), default: 0] += 1 }
+            for (p, q) in [(tri.x, tri.y), (tri.y, tri.z), (tri.z, tri.x)] {
+                let slot = count.findOrInsert(Self.key(p, q)).slot
+                count.set(slot: slot, count.values[slot] + 1)
+            }
         }
         var out = Set<Int>()
-        for (k, c) in count where c == 1 {
+        count.forEach { k, c in
+            guard c == 1 else { return }
             out.insert(Int(Int32(bitPattern: UInt32(k >> 32))))
             out.insert(Int(Int32(bitPattern: UInt32(k & 0xFFFF_FFFF))))
         }
@@ -1198,10 +1209,9 @@ struct WorkMesh {
     /// spread into torn flaps round the tip of a box's corner blend. Inside one face the
     /// splitting's flips already keep them out.
     mutating func dissolveSlivers(where include: (Int32) -> Bool) {
-        var owner: [UInt64: Int] = [:]
-        owner.reserveCapacity(triangles.count * 3 / 2)
+        var owner = EdgeMap<Int>(capacity: triangles.count * 3, filler: -1)
         for (t, tri) in triangles.enumerated() {
-            for k in 0..<3 { owner[Self.directedKey(tri[k], tri[(k + 1) % 3])] = t }
+            for k in 0..<3 { owner.set(Self.directedKey(tri[k], tri[(k + 1) % 3]), t) }
         }
         var removed = [Bool](repeating: false, count: triangles.count)
         var added: [(SIMD3<Int32>, Int32)] = []
@@ -1236,7 +1246,7 @@ struct WorkMesh {
             added.append((SIMD3(c, a, d), faces[u]))
             // The new triangles' edges aren't split again in this pass.
             for (new, _) in added.suffix(2) {
-                for j in 0..<3 { owner[Self.directedKey(new[j], new[(j + 1) % 3])] = -1 }
+                for j in 0..<3 { owner.set(Self.directedKey(new[j], new[(j + 1) % 3]), -1) }
             }
         }
         guard !added.isEmpty else { return }
@@ -1299,8 +1309,15 @@ struct WorkMesh {
                 offsets[s.apex] = along
             }
         }
+        // The corners of folded triangles this round: flags by point, and the points flagged.
+        var isBad = [Bool](repeating: false, count: points.count)
+        var bad: [Int] = []
         for round in 0..<rounds {
-            var bad = Set<Int>()
+            for v in bad { isBad[v] = false }
+            bad.removeAll(keepingCapacity: true)
+            func markBad(_ v: Int) {
+                if !isBad[v] { isBad[v] = true; bad.append(v) }
+            }
             var folded: [Int] = []
             for t in candidates {
                 let tri = triangles[t]
@@ -1322,7 +1339,7 @@ struct WorkMesh {
                     if drift < 1e-3 * longest.squareRoot() { continue }
                 }
                 if l1 < 1e-3 * l0 || simd_dot(n0, n1) < cosLimit * l0 * l1 {
-                    bad.insert(a); bad.insert(b); bad.insert(c)
+                    markBad(a); markBad(b); markBad(c)
                     folded.append(t)
                 }
             }
@@ -1398,7 +1415,7 @@ struct WorkMesh {
             // moving a point can fold a neighbour that was fine before).
             candidates = triangles.indices.filter { t in
                 let tri = triangles[t]
-                return bad.contains(Int(tri.x)) || bad.contains(Int(tri.y)) || bad.contains(Int(tri.z))
+                return isBad[Int(tri.x)] || isBad[Int(tri.y)] || isBad[Int(tri.z)]
             }
         }
     }
