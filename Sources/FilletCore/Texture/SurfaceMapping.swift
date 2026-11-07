@@ -8,7 +8,10 @@ public enum FaceSurface: Hashable, Sendable {
     case plane(Plane)
     /// A face that turns around an axis (cylinder, cone, sphere, torus, revolved profile).
     case axis(FaceAxis)
-    /// Anything else (B-spline, offset, …): textured with a triplanar blend.
+    /// Any other face (a fillet's blend, a sweep, B-spline, offset, …), sampled on a grid of its
+    /// own parameters (see ``ParametricChart``).
+    case parametric(FaceGrid)
+    /// A face the kernel can't sample: textured with a triplanar blend.
     case other
 
     public init(face index: Int, of shape: Shape) {
@@ -16,6 +19,8 @@ public enum FaceSurface: Hashable, Sendable {
             self = .plane(plane)
         } else if let axis = shape.faceAxis(index) {
             self = .axis(axis)
+        } else if let grid = ParametricChart.grid(face: index, of: shape) {
+            self = .parametric(grid)
         } else {
             self = .other
         }
@@ -30,6 +35,8 @@ struct SurfaceMapping: Sendable {
         case revolved(Revolved)
         /// A ring of straight walls sharing one mapping (see ``WallBand``).
         case band(WallBand)
+        /// A free-form face in its own parameters (see ``ParametricChart``).
+        case parametric(ParametricChart)
         case triplanar
     }
 
@@ -71,6 +78,8 @@ struct SurfaceMapping: Sendable {
             kind = .planar(origin: SIMD3(frame.origin), x: SIMD3(frame.xDir), y: SIMD3(frame.yDir), normal: SIMD3(frame.normal))
         case .axis(let a):
             kind = Self.revolved(a, cell: cell, points: points).map { .revolved($0) } ?? .triplanar
+        case .parametric(let grid):
+            kind = .parametric(ParametricChart(grid: grid))
         case .other:
             kind = .triplanar
         }
@@ -87,6 +96,10 @@ struct SurfaceMapping: Sendable {
             if case .revolved(let r) = kind, r.closed {
                 lo.x = 0
                 extent?.x = 2 * .pi * r.uScale
+            }
+            if case .parametric(let chart) = kind, chart.wraps {
+                lo.x = 0
+                extent?.x = chart.extent.x
             }
             offset = lo
         }
@@ -106,12 +119,30 @@ struct SurfaceMapping: Sendable {
     var wraps: Bool {
         if case .revolved(let r) = kind { return r.closed }
         if case .band = kind { return true }
+        if case .parametric(let chart) = kind { return chart.wraps }
         return false
     }
 
     var isTriplanar: Bool {
         if case .triplanar = kind { return true }
         return false
+    }
+
+    /// The face as a pattern is laid out on it: its extent and its edges `border` (segments in
+    /// space, see ``WorkMesh/faceBorders(where:)``) in (u, v).
+    func face(border: [WorkMesh.FaceEdge]) -> TextureFace {
+        guard !isTriplanar, let extent else { return TextureFace(extent: extent, wraps: wraps) }
+        let period = wraps ? extent.x : nil
+        var segments: [TextureFace.Segment] = []
+        segments.reserveCapacity(border.count)
+        for e in border {
+            let a = uv(e.a)
+            var b = uv(e.b)
+            // An edge running across the seam of a closed face: the short way round.
+            if let period { b.x = a.x + remainder(b.x - a.x, period) }
+            segments.append(TextureFace.Segment(a, b, seam: e.seam))
+        }
+        return TextureFace(extent: extent, wraps: wraps, border: segments)
     }
 
     /// (u, v) of a point on the face (not for triplanar faces).
@@ -141,6 +172,8 @@ struct SurfaceMapping: Sendable {
             return SIMD2(theta * r.uScale, v) - offset
         case .band(let b):
             return SIMD2(b.uStart + b.arcLength(at: p) * b.uScale, p.z - b.bottom)
+        case .parametric(let chart):
+            return chart.uv(p) - offset
         case .triplanar:
             return SIMD2(p.x, p.y)
         }
@@ -164,6 +197,8 @@ struct SurfaceMapping: Sendable {
                 if simd_length(m) > 0.3 { out = simd_normalize(m) }
             }
             return (pattern.height(at: uv(p)), out)
+        case .parametric:
+            return (pattern.height(at: uv(p)), n)
         case .band:
             // Straight up walls: the mesh normal, level.
             let level = SIMD3(n.x, n.y, 0)

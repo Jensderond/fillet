@@ -1,4 +1,5 @@
 import Foundation
+import simd
 
 /// One value a texture pattern takes, declared by the pattern so the inspector, the MCP tool,
 /// document coding and the texture-lab harness all handle it without pattern-specific code.
@@ -163,6 +164,11 @@ public protocol TexturePattern: Sendable {
     /// its features on the face or leave out ones its edges would cut. Default: unchanged.
     func fitted(to extent: SIMD2<Double>?, wraps: Bool) -> any TexturePattern
 
+    /// This pattern laid out for one face, knowing its outline: lets a pattern leave out features
+    /// that would cross an edge of a face that isn't a rectangle in (u, v) (a fillet trimmed by a
+    /// corner blend, a face with a hole). Default: ``fitted(to:wraps:)`` with the face's extent.
+    func fitted(to face: TextureFace) -> any TexturePattern
+
     /// Edge length wanted around `p`, mm, at most ``detail``: lets a pattern ask for fine
     /// triangles only where its height changes sharply (a dot's rim), and keep the rest coarse.
     /// Default: ``detail`` everywhere.
@@ -208,8 +214,52 @@ public struct TextureRim: Sendable {
     }
 }
 
+/// A face as a pattern is laid out on it (see ``TexturePattern/fitted(to:)``): its size in
+/// (u, v) and its outline there.
+public struct TextureFace: Sendable {
+    /// u and v run from 0 to this; nil when the face has no such coordinates (a triplanar face).
+    public var extent: SIMD2<Double>?
+    /// u goes all the way around, repeating every `extent.x`.
+    public var wraps: Bool
+    /// The face's edges in (u, v), as segments; empty when unknown.
+    public var border: [Segment]
+
+    public struct Segment: Sendable {
+        public var a: SIMD2<Double>
+        public var b: SIMD2<Double>
+        /// The face on the other side is textured too and joins this one smoothly: a seam inside
+        /// the textured surface (each face lays its pattern out on its own, so a feature across
+        /// it would be cut in two with a step), not the textured surface's outer edge.
+        public var seam: Bool
+        public init(_ a: SIMD2<Double>, _ b: SIMD2<Double>, seam: Bool = false) { self.a = a; self.b = b; self.seam = seam }
+    }
+
+    public init(extent: SIMD2<Double>?, wraps: Bool, border: [Segment] = []) {
+        self.extent = extent; self.wraps = wraps; self.border = border
+    }
+
+    /// Distance from `p` to the nearest edge of the face in (u, v), mm (around a closed face,
+    /// the shortest way round); infinity when the outline is unknown. `seamsOnly`: only the
+    /// edges that are seams (see ``Segment/seam``).
+    public func clearance(at p: SIMD2<Double>, seamsOnly: Bool = false) -> Double {
+        var best = Double.infinity
+        let shifts: [Double] = wraps ? [-(extent?.x ?? 0), 0, extent?.x ?? 0] : [0]
+        for s in border where !seamsOnly || s.seam {
+            let d = s.b - s.a
+            let l2 = simd_length_squared(d)
+            for shift in shifts {
+                let q = p + SIMD2(shift, 0)
+                let t = l2 > 0 ? max(0, min(1, simd_dot(q - s.a, d) / l2)) : 0
+                best = min(best, simd_distance_squared(q, s.a + t * d))
+            }
+        }
+        return best.squareRoot()
+    }
+}
+
 extension TexturePattern {
     public func fitted(to extent: SIMD2<Double>?, wraps: Bool) -> any TexturePattern { self }
+    public func fitted(to face: TextureFace) -> any TexturePattern { fitted(to: face.extent, wraps: face.wraps) }
     public func detail(at p: SIMD2<Double>) -> Double { detail }
     public var fitsAround: Bool { false }
     public func rims(lo: SIMD2<Double>, hi: SIMD2<Double>, scale: Double) -> [TextureRim] { [] }

@@ -113,8 +113,27 @@ extension WorkMesh {
     /// area-weighted normal around the vertex rather than single triangles, so a tangent seam,
     /// such as a side wall running into a rounded rim that the kernel tessellated into coarse
     /// facets, isn't mistaken for a sharp edge (and the texture isn't pinned to it in patches).
+    /// Where the kernel gave each face's own normal at the vertex (``surfaceNormal(_:face:)``),
+    /// those decide: near the tip of a corner blend its tessellation is all slivers, whose
+    /// normals can stand 30° apart where the faces meet smoothly.
     func sharpCreaseVertices(_ candidates: Set<Int>, angle: Double, where include: (Int32) -> Bool) -> Set<Int> {
         guard !candidates.isEmpty else { return candidates }
+        let cosAngle = cos(angle)
+        var kernel: [Int: Bool] = [:]
+        if !surfaceNormals.isEmpty {
+            let around = vertexFaces()
+            for v in candidates {
+                // Only each face's own normal there (not the one the point falls back to).
+                let normals = around.faces(of: v).filter(include).compactMap { edgeNormals[Self.pointFace(Int32(v), $0)] }
+                guard normals.count > 1, normals.count == around.faces(of: v).filter(include).count,
+                      !normals.contains(.zero) else { continue }
+                var sharp = false
+                for i in normals.indices {
+                    for j in normals.indices where j > i && simd_dot(normals[i], normals[j]) < cosAngle { sharp = true }
+                }
+                kernel[v] = sharp
+            }
+        }
         var sums: [Int: [Int32: SIMD3<Double>]] = [:]
         for (t, tri) in triangles.enumerated() where include(faces[t]) {
             let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
@@ -125,6 +144,7 @@ extension WorkMesh {
         }
         let cosLimit = cos(angle)
         return candidates.filter { v in
+            if let sharp = kernel[v] { return sharp }
             let normals = (sums[v] ?? [:]).values.compactMap { n -> SIMD3<Double>? in
                 let l = simd_length(n)
                 return l > 0 ? n / l : nil

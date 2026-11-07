@@ -252,6 +252,14 @@ bool fk_face_radius(const FKShape *shape, int32_t faceIndex, double *radius);
 /// `angle` the cone's semi-angle (radians). Returns false for any other surface.
 bool fk_face_axis(const FKShape *shape, int32_t faceIndex, int32_t *kind, FKVec3 *origin, FKVec3 *direction,
                   double *radius, double *minor, double *angle);
+/// Samples a face's surface on an `nu` × `nv` grid of its parameters, evenly spaced over the
+/// face's parameter bounds (both ends included): `points[j * nu + i]` is the point at parameter
+/// u_i, v_j. `bounds` receives umin, umax, vmin, vmax. `uClosed`/`vClosed` are true when the
+/// surface is periodic in that parameter and the face spans a whole period (it goes all the way
+/// around); `reversed` when the face's outward normal is -(dS/du × dS/dv). `nu` and `nv` must be
+/// 2…1024.
+bool fk_face_grid(const FKShape *shape, int32_t faceIndex, int32_t nu, int32_t nv, FKVec3 *points, double *bounds,
+                  bool *uClosed, bool *vClosed, bool *reversed);
 /// Angle between two (sub)shapes, each a flat face or a straight edge, in radians. Between two
 /// edges, or an edge and a face, 0…π/2 (a line has no direction); between two faces, the angle
 /// between their outward normals, 0…π (adjacent box faces 90°, opposite ones 180°). Returns

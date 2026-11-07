@@ -63,8 +63,11 @@ through the MCP tool, and both exports checked watertight.
   sphere, torus, revolved profile) `u` goes around it and `v` up the profile, so rows run around
   a vase and columns up it. On a flat face `u` is horizontal and `v` runs up the face (on a
   horizontal face u = world X, v = world Y). A ring of straight walls that meet smoothly (an
-  extruded heart, a rounded box) shares one `u` along its outline. Other faces get a triplanar
-  blend of the world planes.
+  extruded heart, a rounded box) shares one `u` along its outline. Any other face (the blend where
+  two fillets meet, a fillet swept along a curved outline, a B-spline) uses its own surface
+  parameters, measured in mm along the surface: `u` along a fillet's edge, `v` across its round
+  (whichever runs more up the part), seen from outside `u` to the right and `v` up. Only a face
+  the kernel can't sample falls back to a triplanar blend of the world planes.
 - **Periodic over `cell`**: `height(p) == height(p + cell)`. Around a closed face the engine fits
   a whole number of `cell.x` repeats (stretching `u` slightly), so the seam is invisible only if
   the pattern repeats. The catalogue test checks this for every pattern.
@@ -128,6 +131,7 @@ Every hook has a default, so a plain pattern like the ribs above needs none of t
 | Hook | Default | Use it when |
 | --- | --- | --- |
 | `fitted(to:wraps:)` | unchanged | the pattern should adapt to each face: centre features, fit whole rows, drop cut-off ones |
+| `fitted(to: TextureFace)` | `fitted(to:wraps:)` | features must stay inside a face that isn't a rectangle in (u, v), or off the seams where it meets another textured face smoothly: `clearance(at:)` is the distance to its nearest edge (`seamsOnly:` to its nearest seam) |
 | `detail(at:)` | `detail` everywhere | only some places need fine triangles (a dot's rim) |
 | `fitsAround` | `false` | `fitted` spaces the pattern around a closed face itself, so `u` stays plain arc length |
 | `rims(lo:hi:scale:)` | none | a sharp round outline should be meshed along its own curve |
@@ -165,7 +169,11 @@ Dots use most hooks, because a flat disc needs a crisp, round, whole outline.
 - **`fitsAround = true`** and **`fitted(to:wraps:)`**: around a closed face the dots are spaced so a
   whole number fits without stretching (the engine then leaves `u` as plain arc length, so discs
   stay round), and with `whole` the rows are centred on the face and dots its edges would cut are
-  left out. The disc's side is laid along its own axis on a curved wall (`wrapRadius`).
+  left out. `fitted(to: TextureFace)` also drops dots that come closer than the margin to any edge
+  of the face's real outline, so a fillet trimmed by a corner blend, or a face with a hole, keeps
+  whole dots too. Without `whole` it still drops the dots that would straddle a seam (each face
+  lays its dots out on its own, so such a dot would be cut in two, with a step, under its
+  neighbour's dots); only the textured area's outer edges cut dots. The disc's side is laid along its own axis on a curved wall (`wrapRadius`).
 - **`detail(at:)`** is coarse on the disc top and the plain wall and fine only near the rim.
 - **`rims(lo:hi:scale:)`** returns each flat disc's outline (foot, top of the side, the steps of
   the edge round) as rings the engine meshes along, so the foot is a clean circle rather than a

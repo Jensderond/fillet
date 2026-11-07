@@ -242,6 +242,30 @@ public struct FaceAxis: Hashable, Sendable {
     }
 }
 
+/// A face's surface sampled on a grid of its own parameters (see ``Shape/faceGrid(_:nu:nv:)``):
+/// `points[j * nu + i]` lies at u = `uRange` split evenly into `nu` points (ends included) and
+/// likewise v. For laying a texture out in the face's own coordinates.
+public struct FaceGrid: Hashable, Sendable {
+    public var nu: Int
+    public var nv: Int
+    public var points: [Vec3]
+    public var uRange: ClosedRange<Double>
+    public var vRange: ClosedRange<Double>
+    /// The surface goes all the way around in u (periodic and the face spans a whole period).
+    public var uClosed: Bool
+    public var vClosed: Bool
+    /// The face's outward normal is -(dS/du × dS/dv).
+    public var reversed: Bool
+
+    public init(nu: Int, nv: Int, points: [Vec3], uRange: ClosedRange<Double>, vRange: ClosedRange<Double>,
+                uClosed: Bool, vClosed: Bool, reversed: Bool) {
+        self.nu = nu; self.nv = nv; self.points = points; self.uRange = uRange; self.vRange = vRange
+        self.uClosed = uClosed; self.vClosed = vClosed; self.reversed = reversed
+    }
+
+    public func point(_ i: Int, _ j: Int) -> Vec3 { points[j * nu + i] }
+}
+
 /// Display/export triangulation of a shape.
 public struct Mesh: Sendable {
     public var positions: [SIMD3<Float>]

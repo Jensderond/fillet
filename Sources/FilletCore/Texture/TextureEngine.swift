@@ -123,6 +123,8 @@ public enum TextureEngine {
         var coarse: [Int32: (SurfaceMapping, any TexturePattern)] = [:]
         // Rings of straight walls share one mapping, so the pattern runs on across their seams.
         let bands = m.wallBands(specs)
+        // Each face's edges, for patterns that keep their features inside the face.
+        let borders = m.faceBorders(where: textured)
         do {
             var points: [Int32: [SIMD3<Double>]] = [:]
             // Every corner: the tessellation is still coarse (a cylinder is long strips).
@@ -134,7 +136,7 @@ public enum TextureEngine {
                 let mapping = bands[f]
                     ?? SurfaceMapping(surface: spec.surface, cell: Self.mappingCell(spec.pattern), points: points[f] ?? [])
                 guard !mapping.isTriplanar else { continue }
-                coarse[f] = (mapping, spec.pattern.fitted(to: mapping.extent, wraps: mapping.wraps))
+                coarse[f] = (mapping, spec.pattern.fitted(to: mapping.face(border: borders[f] ?? [])))
             }
         }
         let localScale = quality.edgeScale * quality.edgeScale
@@ -143,7 +145,7 @@ public enum TextureEngine {
             return max(pattern.detail(at: mapping.uv(p)) * localScale, 1e-3)
         }
         // Sharp round outlines (a disc's edge) meshed along their own curves (``TextureRim``).
-        let rimMappings = m.followRims(specs, scale: quality.edgeScale)
+        let rimMappings = m.followRims(specs, borders: borders, scale: quality.edgeScale)
 
         let n = m.points.count
         let adjacency = m.vertexFaces()
@@ -170,14 +172,14 @@ public enum TextureEngine {
             facePoints[f, default: []].append(m.points[Int(tri.x)])
         }
         var mappings: [Int32: SurfaceMapping] = [:]
-        // Each face's pattern laid out for that face (see ``TexturePattern/fitted(to:wraps:)``).
+        // Each face's pattern laid out for that face (see ``TexturePattern/fitted(to:)``).
         var patterns: [Int32: any TexturePattern] = [:]
         for (f, spec) in specs {
             // A face re-meshed along rims keeps the mapping its rims were laid out in.
             let mapping = rimMappings[f] ?? bands[f]
                 ?? SurfaceMapping(surface: spec.surface, cell: Self.mappingCell(spec.pattern), points: facePoints[f] ?? [])
             mappings[f] = mapping
-            patterns[f] = spec.pattern.fitted(to: mapping.extent, wraps: mapping.wraps)
+            patterns[f] = spec.pattern.fitted(to: mapping.face(border: borders[f] ?? []))
         }
 
         var offsets = [SIMD3<Double>](repeating: .zero, count: n)
@@ -185,7 +187,10 @@ public enum TextureEngine {
             var height = 0.0, direction = SIMD3<Double>.zero, count = 0.0, fade = 0.0
             for f in adjacency.faces(of: v) {
                 guard let spec = specs[f], let mapping = mappings[f], let pattern = patterns[f] else { continue }
-                let s = mapping.sample(m.points[v], normal: normals[v], pattern)
+                // Along the surface's own normal: the triangles' differs by a degree or two from one
+                // facet of the tessellation to the next, enough to fold a disc's thin rim strips.
+                let own = m.surfaceNormal(Int32(v), face: f)
+                let s = mapping.sample(m.points[v], normal: own != .zero ? own : normals[v], pattern)
                 height += s.height
                 direction += s.normal
                 fade = max(fade, spec.fade)
@@ -228,6 +233,14 @@ struct WorkMesh {
     var points: [SIMD3<Double>]
     var triangles: [SIMD3<Int32>]
     var faces: [Int32]
+    /// The surface's own unit normal at each point (outward), carried from the kernel's
+    /// tessellation and interpolated for the points added since. Unlike normals from the
+    /// triangles these don't jump at the tessellation's facets, so neighbouring points a few
+    /// microns apart (a disc's rim strips) move in the same direction. A point on an edge between
+    /// faces has each face's own in ``edgeNormals``. Empty when the mesh came without normals.
+    var surfaceNormals: [SIMD3<Double>] = []
+    /// Each face's own normal at the points on edges between faces, by ``pointFace(_:_:)``.
+    var edgeNormals: [UInt64: SIMD3<Double>] = [:]
 
     init(points: [SIMD3<Double>], triangles: [SIMD3<Int32>], faces: [Int32]) {
         self.points = points; self.triangles = triangles; self.faces = faces
@@ -262,6 +275,87 @@ struct WorkMesh {
             faces.append(t < mesh.triangleFaces.count ? mesh.triangleFaces[t] : -1)
         }
         self.init(points: points, triangles: triangles, faces: faces)
+        guard mesh.normals.count == mesh.positions.count else { return }
+        // Each face's own normal at its points; a point several faces share keeps all of them.
+        var normals = [SIMD3<Double>](repeating: .zero, count: points.count)
+        var owner = [Int32](repeating: Int32.min, count: points.count)
+        for t in 0..<(mesh.indices.count / 3) {
+            let f = t < mesh.triangleFaces.count ? mesh.triangleFaces[t] : -1
+            for k in 0..<3 {
+                let raw = Int(mesh.indices[3 * t + k])
+                guard raw < remap.count else { continue }
+                let v = Int(remap[raw])
+                let n = Self.unit(SIMD3<Double>(mesh.normals[raw]))
+                if owner[v] == Int32.min {
+                    owner[v] = f
+                    normals[v] = n
+                } else if owner[v] != f {
+                    edgeNormals[Self.pointFace(Int32(v), owner[v])] = normals[v]
+                    edgeNormals[Self.pointFace(Int32(v), f)] = n
+                }
+            }
+        }
+        surfaceNormals = normals
+    }
+
+    /// Key of point `v` on face `f` in ``edgeNormals``.
+    static func pointFace(_ v: Int32, _ f: Int32) -> UInt64 {
+        UInt64(UInt32(bitPattern: v)) << 32 | UInt64(UInt32(bitPattern: f))
+    }
+
+    /// The surface normal at point `v` of face `f` (zero when unknown).
+    func surfaceNormal(_ v: Int32, face f: Int32) -> SIMD3<Double> {
+        guard Int(v) < surfaceNormals.count else { return .zero }
+        if !edgeNormals.isEmpty, let n = edgeNormals[Self.pointFace(v, f)] { return n }
+        return surfaceNormals[Int(v)]
+    }
+
+    /// `v` scaled to length 1, or zero when it has none.
+    static func unit(_ v: SIMD3<Double>) -> SIMD3<Double> {
+        let l = simd_length(v)
+        return l > 1e-12 ? v / l : .zero
+    }
+
+    /// One edge of a face's outline (see ``faceBorders(where:)``).
+    struct FaceEdge {
+        var a: SIMD3<Double>
+        var b: SIMD3<Double>
+        /// The face on the other side is accepted too and meets this one smoothly (at less than
+        /// ``TextureEngine/creaseAngle``): a seam inside the textured area, not its outer edge.
+        var seam: Bool
+    }
+
+    /// The edges of each face `include` accepts: triangle edges whose other side is another face
+    /// or nothing, as segments in space.
+    func faceBorders(where include: (Int32) -> Bool) -> [Int32: [FaceEdge]] {
+        var owners: [UInt64: (Int, Int)] = [:]
+        owners.reserveCapacity(triangles.count * 3 / 2)
+        for (t, tri) in triangles.enumerated() {
+            for k in 0..<3 {
+                let key = Self.key(tri[k], tri[(k + 1) % 3])
+                if let o = owners[key] {
+                    owners[key] = (o.0, t)
+                } else {
+                    owners[key] = (t, -1)
+                }
+            }
+        }
+        func normal(_ t: Int) -> SIMD3<Double> {
+            let tri = triangles[t]
+            let a = points[Int(tri.x)]
+            return Self.unit(simd_cross(points[Int(tri.y)] - a, points[Int(tri.z)] - a))
+        }
+        let cosCrease = cos(TextureEngine.creaseAngle)
+        var out: [Int32: [FaceEdge]] = [:]
+        for (key, o) in owners {
+            let f0 = faces[o.0], f1 = o.1 >= 0 ? faces[o.1] : -2
+            guard f0 != f1 else { continue }
+            let a = Int(Int32(bitPattern: UInt32(key >> 32))), b = Int(Int32(bitPattern: UInt32(key & 0xFFFF_FFFF)))
+            let inside = f0 >= 0 && f1 >= 0 && include(f0) && include(f1)
+            let seam = inside && simd_dot(normal(o.0), normal(o.1)) > cosCrease
+            for f in [f0, f1] where f >= 0 && include(f) { out[f, default: []].append(FaceEdge(a: points[a], b: points[b], seam: seam)) }
+        }
+        return out
     }
 
     func area(where include: (Int32) -> Bool) -> Double {
@@ -315,11 +409,15 @@ struct WorkMesh {
                 let k = Self.key(a, b)
                 if mids[k] == nil {
                     mids[k] = Int32(points.count)
-                    points.append((points[Int(a)] + points[Int(b)]) / 2)
+                    points.append(curvedMidpoint(a, b, face: f))
+                    if surfaceNormals.count == points.count - 1 {
+                        surfaceNormals.append(Self.unit(surfaceNormal(a, face: f) + surfaceNormal(b, face: f)))
+                    }
                 }
             }
             if mids.isEmpty { break }
             if triangles.count + 2 * mids.count > maxTriangles {
+                if surfaceNormals.count == points.count { surfaceNormals.removeLast(mids.count) }
                 points.removeLast(mids.count)
                 break
             }
@@ -336,6 +434,15 @@ struct WorkMesh {
                     newFaces.append(f)
                 }
                 let e = [e0, e1, e2]
+                // A point splitting an edge between faces: each face's normal there.
+                if !edgeNormals.isEmpty {
+                    for r in 0..<3 {
+                        guard let m = e[r] else { continue }
+                        let a = v[r], b = v[(r + 1) % 3]
+                        guard edgeNormals[Self.pointFace(a, f)] != nil, edgeNormals[Self.pointFace(b, f)] != nil else { continue }
+                        edgeNormals[Self.pointFace(m, f)] = Self.unit(surfaceNormal(a, face: f) + surfaceNormal(b, face: f))
+                    }
+                }
                 switch (e0 != nil ? 1 : 0) + (e1 != nil ? 1 : 0) + (e2 != nil ? 1 : 0) {
                 case 0:
                     newTriangles.append(v)
@@ -372,6 +479,27 @@ struct WorkMesh {
             improve(where: include)
         }
         improve(where: include, passes: 4)
+    }
+
+    /// The point halfway along edge (`a`, `b`) on the face's curved surface rather than on the
+    /// straight edge: the midpoint of the cubic through both ends that leaves each across its
+    /// surface normal there (as in PN triangles). The kernel's tessellation of a cylinder is flat
+    /// strips a few degrees apart, and splitting them on the chord kept those facets: on a
+    /// textured wall they showed as straight streaks along the strips' edges. Points split along
+    /// the curve land within a hair of the true surface, so the facets smooth out as the mesh
+    /// gets finer. The straight midpoint when the normals are unknown or too far apart to be one
+    /// smooth surface.
+    func curvedMidpoint(_ a: Int32, _ b: Int32, face f: Int32) -> SIMD3<Double> {
+        let pa = points[Int(a)], pb = points[Int(b)]
+        let mid = (pa + pb) / 2
+        let na = surfaceNormal(a, face: f), nb = surfaceNormal(b, face: f)
+        guard na != .zero, nb != .zero, simd_dot(na, nb) > 0.5 else { return mid }
+        let d = pb - pa
+        var bow = (simd_dot(d, nb) * nb - simd_dot(d, na) * na) / 8
+        // Never more than a cylinder's quarter turn would bulge.
+        let most = 0.15 * simd_length(d), length = simd_length(bow)
+        if length > most { bow *= most / length }
+        return mid + bow
     }
 
     /// Delaunay edge flips inside each face `include` accepts: an edge whose opposite angles add

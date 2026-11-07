@@ -136,6 +136,55 @@ struct TextureEngineTests {
         }
     }
 
+    /// A box rounded with two fillet sizes has free-form corner blends where the fillets meet.
+    /// They get their own (u, v) rather than a triplanar blend, and dots stay clear of the
+    /// curved edges where the fillets meet them (whole dots any edge, others the seams between
+    /// the smoothly joined faces), so the export is clean.
+    @Test(arguments: [true, false])
+    func dotsOnFreeFormCornerBlendsAreClean(_ whole: Bool) throws {
+        var shape = try Shape.box(corner: Vec3(-20, -20, 0), size: Vec3(40, 40, 30))
+        let vertical = shape.edgeInfos.indices.filter { abs(shape.edgeInfo($0).tangentAtMid.normalized.z) > 0.99 }
+        shape = try shape.filleted(edges: vertical, radius: 6)
+        let top = shape.edgeInfos.indices.filter { shape.edgeInfo($0).mid.z > 30 - 1e-6 }
+        shape = try shape.filleted(edges: top, radius: 12)
+        let blends = shape.faceInfos.indices.filter {
+            if case .parametric = FaceSurface(face: $0, of: shape) { true } else { false }
+        }
+        #expect(blends.count == 4)
+
+        let values = TextureValues(["diameter": 6, "spacing": 9, "rowSpacing": 8, "whole": whole ? 1 : 0])
+        let texture = BodyTexture(feature: UUID(), pattern: .dots, values: values, faces: nil)
+        let d = TextureEngine.exportDeflection
+        let mesh = try shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular)
+        let check = MeshCheck.check(TextureEngine.apply([texture], to: mesh, of: shape, quality: testQuality))
+        #expect(check.passes, "\(check)")
+    }
+
+    /// A free-form face's (u, v) are millimetres along the surface, with v up and u to the right
+    /// seen from outside, whichever way round the face's own parameters run.
+    @Test(arguments: [false, true])
+    func parametricChartMeasuresAlongTheSurface(_ zFirst: Bool) {
+        // A quarter of a cylinder of radius 10 around z, 20 high, sampled as a free-form face.
+        let n = 41, r = 10.0
+        var points: [Vec3] = []
+        for j in 0..<n {
+            for i in 0..<n {
+                let s = Double(zFirst ? j : i) / Double(n - 1), z = Double(zFirst ? i : j) / Double(n - 1) * 20
+                points.append(Vec3(r * cos(s * .pi / 2), r * sin(s * .pi / 2), z))
+            }
+        }
+        // dS/du × dS/dv points inwards when u runs up the wall: the face is reversed then.
+        let grid = FaceGrid(nu: n, nv: n, points: points, uRange: 0...1, vRange: 0...1,
+                            uClosed: false, vClosed: false, reversed: zFirst)
+        let chart = ParametricChart(grid: grid)
+        #expect(abs(chart.extent.x - r * .pi / 2) < 0.01 && abs(chart.extent.y - 20) < 1e-6)
+        let a = chart.uv(SIMD3(r * cos(.pi / 8), r * sin(.pi / 8), 5))
+        let b = chart.uv(SIMD3(r * cos(3 * .pi / 8), r * sin(3 * .pi / 8), 15))
+        #expect(abs(a.y - 5) < 0.01 && abs(b.y - 15) < 0.01)
+        // Seen from outside, angle increasing runs to the right.
+        #expect(abs(a.x - r * .pi / 8) < 0.02 && abs(b.x - 3 * r * .pi / 8) < 0.02)
+    }
+
     @Test func vaseWithRevolvedProfileIsWatertight() async throws {
         var o = TextureSamples.Options()
         o.base = .vase; o.diameter = 30; o.height = 30; o.pattern = .knit
@@ -235,6 +284,82 @@ struct TextureEngineTests {
         let (_, _, body) = try await evaluate(o)
         let a = try body.printMesh(quality: testQuality), b = try body.printMesh(quality: testQuality)
         #expect(a.positions == b.positions && a.indices == b.indices)
+    }
+
+    /// Points move along the surface's own normal, carried from the kernel through subdivision,
+    /// not the faceted triangles': on a cylinder every point of the wall, also on its bottom edge
+    /// next to the flat base and inside the long strips it tessellates into, gets the radial
+    /// direction. (Normals off by a degree from one facet to the next folded the thin strips of a
+    /// disc's rim, which then came out notched.)
+    @Test func surfaceNormalsStayTrueThroughSubdivision() throws {
+        let shape = try Shape.cylinder(base: .xy, radius: 8, height: 20)
+        let wall = try #require(shape.faceInfos.indices.first { shape.faceInfos[$0].surface == .cylinder })
+        let d = TextureEngine.exportDeflection
+        var m = WorkMesh(welding: try shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular))
+        #expect(m.surfaceNormals.count == m.points.count)
+        m.subdivide(maxEdge: 0.5, where: { $0 == Int32(wall) }, maxTriangles: 400_000)
+        #expect(m.surfaceNormals.count == m.points.count)
+        var checked = 0, worst = 0.0
+        for (t, f) in m.faces.enumerated() where f == Int32(wall) {
+            for v in [m.triangles[t].x, m.triangles[t].y, m.triangles[t].z] {
+                let p = m.points[Int(v)]
+                let radial = simd_normalize(SIMD3(p.x, p.y, 0))
+                let n = m.surfaceNormal(v, face: f)
+                worst = max(worst, acos(min(1, simd_dot(n, radial))) * 180 / .pi)
+                checked += 1
+            }
+        }
+        #expect(checked > 1000)
+        #expect(worst < 0.5, "normal off the radial direction by \(worst)°")
+    }
+
+    /// Without whole dots, dots still never straddle a seam where two textured faces meet
+    /// smoothly (each face lays its dots out on its own, so such a dot would be cut in two with a
+    /// step), but run off the face's other edges.
+    @Test func dotsWithoutWholeOnesSkipSeamsButRunOffOuterEdges() throws {
+        let values = TextureValues(["diameter": 6, "spacing": 10, "rowSpacing": 10, "height": 1, "profile": 2,
+                                    "edge": 0.3, "raised": 1, "stagger": 0, "whole": 0])
+        let pattern = try #require(TextureCatalog.make(.dots, values))
+        // Dots sit on a 10 mm grid from (5, 5). The face's outline: a seam along u = 2 on the
+        // left, an outer edge along v = 2 at the bottom, both 3 mm from the nearest dot centres.
+        let face = TextureFace(extent: SIMD2(40, 40), wraps: false, border: [
+            .init(SIMD2(2, 2), SIMD2(2, 40), seam: true), .init(SIMD2(2, 2), SIMD2(40, 2)),
+            .init(SIMD2(40, 2), SIMD2(40, 40)), .init(SIMD2(2, 40), SIMD2(40, 40)),
+        ])
+        let fitted = pattern.fitted(to: face)
+        // The column at u = 5 would reach across the seam.
+        for v in stride(from: 5.0, through: 35, by: 10) {
+            #expect(fitted.height(at: SIMD2(5, v)) == 0)
+            #expect(fitted.height(at: SIMD2(15, v)) > 0.9)
+        }
+        // The row at v = 5 runs right up to the bottom edge, unlike with whole dots.
+        #expect(fitted.height(at: SIMD2(15, 2.5)) > 0.9)
+        // Unfitted, the column at u = 5 is there.
+        #expect(pattern.height(at: SIMD2(5, 15)) > 0.9)
+    }
+
+    /// Splitting a cylinder's flat strips puts the new points on the cylinder (along the curve
+    /// through both ends, square to their normals), not on the chord between them: points left
+    /// on the strips kept the tessellation's facets, a few degrees apart, which showed as straight
+    /// streaks along a textured wall.
+    @Test func subdivisionSplitsAlongTheCurvedSurface() throws {
+        let shape = try Shape.cylinder(base: .xy, radius: 8, height: 20)
+        let wall = try #require(shape.faceInfos.indices.first { shape.faceInfos[$0].surface == .cylinder })
+        let d = TextureEngine.exportDeflection
+        var m = WorkMesh(welding: try shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular))
+        // How far the kernel's own points come inside the cylinder between its strips' edges.
+        let chordSag = m.points.map { abs(simd_length(SIMD2($0.x, $0.y)) - 8) }.max()!
+        m.subdivide(maxEdge: 0.3, where: { $0 == Int32(wall) }, maxTriangles: 400_000)
+        var worst = 0.0, checked = 0
+        for (t, f) in m.faces.enumerated() where f == Int32(wall) {
+            for v in [m.triangles[t].x, m.triangles[t].y, m.triangles[t].z] {
+                worst = max(worst, abs(simd_length(SIMD2(m.points[Int(v)].x, m.points[Int(v)].y)) - 8))
+                checked += 1
+            }
+        }
+        #expect(checked > 1000)
+        // A strip's chord comes up to 0.01 mm inside (the export deflection); split points don't.
+        #expect(worst < 1e-3, "a point \(worst) mm off the cylinder (kernel points: \(chordSag))")
     }
 
     @Test func subdivisionKeepsUntexturedNeighboursConforming() {

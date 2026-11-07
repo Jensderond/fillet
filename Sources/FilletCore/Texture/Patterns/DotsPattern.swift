@@ -12,7 +12,10 @@ import Foundation
 /// shift every other row by half a spacing. Around a closed face (a cylinder) the dots are spaced
 /// evenly so a whole number fits, without stretching them. On a face with known extent the rows
 /// are centred on the face and, with "Whole dots only", dots its edges would cut are left out, so
-/// a vase gets complete dots with a plain band at the rim and foot instead of half dots.
+/// a vase gets complete dots with a plain band at the rim and foot instead of half dots. Without
+/// it, dots run off the textured surface's outer edges (cut there), but still never across a
+/// seam where two textured faces meet smoothly (a fillet and the wall beside it): each face lays
+/// its dots out on its own, so one there would be cut in two, with a step, under its neighbour's.
 public struct DotsPattern: TexturePattern {
     public static let id: TexturePatternID = .dots
     public static let displayName = "Dots"
@@ -33,7 +36,7 @@ public struct DotsPattern: TexturePattern {
         .toggle("raised", "Raised", default: true, help: "Raised dots (off: recessed)"),
         .toggle("stagger", "Staggered rows", default: true, help: "Shift every other row by half a spacing"),
         .toggle("whole", "Whole dots only", default: true,
-                help: "Centre the dots on each face and leave out any its edges would cut"),
+                help: "Centre the dots on each face and leave out any its edges would cut (off: dots run off the textured area's outer edges)"),
     ]
 
     public enum Profile: Int, Sendable { case dome = 0, cap = 1, flat = 2 }
@@ -59,6 +62,10 @@ public struct DotsPattern: TexturePattern {
     /// Radius of the closed face u goes around (u = radius · angle), nil on open or flat faces.
     /// Lets a flat disc stand straight along its own axis on a curved wall.
     var wrapRadius: Double?
+    /// Dots (row, column) left out because an edge of a face that isn't a rectangle in (u, v)
+    /// would cut them (see ``fitted(to:)``); columns counted around a closed face (0..<around).
+    var dropped: Set<SIMD2<Int>> = []
+    var around: Int?
 
     public init(_ values: TextureValues) {
         diameter = values["diameter"]
@@ -152,6 +159,7 @@ public struct DotsPattern: TexturePattern {
             for col in cols {
                 let cx = Double(col) * pitch + shift
                 if let uRange, !uRange.contains(cx + origin.x) { continue }
+                if isDropped(row, col) { continue }
                 let centre = SIMD2(cx + origin.x, cy)
                 if wrapRadius == nil, centre.x + reach < lo.x || centre.x - reach > hi.x { continue }
                 out.append(TextureRim(center: centre, rings: rings))
@@ -173,6 +181,7 @@ public struct DotsPattern: TexturePattern {
             out.pitch = extent.x / count
             out.origin.x = out.pitch * (stagger ? 0.25 : 0.5)
             out.wrapRadius = extent.x / (2 * .pi)
+            out.around = Int(count)
             out.uRange = nil
         }
         guard whole else { return out }
@@ -202,6 +211,56 @@ public struct DotsPattern: TexturePattern {
         return out
     }
 
+    /// Also leaves out the dots an edge of the face would cut (or come closer to than the
+    /// margin), wherever the face's outline runs in (u, v): with whole dots any edge, without
+    /// them only seams to smoothly joined textured faces (``TextureFace/Segment/seam``). Each
+    /// face lays its dots out on its own, so a dot across a seam would be cut in two with a step
+    /// down the middle, the neighbour's dots overlapping it; at the textured surface's outer
+    /// edges (a sharp edge, an untextured face) cut dots are what turning whole dots off asks for.
+    public func fitted(to face: TextureFace) -> any TexturePattern {
+        guard var out = fitted(to: face.extent, wraps: face.wraps) as? DotsPattern else { return self }
+        guard !face.border.isEmpty, let extent = face.extent else { return out }
+        let seamsOnly = !whole
+        if seamsOnly && !face.border.contains(where: \.seam) { return out }
+        let r = diameter / 2 + margin
+        let rows: Range<Int>
+        if let fitted = out.rows {
+            rows = fitted
+        } else {
+            // Every row with a dot reaching onto the face.
+            let r0 = Int(((-r - out.origin.y) / rowPitch).rounded(.down))
+            let r1 = Int(((extent.y + r - out.origin.y) / rowPitch).rounded(.up))
+            guard r1 >= r0, r1 - r0 < 10_000 else { return out }
+            rows = r0..<(r1 + 1)
+        }
+        for row in rows {
+            let cy = Double(row) * rowPitch + out.origin.y
+            let shift = stagger && row & 1 != 0 ? out.pitch / 2 : 0
+            let cols: Range<Int>
+            if let around = out.around {
+                cols = 0..<around
+            } else {
+                let lo = out.uRange?.lowerBound ?? -r, hi = out.uRange?.upperBound ?? extent.x + r
+                let c0 = Int(((lo - out.origin.x - shift) / out.pitch).rounded(.up))
+                let c1 = Int(((hi - out.origin.x - shift) / out.pitch).rounded(.down))
+                guard c1 >= c0, c1 - c0 < 10_000 else { continue }
+                cols = c0..<(c1 + 1)
+            }
+            for col in cols {
+                let centre = SIMD2(Double(col) * out.pitch + shift + out.origin.x, cy)
+                if face.clearance(at: centre, seamsOnly: seamsOnly) < r { out.dropped.insert(SIMD2(row, col)) }
+            }
+        }
+        return out
+    }
+
+    /// Whether the dot in `row`, `col` is left out (see ``fitted(to:)``).
+    func isDropped(_ row: Int, _ col: Int) -> Bool {
+        guard !dropped.isEmpty else { return false }
+        let c = around.map { ((col % $0) + $0) % $0 } ?? col
+        return dropped.contains(SIMD2(row, c))
+    }
+
     /// The dot whose centre is nearest `p`: its offset from `p` along u (as an angle around a
     /// closed face) and v, and the offset in mm on the surface's tangent plane at the dot centre.
     func nearest(_ p: SIMD2<Double>) -> (du: Double, offset: SIMD2<Double>)? {
@@ -218,6 +277,7 @@ public struct DotsPattern: TexturePattern {
             for col in (nearCol - 1)...(nearCol + 1) {
                 let cx = Double(col) * pitch + shift
                 if let uRange, !uRange.contains(cx + origin.x) { continue }
+                if isDropped(row, col) { continue }
                 let du = q.x - cx
                 let d2 = du * du + dy * dy
                 guard d2 < bestD2 else { continue }
@@ -254,6 +314,7 @@ public struct DotsPattern: TexturePattern {
             for col in (nearCol - colReach)...(nearCol + colReach) {
                 let cx = Double(col) * pitch + shift
                 if let uRange, !uRange.contains(cx + origin.x) { continue }
+                if isDropped(row, col) { continue }
                 let dx = q.x - cx
                 let d2 = dx * dx + dy * dy
                 guard d2 < a * a else { continue }

@@ -16,7 +16,8 @@ extension WorkMesh {
     /// Returns the surface mapping of each face it re-meshed: the displacement must use the same
     /// one (rebuilt from the changed mesh it could shift a little, and the curves with it).
     @discardableResult
-    mutating func followRims(_ specs: [Int32: TextureEngine.FaceTexture], scale: Double) -> [Int32: SurfaceMapping] {
+    mutating func followRims(_ specs: [Int32: TextureEngine.FaceTexture], borders: [Int32: [FaceEdge]] = [:],
+                             scale: Double) -> [Int32: SurfaceMapping] {
         var facePoints: [Int32: [SIMD3<Double>]] = [:]
         var faceTriangles: [Int32: [Int]] = [:]
         for (t, f) in faces.enumerated() where specs[f] != nil {
@@ -36,7 +37,7 @@ extension WorkMesh {
             let mapping = SurfaceMapping(surface: spec.surface, cell: TextureEngine.mappingCell(spec.pattern),
                                          points: facePoints[f] ?? [])
             guard !mapping.isTriplanar, let extent = mapping.extent else { continue }
-            let pattern = spec.pattern.fitted(to: extent, wraps: mapping.wraps)
+            let pattern = spec.pattern.fitted(to: mapping.face(border: borders[f] ?? []))
             var lo = SIMD2<Double>(repeating: .infinity), hi = -lo
             for t in tris {
                 for v in [triangles[t].x, triangles[t].y, triangles[t].z] {
@@ -57,6 +58,7 @@ extension WorkMesh {
                 used[f] = mapping
                 for t in patch.removed { removed[t] = true }
                 let base = Int32(points.count)
+                if surfaceNormals.count == points.count { surfaceNormals += patch.normals }
                 points += patch.points
                 for tri in patch.triangles {
                     added.append((SIMD3(tri.x < 0 ? base + (-tri.x - 1) : tri.x,
@@ -87,6 +89,8 @@ extension WorkMesh {
     private struct RimPatch {
         var removed: [Int]
         var points: [SIMD3<Double>]
+        /// Surface normals at `points`, interpolated like them (empty without ``surfaceNormals``).
+        var normals: [SIMD3<Double>]
         var triangles: [SIMD3<Int32>]
     }
 
@@ -300,9 +304,10 @@ extension WorkMesh {
             guard i1 - i0 < 64, j1 - j0 < 64 else { return nil }
             for i in i0...i1 { for j in j0...j1 { grid[SIMD2(i, j), default: []].append(t) } }
         }
-        func place(_ o: SIMD2<Double>) -> SIMD3<Double>? {
+        let withNormals = surfaceNormals.count == points.count
+        func place(_ o: SIMD2<Double>) -> (SIMD3<Double>, SIMD3<Double>)? {
             let key = SIMD2(Int32((o.x / cell).rounded(.down)), Int32((o.y / cell).rounded(.down)))
-            var best: (Double, SIMD3<Double>)?
+            var best: (Double, SIMD3<Double>, SIMD3<Double>)?
             for t in grid[key] ?? [] {
                 let tri = triangles[t]
                 let p = offset(tri.x), q = offset(tri.y), r = offset(tri.z)
@@ -316,19 +321,27 @@ extension WorkMesh {
                     let pa: SIMD3<Double> = points[Int(tri.x)] * b0
                     let pb: SIMD3<Double> = points[Int(tri.y)] * b1
                     let pc: SIMD3<Double> = points[Int(tri.z)] * b2
-                    best = (worst, pa + pb + pc)
+                    var n = SIMD3<Double>.zero
+                    if withNormals {
+                        let na: SIMD3<Double> = surfaceNormal(tri.x, face: f) * b0
+                        let nb: SIMD3<Double> = surfaceNormal(tri.y, face: f) * b1
+                        let nc: SIMD3<Double> = surfaceNormal(tri.z, face: f) * b2
+                        n = WorkMesh.unit(na + nb + nc)
+                    }
+                    best = (worst, pa + pb + pc, n)
                 }
                 if worst >= 0 { break }
             }
             guard let best, best.0 > -1e-3 else { return nil }
-            return best.1
+            return (best.1, best.2)
         }
-        var newPoints: [SIMD3<Double>] = []
+        var newPoints: [SIMD3<Double>] = [], newNormals: [SIMD3<Double>] = []
         newPoints.reserveCapacity(rings.count * count)
         for ring in rings {
             for o in ring.offsets {
-                guard let p = place(o) else { return nil }
+                guard let (p, n) = place(o) else { return nil }
                 newPoints.append(p)
+                if withNormals { newNormals.append(n) }
             }
         }
         func ringIndex(_ k: Int, _ i: Int) -> Int32 { -Int32(k * count + i % count) - 1 }
@@ -479,7 +492,7 @@ extension WorkMesh {
                 let expected = polygonArea(outerLoop.map(offset)) - polygonArea(innerLoop.map(offset))
                 guard expected > 0, abs(signedArea - expected) <= 1e-7 * expected + 1e-9 else { return nil }
                 if winding < 0 { out = out.map { SIMD3($0.x, $0.z, $0.y) } }
-                return RimPatch(removed: Array(cut), points: newPoints, triangles: out)
+                return RimPatch(removed: Array(cut), points: newPoints, normals: newNormals, triangles: out)
             }
         }
         return nil

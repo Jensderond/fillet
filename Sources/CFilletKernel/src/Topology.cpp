@@ -506,6 +506,33 @@ extern "C" bool fk_face_axis(const FKShape *shape, int32_t faceIndex, int32_t *k
   });
 }
 
+extern "C" bool fk_face_grid(const FKShape *shape, int32_t faceIndex, int32_t nu, int32_t nv, FKVec3 *points,
+                             double *bounds, bool *uClosed, bool *vClosed, bool *reversed) {
+  return guarded("Face grid", false, [&] {
+    shapeOf(shape);
+    if (!points || !bounds || !uClosed || !vClosed || !reversed) fail("Missing output pointer");
+    if (nu < 2 || nv < 2 || nu > 1024 || nv > 1024) fail("The grid must be 2…1024 points each way");
+    const TopoDS_Face face = faceAt(shape, faceIndex);
+    BRepAdaptor_Surface surf(face, true);
+    double u1, u2, v1, v2;
+    BRepTools::UVBounds(face, u1, u2, v1, v2);
+    if (!(u2 > u1) || !(v2 > v1)) fail("The face has no parameter range");
+    bounds[0] = u1; bounds[1] = u2; bounds[2] = v1; bounds[3] = v2;
+    *uClosed = surf.IsUPeriodic() && u2 - u1 >= surf.UPeriod() * (1 - 1e-6);
+    *vClosed = surf.IsVPeriodic() && v2 - v1 >= surf.VPeriod() * (1 - 1e-6);
+    *reversed = face.Orientation() == TopAbs_REVERSED;
+    for (int32_t j = 0; j < nv; ++j) {
+      const double v = v1 + (v2 - v1) * j / (nv - 1);
+      for (int32_t i = 0; i < nu; ++i) {
+        const double u = u1 + (u2 - u1) * i / (nu - 1);
+        const gp_Pnt p = surf.Value(u, v);
+        points[j * nu + i] = FKVec3{p.X(), p.Y(), p.Z()};
+      }
+    }
+    return true;
+  });
+}
+
 extern "C" bool fk_angle(const FKShape *a, const FKShape *b, double *radians) {
   return guarded("Angle", false, [&] {
     Direction da = directionOf(shapeOf(a, "first shape"), "first");
