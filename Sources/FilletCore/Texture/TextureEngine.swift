@@ -1036,8 +1036,13 @@ struct WorkMesh {
         let fitOut = SendableDirections(buffer: fits), faceOut = SendableFaces(buffer: fitFaces)
         let chunk = 1024
         let blocks = (targets.count + chunk - 1) / chunk
+        // Cube by cube, as in ``fairing(along:where:radius:)``.
+        let order = grid.itemsByCell
+        // Past this squared distance (just over r²) a point is out of reach for certain, with
+        // `d` below rounded however it may be, so `d` waits for the points within it.
+        let beyond = r * r * (1 + 1e-9)
         DispatchQueue.concurrentPerform(iterations: blocks) { block in
-            for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
+            for i in order[(block * chunk)..<min(targets.count, (block + 1) * chunk)] {
                 let v = targets[i]
                 let p = points[v], own = source[v]
                 let around = Int(grid.cellOfItem[i]) * 27
@@ -1059,6 +1064,7 @@ struct WorkMesh {
                     sums.initialize(repeating: simd_double3x3(0))
                     for c in grid.around[around..<(around + 27)] where c >= 0 {
                         for slot in grid.start[Int(c)]..<grid.start[Int(c) + 1] {
+                            guard simd_length_squared(near[slot] - p) <= beyond else { continue }
                             let w = grid.members[slot]
                             let d = (near[slot] - p) / r
                             let d2 = simd_length_squared(d)
@@ -1119,7 +1125,7 @@ struct WorkMesh {
         defer { found.deallocate() }
         let out = SendableDirections(buffer: found)
         DispatchQueue.concurrentPerform(iterations: blocks) { block in
-            for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
+            for i in order[(block * chunk)..<min(targets.count, (block + 1) * chunk)] {
                 let v = targets[i]
                 let own = fits[i * slots]
                 let face = fitFaces[i * slots]
@@ -1183,8 +1189,12 @@ struct WorkMesh {
         defer { found.deallocate() }
         let sink = SendableHeights(buffer: found)
         let chunk = 1024
+        // Cube by cube, so the points near the ones on a core are mostly in its cache already
+        // (each point's sum is the same whichever order the points are worked out in).
+        let order = grid.itemsByCell
+        let r2 = r * r
         DispatchQueue.concurrentPerform(iterations: (targets.count + chunk - 1) / chunk) { block in
-            for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
+            for i in order[(block * chunk)..<min(targets.count, (block + 1) * chunk)] {
                 let v = targets[i]
                 let p = points[v], n = directions[v]
                 let around = Int(grid.cellOfItem[i]) * 27
@@ -1192,8 +1202,12 @@ struct WorkMesh {
                 for c in grid.around[around..<(around + 27)] where c >= 0 {
                     for slot in grid.start[Int(c)]..<grid.start[Int(c) + 1] {
                         let d = near[slot] - p
-                        let d2 = simd_length_squared(d) / (r * r)
-                        guard d2 < 1 else { continue }
+                        // `simd_length_squared(d) / r2 < 1` exactly when it is under r2 (dividing
+                        // positive numbers rounds below 1 whatever is below the divisor), so the
+                        // division waits for the points that pass.
+                        let l2 = simd_length_squared(d)
+                        guard l2 < r2 else { continue }
+                        let d2 = l2 / r2
                         // Faded out from 45° to 78° apart rather than cut off: round a tight
                         // blend a cut-off took points in or out a micron apart, and the
                         // average jumped there.

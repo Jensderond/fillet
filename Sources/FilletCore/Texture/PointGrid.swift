@@ -81,6 +81,19 @@ struct PointGrid {
         return out
     }
 
+    /// The items' places in the list given, cube by cube (as `members` holds the items): an
+    /// order to work through them in so that items worked on one after another share their
+    /// neighbouring cubes, which then stay in the cache.
+    var itemsByCell: [Int] {
+        var fill = start
+        var out = [Int](repeating: 0, count: cellOfItem.count)
+        for (k, c) in cellOfItem.enumerated() {
+            out[fill[Int(c)]] = k
+            fill[Int(c)] += 1
+        }
+        return out
+    }
+
     /// The position of cube `c`.
     func key(of c: Int) -> SIMD3<Int32> { keys[c] }
     var cellCount: Int { keys.count }
