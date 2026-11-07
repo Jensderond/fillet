@@ -51,32 +51,48 @@ public struct TextureSurface: Sendable {
         let jitter = max(0, min(jitter, 0.95))
         // Each lattice point's nearest foot on the surface (nearer than `reach`).
         let reach = 1.6 * c
-        var nearest: [SIMD3<Int32>: (d2: Double, point: SIMD3<Double>, normal: SIMD3<Double>, bend: Double)] = [:]
+        typealias Foot = (d2: Double, point: SIMD3<Double>, normal: SIMD3<Double>, bend: Double)
         let bends = convexBends(ignoringEdgesUnder: 0.02 * spacing)
         func latticePoint(_ k: SIMD3<Int32>) -> SIMD3<Double> {
             let shift = SIMD3(Self.unitHash(k, seed, 1), Self.unitHash(k, seed, 2), Self.unitHash(k, seed, 3)) - 0.5
             return (SIMD3<Double>(k) + 0.5 + jitter * shift) * c
         }
-        for (t, tri) in triangles.enumerated() {
-            let a = points[Int(tri.x)], b = points[Int(tri.y)], d = points[Int(tri.z)]
-            let cross = simd_cross(b - a, d - a)
-            let area2 = simd_length(cross)
-            guard area2 > 1e-14 else { continue }
-            let normal = cross / area2
-            let lo = simd_min(a, simd_min(b, d)) - reach, hi = simd_max(a, simd_max(b, d)) + reach
-            let k0 = SIMD3<Int32>(floor3(lo / c) - 1), k1 = SIMD3<Int32>(floor3(hi / c) + 1)
-            for z in k0.z...k1.z {
-                for y in k0.y...k1.y {
-                    for x in k0.x...k1.x {
-                        let k = SIMD3(x, y, z)
-                        let l = latticePoint(k)
-                        guard let q = Self.projection(l, a, b, d, normal: normal) else { continue }
-                        let d2 = simd_distance_squared(l, q)
-                        guard d2 < reach * reach else { continue }
-                        if let old = nearest[k], old.d2 <= d2 { continue }
-                        nearest[k] = (d2, q, normal, bends[t])
+        // Across the cores in fixed runs of triangles, each run keeping the first of its triangles
+        // with the nearest foot, then the runs taken in order, an earlier one's foot kept unless a
+        // later one's is strictly nearer: the same foot as going through the triangles one by one.
+        let run = 256
+        let runs = concurrentMap((triangles.count + run - 1) / run, chunk: 1) { r -> [SIMD3<Int32>: Foot] in
+            var nearest: [SIMD3<Int32>: Foot] = [:]
+            for t in (r * run)..<min(triangles.count, (r + 1) * run) {
+                let tri = triangles[t]
+                let a = points[Int(tri.x)], b = points[Int(tri.y)], d = points[Int(tri.z)]
+                let cross = simd_cross(b - a, d - a)
+                let area2 = simd_length(cross)
+                guard area2 > 1e-14 else { continue }
+                let normal = cross / area2
+                let lo = simd_min(a, simd_min(b, d)) - reach, hi = simd_max(a, simd_max(b, d)) + reach
+                let k0 = SIMD3<Int32>(floor3(lo / c) - 1), k1 = SIMD3<Int32>(floor3(hi / c) + 1)
+                for z in k0.z...k1.z {
+                    for y in k0.y...k1.y {
+                        for x in k0.x...k1.x {
+                            let k = SIMD3(x, y, z)
+                            let l = latticePoint(k)
+                            guard let q = Self.projection(l, a, b, d, normal: normal) else { continue }
+                            let d2 = simd_distance_squared(l, q)
+                            guard d2 < reach * reach else { continue }
+                            if let old = nearest[k], old.d2 <= d2 { continue }
+                            nearest[k] = (d2, q, normal, bends[t])
+                        }
                     }
                 }
+            }
+            return nearest
+        }
+        var nearest: [SIMD3<Int32>: Foot] = runs.first ?? [:]
+        for part in runs.dropFirst() {
+            for (k, foot) in part {
+                if let old = nearest[k], old.d2 <= foot.d2 { continue }
+                nearest[k] = foot
             }
         }
         // Thin them: in a fixed pseudo-random order, tight convex bends first (see
