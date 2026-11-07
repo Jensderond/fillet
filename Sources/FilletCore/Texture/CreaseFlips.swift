@@ -28,23 +28,29 @@ extension WorkMesh {
         // flip changes only triangles and edges among its own quad's corners (and only
         // touches triangles sharing two of them).
         var flipped = [Int32](repeating: -1, count: points.count)
+        // Edge -> the (up to) two triangles on it, the lower index first.
+        var edges = EdgeMap<SIMD2<Int32>>(capacity: 0, filler: SIMD2(-1, -1))
+        // Whether some edge has more than two triangles (only the first and last are kept).
+        var nonManifold = false
         for pass in 0..<passes {
             let recent = Int32(pass - 1)
-            // Edge -> the (up to) two triangles on it.
-            var edges = EdgeMap<SIMD2<Int32>>(capacity: triangles.count * 3 / 2, filler: SIMD2(-1, -1))
-            // Whether some edge has more than two triangles (only the first and last are kept).
-            var nonManifold = false
-            for t in triangles.indices {
-                let tri = triangles[t]
-                for k in 0..<3 {
-                    let (slot, found) = edges.findOrInsert(Self.key(tri[k], tri[(k + 1) % 3]))
-                    if found {
-                        var pair = edges.values[slot]
-                        if pair.y >= 0 { nonManifold = true }
-                        pair.y = Int32(t)
-                        edges.set(slot: slot, pair)
-                    } else {
-                        edges.set(slot: slot, SIMD2(Int32(t), -1))
+            // Built once and then kept up to date flip by flip (below), except on a non-manifold
+            // mesh, where it is built again for every pass as the triangles stand.
+            if pass == 0 || nonManifold {
+                edges = EdgeMap<SIMD2<Int32>>(capacity: triangles.count * 3 / 2, filler: SIMD2(-1, -1))
+                nonManifold = false
+                for t in triangles.indices {
+                    let tri = triangles[t]
+                    for k in 0..<3 {
+                        let (slot, found) = edges.findOrInsert(Self.key(tri[k], tri[(k + 1) % 3]))
+                        if found {
+                            var pair = edges.values[slot]
+                            if pair.y >= 0 { nonManifold = true }
+                            pair.y = Int32(t)
+                            edges.set(slot: slot, pair)
+                        } else {
+                            edges.set(slot: slot, SIMD2(Int32(t), -1))
+                        }
                     }
                 }
             }
@@ -55,13 +61,17 @@ extension WorkMesh {
             // triangle sharing an edge with its quad, so a quad whose two triangles are
             // untouched has the same triangles and neighbours as when the pass began (on a
             // manifold mesh: with an edge of three triangles `edges` keeps only two of them, so
-            // there it is all worked out one by one, as before).
+            // there it is all worked out one by one, as before). So a clear bit means the quad
+            // flips, as long as its triangles are still untouched when the loop below gets to it,
+            // unless the triangle was skipped here (`unknown`: none of its corners was in a flip
+            // of the pass before, but one may be in an earlier flip of this one).
+            let unknown: UInt8 = 1 << 7
             var nothing: [UInt8] = []
             if !nonManifold {
                 let mesh = self, edges = edges, flipped = flipped
                 nothing = concurrentMap(triangles.count) { t in
                     let tri = mesh.triangles[t]
-                    if pass > 0, flipped[Int(tri.x)] < recent, flipped[Int(tri.y)] < recent, flipped[Int(tri.z)] < recent { return 0 }
+                    if pass > 0, flipped[Int(tri.x)] < recent, flipped[Int(tri.y)] < recent, flipped[Int(tri.z)] < recent { return unknown }
                     var bits: UInt8 = 0
                     for k in 0..<3 {
                         guard let pair = edges[Self.key(tri[k], tri[(k + 1) % 3])], Int(pair.x) == t, pair.y >= 0,
@@ -72,7 +82,7 @@ extension WorkMesh {
                 }
             }
             var touched = [Bool](repeating: false, count: triangles.count)
-            var flips = 0
+            var done: [(t1: Int32, t2: Int32, a: Int32, b: Int32, c: Int32, d: Int32)] = []
             var created = EdgeMap<Bool>(capacity: 1024, filler: true)
             // Edges in triangle order (not the dictionary's, which changes from run to run), so
             // the same design always exports the same mesh.
@@ -83,24 +93,47 @@ extension WorkMesh {
                 guard let pair = edges[Self.key(tri[k], tri[(k + 1) % 3])], Int(pair.x) == t, pair.y >= 0 else { continue }
                 let t1 = Int(pair.x), t2 = Int(pair.y)
                 guard !touched[t1], !touched[t2] else { continue }
-                guard let (a, b, c, d) = creaseFlip(t1, t2, edges: edges, base: base, where: include),
+                // Known to flip from the verdict above: only its corners are needed.
+                let known = !nothing.isEmpty && nothing[t] & unknown == 0
+                guard let (a, b, c, d) = known ? quadCorners(t1, t2) : creaseFlip(t1, t2, edges: edges, base: base, where: include),
                       !created.contains(Self.key(c, d)) else { continue }
                 triangles[t1] = SIMD3(a, d, c)
                 triangles[t2] = SIMD3(d, b, c)
                 touched[t1] = true
                 touched[t2] = true
-                for v in [a, b, c, d] { flipped[Int(v)] = Int32(pass) }
+                flipped[Int(a)] = Int32(pass)
+                flipped[Int(b)] = Int32(pass)
+                flipped[Int(c)] = Int32(pass)
+                flipped[Int(d)] = Int32(pass)
                 created.set(Self.key(c, d), true)
-                // Their neighbours' entries in `edges` are stale now; leave them for the next pass.
+                // Their neighbours' entries in `edges` are stale now; they are brought up to date
+                // after the pass.
                 for (p, q) in [(b, c), (c, a), (a, d), (d, b)] {
                     if let e = edges[Self.key(p, q)] {
                         if e.x >= 0 { touched[Int(e.x)] = true }
                         if e.y >= 0 { touched[Int(e.y)] = true }
                     }
                 }
-                flips += 1
+                done.append((Int32(t1), Int32(t2), a, b, c, d))
             } }
-            if flips == 0 { return }
+            if done.isEmpty { return }
+            guard !nonManifold, pass < passes - 1 else { continue }
+            // Each flip into `edges`, which then holds what building it again would: (a, b) goes,
+            // (c, d) comes in with t1 < t2, (b, c) moves from t1 to t2 and (a, d) from t2 to t1,
+            // and (c, a) and (d, b) keep theirs. The mesh stays manifold (a flip never makes an
+            // edge that is there already), and two flips of one pass share no edge (each would
+            // have touched the other's triangles), so they don't interfere.
+            func moved(_ pair: SIMD2<Int32>, from old: Int32, to new: Int32) -> SIMD2<Int32> {
+                let other = pair.x == old ? pair.y : pair.x
+                return other < 0 ? SIMD2(new, -1) : SIMD2(min(new, other), max(new, other))
+            }
+            for f in done {
+                edges.remove(Self.key(f.a, f.b))
+                edges.set(Self.key(f.c, f.d), SIMD2(f.t1, f.t2))
+                let bc = Self.key(f.b, f.c), ad = Self.key(f.a, f.d)
+                edges.set(bc, moved(edges[bc]!, from: f.t1, to: f.t2))
+                edges.set(ad, moved(edges[ad]!, from: f.t2, to: f.t1))
+            }
         }
     }
 
@@ -115,22 +148,14 @@ extension WorkMesh {
         func normal(_ p: [SIMD3<Double>], _ a: Int32, _ b: Int32, _ c: Int32) -> SIMD3<Double> {
             simd_cross(p[Int(b)] - p[Int(a)], p[Int(c)] - p[Int(a)])
         }
-        func has(_ t: SIMD3<Int32>, _ v: Int32) -> Bool { t.x == v || t.y == v || t.z == v }
         func angle(_ n1: SIMD3<Double>, _ n2: SIMD3<Double>) -> Double {
             let l = simd_length(n1) * simd_length(n2)
             guard l > 0 else { return .pi }
             return acos(max(-1, min(1, simd_dot(n1, n2) / l)))
         }
-        guard faces[t1] == faces[t2], include(faces[t1]) else { return nil }
-        let tri1 = triangles[t1], tri2 = triangles[t2]
-        var k1 = -1
-        for k in 0..<3 where has(tri2, tri1[k]) && has(tri2, tri1[(k + 1) % 3]) { k1 = k }
-        guard k1 >= 0 else { return nil }
-        let a = tri1[k1], b = tri1[(k1 + 1) % 3], c = tri1[(k1 + 2) % 3]
-        // The first corner of t2 that isn't a or b.
-        let d = tri2.x != a && tri2.x != b ? tri2.x : (tri2.y != a && tri2.y != b ? tri2.y : tri2.z)
-        guard d != a, d != b, d != c else { return nil }
-        guard edges[Self.key(c, d)] == nil else { return nil }
+        guard faces[t1] == faces[t2], include(faces[t1]),
+              let (a, b, c, d) = quadCorners(t1, t2),
+              edges[Self.key(c, d)] == nil else { return nil }
 
         // Valid on the undisplaced surface: both new triangles face the same way as the old.
         let baseNormal = normal(base, a, b, c) + normal(base, b, a, d)
@@ -167,6 +192,21 @@ extension WorkMesh {
 }
 
 extension WorkMesh {
+    /// The corners of the quad of triangles `t1` = (a, b, c) and `t2` = (b, a, d), named in
+    /// their winding order, or nil when they don't share an edge or don't make a quad.
+    func quadCorners(_ t1: Int, _ t2: Int) -> (Int32, Int32, Int32, Int32)? {
+        func has(_ t: SIMD3<Int32>, _ v: Int32) -> Bool { t.x == v || t.y == v || t.z == v }
+        let tri1 = triangles[t1], tri2 = triangles[t2]
+        var k1 = -1
+        for k in 0..<3 where has(tri2, tri1[k]) && has(tri2, tri1[(k + 1) % 3]) { k1 = k }
+        guard k1 >= 0 else { return nil }
+        let a = tri1[k1], b = tri1[(k1 + 1) % 3], c = tri1[(k1 + 2) % 3]
+        // The first corner of t2 that isn't a or b.
+        let d = tri2.x != a && tri2.x != b ? tri2.x : (tri2.y != a && tri2.y != b ? tri2.y : tri2.z)
+        guard d != a, d != b, d != c else { return nil }
+        return (a, b, c, d)
+    }
+
     /// Of `candidates` (vertices on an edge between textured faces whose triangles meet at more
     /// than `angle`), the ones where the faces really meet at an angle: compares each face's
     /// area-weighted normal around the vertex rather than single triangles, so a tangent seam,

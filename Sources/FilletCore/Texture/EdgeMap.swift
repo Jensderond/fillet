@@ -82,6 +82,31 @@ struct EdgeMap<Value> {
         values[slot] = value
     }
 
+    /// Takes `key` out of the map, if it is there. Moves the keys after it in its run back (the
+    /// ones it no longer stands between and their home slot), so lookups stay plain linear probes
+    /// with no markers left behind.
+    mutating func remove(_ key: UInt64) {
+        guard var i = slot(of: key) else { return }
+        let mask = keys.count - 1
+        var j = i
+        while true {
+            j = (j + 1) & mask
+            let k = keys[j]
+            if k == Self.free { break }
+            // A key stays put when its home slot lies cyclically in (i, j].
+            let h = home(k)
+            let stays = i <= j ? (i < h && h <= j) : (i < h || h <= j)
+            if !stays {
+                keys[i] = k
+                values[i] = values[j]
+                i = j
+            }
+        }
+        keys[i] = Self.free
+        values[i] = filler
+        count -= 1
+    }
+
     /// Each key and its value, in no particular order.
     func forEach(_ body: (UInt64, Value) -> Void) {
         for i in keys.indices where keys[i] != Self.free { body(keys[i], values[i]) }
