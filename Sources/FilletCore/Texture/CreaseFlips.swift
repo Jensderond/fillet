@@ -225,7 +225,7 @@ extension WorkMesh {
             let around = around ?? vertexFaces()
             for v in candidates {
                 // Only each face's own normal there (not the one the point falls back to).
-                let normals = around.faces(of: v).filter(include).compactMap { edgeNormals[Self.pointFace(Int32(v), $0)] }
+                let normals = around.faces(of: v).filter(include).compactMap { edgeNormals[Int32(v), $0] }
                 guard normals.count > 1, normals.count == around.faces(of: v).filter(include).count,
                       !normals.contains(.zero) else { continue }
                 var sharp = false

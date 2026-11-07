@@ -442,8 +442,8 @@ struct WorkMesh {
     /// microns apart (a disc's rim strips) move in the same direction. A point on an edge between
     /// faces has each face's own in ``edgeNormals``. Empty when the mesh came without normals.
     var surfaceNormals: [SIMD3<Double>] = []
-    /// Each face's own normal at the points on edges between faces, by ``pointFace(_:_:)``.
-    var edgeNormals: [UInt64: SIMD3<Double>] = [:]
+    /// Each face's own normal at the points on edges between faces, by point and face.
+    var edgeNormals = PointFaceNormals()
 
     init(points: [SIMD3<Double>], triangles: [SIMD3<Int32>], faces: [Int32]) {
         self.points = points; self.triangles = triangles; self.faces = faces
@@ -493,15 +493,15 @@ struct WorkMesh {
                     owner[v] = f
                     normals[v] = n
                 } else if owner[v] != f {
-                    edgeNormals[Self.pointFace(Int32(v), owner[v])] = normals[v]
-                    edgeNormals[Self.pointFace(Int32(v), f)] = n
+                    edgeNormals.set(Int32(v), owner[v], normals[v])
+                    edgeNormals.set(Int32(v), f, n)
                 }
             }
         }
         surfaceNormals = normals
     }
 
-    /// Key of point `v` on face `f` in ``edgeNormals``.
+    /// Key of point `v` on face `f` (``edgeNormals`` beyond a point's first face).
     static func pointFace(_ v: Int32, _ f: Int32) -> UInt64 {
         UInt64(UInt32(bitPattern: v)) << 32 | UInt64(UInt32(bitPattern: f))
     }
@@ -509,7 +509,7 @@ struct WorkMesh {
     /// The surface normal at point `v` of face `f` (zero when unknown).
     func surfaceNormal(_ v: Int32, face f: Int32) -> SIMD3<Double> {
         guard Int(v) < surfaceNormals.count else { return .zero }
-        if !edgeNormals.isEmpty, let n = edgeNormals[Self.pointFace(v, f)] { return n }
+        if let n = edgeNormals[v, f] { return n }
         return surfaceNormals[Int(v)]
     }
 
@@ -722,8 +722,8 @@ struct WorkMesh {
                     for r in 0..<3 {
                         guard let m = e(r) else { continue }
                         let a = v[r], b = v[(r + 1) % 3]
-                        guard edgeNormals[Self.pointFace(a, f)] != nil, edgeNormals[Self.pointFace(b, f)] != nil else { continue }
-                        edgeNormals[Self.pointFace(m, f)] = Self.unit(surfaceNormal(a, face: f) + surfaceNormal(b, face: f))
+                        guard edgeNormals[a, f] != nil, edgeNormals[b, f] != nil else { continue }
+                        edgeNormals.set(m, f, Self.unit(surfaceNormal(a, face: f) + surfaceNormal(b, face: f)))
                     }
                 }
                 switch (e0 != nil ? 1 : 0) + (e1 != nil ? 1 : 0) + (e2 != nil ? 1 : 0) {
