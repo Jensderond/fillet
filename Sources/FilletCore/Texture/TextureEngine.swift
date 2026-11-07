@@ -568,21 +568,33 @@ struct WorkMesh {
         guard total > 0, maxEdge > 0 else { return 0 }
         // About 40 000 samples in all, at least one per triangle.
         let share = total / 40_000
-        var count = 0.0
+        // The lengths wanted at each triangle's samples, across the cores (each is a pattern
+        // sample), then added up one by one in the same order as ever.
+        var sampled: [(t: Int, size: Double, samples: Int)] = []
         for (t, tri) in triangles.enumerated() where include(faces[t]) {
             let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
-            let cross = simd_cross(b - a, c - a)
-            let size = simd_length(cross) / 2
+            let size = simd_length(simd_cross(b - a, c - a)) / 2
             guard size > 0 else { continue }
+            sampled.append((t, size, max(1, Int((size / share).rounded(.up)))))
+        }
+        let lengths = concurrentMap(sampled.count, chunk: 64) { i -> [Double] in
+            let (t, size, samples) = sampled[i]
+            let tri = triangles[t]
+            let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
+            let cross = simd_cross(b - a, c - a)
             let normal = cross / (2 * size)
-            let samples = max(1, Int((size / share).rounded(.up)))
-            for k in 0..<samples {
+            return (0..<samples).map { k in
                 // A low-discrepancy (R2) sequence folded into the triangle.
                 var u = (0.5 + 0.754_877_666 * Double(k + 1)).truncatingRemainder(dividingBy: 1)
                 var v = (0.5 + 0.569_840_291 * Double(k + 1)).truncatingRemainder(dividingBy: 1)
                 if u + v > 1 { u = 1 - u; v = 1 - v }
                 let p = a + u * (b - a) + v * (c - a)
-                let e = min(local(p, normal, faces[t]) ?? maxEdge, maxEdge)
+                return min(local(p, normal, faces[t]) ?? maxEdge, maxEdge)
+            }
+        }
+        var count = 0.0
+        for (i, (_, size, samples)) in sampled.enumerated() {
+            for e in lengths[i] {
                 // A triangle of edge e covers about 0.43 e²; splitting leaves them a little smaller on average.
                 count += 1.6 * (size / Double(samples)) / (0.433 * max(e * e, 1e-6))
             }
