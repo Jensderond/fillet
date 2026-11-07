@@ -1539,13 +1539,13 @@ struct WorkMesh {
     }
 }
 
-/// `transform` of each index in `0..<count`, worked out across the cores in fixed blocks; each
-/// value is the same as worked out one by one (no sums run across the blocks).
-func concurrentMap<T>(_ count: Int, _ transform: (Int) -> T) -> [T] {
+/// `transform` of each index in `0..<count`, worked out across the cores in fixed blocks of
+/// `chunk` (fewer for transforms that are each a lot of work); each value is the same as worked
+/// out one by one (no sums run across the blocks).
+func concurrentMap<T>(_ count: Int, chunk: Int = 1024, _ transform: (Int) -> T) -> [T] {
     guard count > 0 else { return [] }
     return [T](unsafeUninitializedCapacity: count) { buffer, initialized in
         let out = SendableSlots(buffer: buffer)
-        let chunk = 1024
         DispatchQueue.concurrentPerform(iterations: (count + chunk - 1) / chunk) { block in
             for i in (block * chunk)..<min(count, (block + 1) * chunk) {
                 (out.buffer.baseAddress! + i).initialize(to: transform(i))

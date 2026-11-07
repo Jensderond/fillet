@@ -67,9 +67,23 @@ extension WorkMesh {
             for rim in rims { for o in rim.rings.first ?? [] { widest = max(widest, simd_length(o)) } }
             let buckets = RimBuckets(tris.map { uv[Int(triangles[$0].x)] }, lo: pointsLo, hi: pointsHi,
                                      cell: max(widest + 3, simd_reduce_max(pointsHi - pointsLo) / 2048))
-            for rim in rims {
-                guard let patch = rimPatch(rim, face: f, triangles: tris, buckets: buckets, uv: uv, period: period,
-                                           removed: removed, vertexFaces: vertexFaces!) else { continue }
+            // Every rim's patch worked out across the cores against the triangles removed before
+            // this face, then taken in rim order, dropping one that takes a triangle an earlier rim
+            // of the face took. That is exactly what working them out one after another gives:
+            // a patch reads `removed` only for each triangle it takes, just before taking it, and
+            // nothing else it reads changes in this loop (the points it adds are new ones), so a
+            // patch made against fewer removed triangles comes out the same unless it takes one
+            // of the extra, where one after another would have given up on reaching it.
+            let patches: [RimPatch?]
+            do {
+                let mesh = self, removed = removed, uv = uv, vertexFaces = vertexFaces!
+                patches = concurrentMap(rims.count, chunk: 1) { k in
+                    mesh.rimPatch(rims[k], face: f, triangles: tris, buckets: buckets, uv: uv, period: period,
+                                  removed: removed, vertexFaces: vertexFaces)
+                }
+            }
+            for case let patch? in patches {
+                guard !patch.removed.contains(where: { removed[$0] }) else { continue }
                 used[f] = mapping
                 for t in patch.removed { removed[t] = true }
                 let base = Int32(points.count)
