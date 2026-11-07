@@ -174,9 +174,15 @@ public enum TextureEngine {
         stages?.mark("bands, borders, coarse mappings")
         // How much longer than asked for every triangle comes out, to stay within the budget.
         var budgetScale = 1.0
+        // The layouts and coarse mappings by face index, for `wanted`, which runs for every point
+        // on every core: read from arrays it shares them, where copying them out of dictionaries
+        // had every core count references on the same objects.
+        let solidByFace = texturedFaces.indices.map { solids[Int32($0)] }
+        let coarseByFace = texturedFaces.indices.map { coarse[Int32($0)] }
         func wanted(_ p: SIMD3<Double>, _ normal: SIMD3<Double>, _ f: Int32) -> Double {
-            if let solid = solids[f] { return max(solid.detail(at: p, normal: normal) * localScale * budgetScale, 1e-3) }
-            guard let (mapping, pattern) = coarse[f] else { return .infinity }
+            guard f >= 0, Int(f) < solidByFace.count else { return .infinity }
+            if let solid = solidByFace[Int(f)] { return max(solid.detail(at: p, normal: normal) * localScale * budgetScale, 1e-3) }
+            guard let (mapping, pattern) = coarseByFace[Int(f)] else { return .infinity }
             return max(pattern.detail(at: mapping.uv(p)) * localScale * budgetScale, 1e-3)
         }
         if !solids.isEmpty {
@@ -595,18 +601,31 @@ struct WorkMesh {
     mutating func subdivide(maxEdge: Double, where include: (Int32) -> Bool, maxTriangles: Int,
                             local: ((SIMD3<Double>, SIMD3<Double>, Int32) -> Double)? = nil) {
         let limit = maxEdge * maxEdge
+        // The squared length wanted at each point (-1: not yet known), on the face of the first
+        // triangle (in order) that needed it.
         var wanted: [Double] = []
-        func wantedLimit(_ v: Int32, _ f: Int32) -> Double {
-            guard let local else { return limit }
-            let i = Int(v)
-            if i >= wanted.count { wanted.append(contentsOf: repeatElement(-1, count: points.count - wanted.count)) }
-            if wanted[i] < 0 {
-                let e = min(local(points[i], surfaceNormal(v, face: f), f), maxEdge)
-                wanted[i] = e * e
-            }
-            return wanted[i]
-        }
         for _ in 0..<64 {
+            if let local {
+                // The points this pass looks at for the first time, on that face, looked up
+                // across the cores first (each is a pattern sample, often the most of a pass).
+                if wanted.count < points.count { wanted.append(contentsOf: repeatElement(-1, count: points.count - wanted.count)) }
+                var todo: [Int32] = [], todoFaces: [Int32] = []
+                for t in triangles.indices where include(faces[t]) {
+                    let tri = triangles[t]
+                    for k in 0..<3 where wanted[Int(tri[k])] < 0 && wanted[Int(tri[k])] != -2 {
+                        wanted[Int(tri[k])] = -2
+                        todo.append(tri[k])
+                        todoFaces.append(faces[t])
+                    }
+                }
+                let mesh = self
+                let found = concurrentMap(todo.count) { i in
+                    let v = todo[i], f = todoFaces[i]
+                    let e = min(local(mesh.points[Int(v)], mesh.surfaceNormal(v, face: f), f), maxEdge)
+                    return e * e
+                }
+                for (i, v) in todo.enumerated() { wanted[Int(v)] = found[i] }
+            }
             // Edges to split this pass, in triangle order, with how far each is over its length.
             var wantedSplits: [(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)] = []
             var seen = EdgeMap<Bool>(capacity: 1024, filler: true)
@@ -618,7 +637,7 @@ struct WorkMesh {
                     if d > best { best = d; bestK = k }
                 }
                 let f = faces[t]
-                let wantedHere = local == nil ? limit : min(wantedLimit(tri.x, f), wantedLimit(tri.y, f), wantedLimit(tri.z, f))
+                let wantedHere = local == nil ? limit : min(wanted[Int(tri.x)], wanted[Int(tri.y)], wanted[Int(tri.z)])
                 guard best > wantedHere else { continue }
                 let a = tri[bestK], b = tri[(bestK + 1) % 3]
                 let k = Self.key(a, b)
@@ -1469,6 +1488,27 @@ struct WorkMesh {
         return Mesh(positions: positions, normals: normals, indices: indices, triangleFaces: faces,
                     edges: original.edges, brepVertices: original.brepVertices)
     }
+}
+
+/// `transform` of each index in `0..<count`, worked out across the cores in fixed blocks; each
+/// value is the same as worked out one by one (no sums run across the blocks).
+func concurrentMap<T>(_ count: Int, _ transform: (Int) -> T) -> [T] {
+    guard count > 0 else { return [] }
+    return [T](unsafeUninitializedCapacity: count) { buffer, initialized in
+        let out = SendableSlots(buffer: buffer)
+        let chunk = 1024
+        DispatchQueue.concurrentPerform(iterations: (count + chunk - 1) / chunk) { block in
+            for i in (block * chunk)..<min(count, (block + 1) * chunk) {
+                (out.buffer.baseAddress! + i).initialize(to: transform(i))
+            }
+        }
+        initialized = count
+    }
+}
+
+/// Lets `concurrentPerform` write distinct slots of one buffer.
+private struct SendableSlots<T>: @unchecked Sendable {
+    let buffer: UnsafeMutableBufferPointer<T>
 }
 
 /// Lets `concurrentPerform` write distinct slots of one buffer.
