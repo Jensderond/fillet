@@ -103,8 +103,22 @@ struct SolidFlagstones: SolidTexture {
             p += (0.035 * size * pattern.irregularity) * w
         }
         let key = SIMD3<Int32>(floor3(point / cell))
-        let candidates: [Int32] = index[key] ?? Array(Int32(0)..<Int32(seeds.count))
+        guard let candidates = index[key] else {
+            return Array(Int32(0)..<Int32(seeds.count)).withUnsafeBufferPointer { stone(at: p, normal: n, among: $0) }
+        }
+        return candidates.withUnsafeBufferPointer { stone(at: p, normal: n, among: $0) }
+    }
+
+    /// One side of a stone's outline near a point: the distance `d` to it and the direction `up`
+    /// in which that grows (see ``stone(at:normal:among:)``).
+    typealias Side = (d: Double, up: SIMD3<Double>)
+
+    /// ``stone(at:normal:)`` at the wandered point `p`, among the seeds `candidates`. Its
+    /// scratch lives on the stack: it runs several times for every point of the mesh.
+    private func stone(at p: SIMD3<Double>, normal n: SIMD3<Double>,
+                       among candidates: UnsafeBufferPointer<Int32>) -> (seed: Int, edgeDistance: Double) {
         guard !candidates.isEmpty else { return (0, .infinity) }
+        let size = pattern.size
         // Distance squared to each seed, plus a penalty for seeds facing away (the far side of
         // a thin wall), growing smoothly from zero (so stones never end in a cut) once the
         // normals are more than ``TextureSurface/opposite`` apart. Not before: round a tight
@@ -112,35 +126,41 @@ struct SolidFlagstones: SolidTexture {
         // there squeezed the stones into strips along the curve.
         let penalty = 4 * size * size
         let opposite = TextureSurface.opposite
-        var dist = [Double](repeating: 0, count: candidates.count)
-        // Each seed unfolded into the tangent plane at `p` (see ``TextureSurface/unfold(_:from:to:)``):
-        // the layout near `p` as a flat Voronoi diagram, measured along the surface.
-        var flat = [SIMD3<Double>](repeating: .zero, count: candidates.count)
-        var owner = 0
-        for (k, i) in candidates.enumerated() {
-            let s = seeds[Int(i)]
-            let away = max(0, opposite - simd_dot(s.normal, n)) / (1 + opposite)
-            flat[k] = TextureSurface.unfold(s.point - p, from: n, to: s.normal)
-            dist[k] = simd_length_squared(flat[k]) + penalty * away * away
-            if dist[k] < dist[owner] { owner = k }
+        let count = candidates.count
+        return withUnsafeTemporaryAllocation(of: Double.self, capacity: count) { dist in
+            // Each seed unfolded into the tangent plane at `p` (see ``TextureSurface/unfold(_:from:to:)``):
+            // the layout near `p` as a flat Voronoi diagram, measured along the surface.
+            withUnsafeTemporaryAllocation(of: SIMD3<Double>.self, capacity: count) { flat in
+                var owner = 0
+                for k in 0..<count {
+                    let s = seeds[Int(candidates[k])]
+                    let away = max(0, opposite - simd_dot(s.normal, n)) / (1 + opposite)
+                    flat[k] = TextureSurface.unfold(s.point - p, from: n, to: s.normal)
+                    dist[k] = simd_length_squared(flat[k]) + penalty * away * away
+                    if dist[k] < dist[owner] { owner = k }
+                }
+                let a = flat[owner]
+                // Distance to each neighbour's bisector: |p - b|² - |p - a|² is twice the distance to the
+                // bisector times |a - b|. With the direction in which it grows, so the outline is known
+                // near `p` as a polygon in the tangent plane.
+                return withUnsafeTemporaryAllocation(of: Side.self, capacity: count) { buffer in
+                    var sides = 0
+                    var nearest = Double.infinity
+                    for k in 0..<count where k != owner {
+                        let ab = flat[k] - a
+                        let length = simd_length(ab)
+                        guard length > 1e-9 else { continue }
+                        let d = (dist[k] - dist[owner]) / (2 * length)
+                        buffer[sides] = (d, -ab / length)
+                        sides += 1
+                        nearest = min(nearest, d)
+                    }
+                    guard nearest.isFinite else { return (Int(candidates[owner]), .infinity) }
+                    let outline = UnsafeBufferPointer(rebasing: buffer[0..<sides])
+                    return (Int(candidates[owner]), max(Self.rounded(outline, nearest: nearest, radius: cornerRadius), 0))
+                }
+            }
         }
-        let a = flat[owner]
-        // Distance to each neighbour's bisector: |p - b|² - |p - a|² is twice the distance to the
-        // bisector times |a - b|. With the direction in which it grows, so the outline is known
-        // near `p` as a polygon in the tangent plane.
-        var sides: [(d: Double, up: SIMD3<Double>)] = []
-        sides.reserveCapacity(candidates.count)
-        var nearest = Double.infinity
-        for k in candidates.indices where k != owner {
-            let ab = flat[k] - a
-            let length = simd_length(ab)
-            guard length > 1e-9 else { continue }
-            let d = (dist[k] - dist[owner]) / (2 * length)
-            sides.append((d, -ab / length))
-            nearest = min(nearest, d)
-        }
-        guard nearest.isFinite else { return (Int(candidates[owner]), .infinity) }
-        return (Int(candidates[owner]), max(Self.rounded(sides, nearest: nearest, radius: cornerRadius), 0))
     }
 
     /// Radius the stones' corners are rounded to (see ``rounded(_:nearest:radius:)``): past where
@@ -162,7 +182,12 @@ struct SolidFlagstones: SolidTexture {
     /// every corner rises to the full top within its round; blunt corners barely change. Inside
     /// the stone shrunk by `radius` it is the plain distance, outside `radius` less the distance
     /// to that shrunk stone (a convex polygon here).
-    static func rounded(_ sides: [(d: Double, up: SIMD3<Double>)], nearest: Double, radius: Double) -> Double {
+    static func rounded(_ sides: [Side], nearest: Double, radius: Double) -> Double {
+        sides.withUnsafeBufferPointer { rounded($0, nearest: nearest, radius: radius) }
+    }
+
+    /// The same, on sides in a buffer (as ``stone(at:normal:)`` keeps them, on the stack).
+    static func rounded(_ sides: UnsafeBufferPointer<Side>, nearest: Double, radius: Double) -> Double {
         guard nearest < radius, radius > 0 else { return nearest }
         // The nearest point of the shrunk stone {x : d + up·x ≥ radius for every side}: the foot on
         // one side's line, or a corner where two lines meet, whichever is nearest and inside.
@@ -170,14 +195,16 @@ struct SolidFlagstones: SolidTexture {
             for s in sides where s.d + simd_dot(s.up, x) < radius - 1e-9 { return false }
             return true
         }
-        let near = sides.indices.filter { sides[$0].d < radius }
-        // Every foot and corner, nearest first: the first inside is the one.
-        var found: [(length: Double, x: SIMD3<Double>)] = []
-        for i in near {
+        // Every foot and corner; the nearest inside is the one. Kept as the least length so far
+        // (lengths are never NaN), rather than all collected and sorted: the same answer, as ties
+        // share their length, without the sort that was half this function's time.
+        var best = Double.infinity
+        for i in sides.indices where sides[i].d < radius {
             let u = sides[i].up, uu = simd_length_squared(u)
             guard uu > 1e-12 else { continue }
             let x = (radius - sides[i].d) / uu * u
-            found.append((simd_length(x), x))
+            let length = simd_length(x)
+            if length < best, inside(x) { best = length }
             // A corner has at least one of its two sides with `p` outside.
             for j in sides.indices where j != i && (sides[j].d >= radius || j > i) {
                 let v = sides[j].up
@@ -187,14 +214,9 @@ struct SolidFlagstones: SolidTexture {
                 let ri = radius - sides[i].d, rj = radius - sides[j].d
                 let alpha = (ri * vv - rj * uv) / det, beta = (rj * uu - ri * uv) / det
                 let x = alpha * u + beta * v
-                found.append((simd_length(x), x))
+                let length = simd_length(x)
+                if length < best, inside(x) { best = length }
             }
-        }
-        found.sort { $0.length < $1.length }
-        var best = Double.infinity
-        for candidate in found where inside(candidate.x) {
-            best = candidate.length
-            break
         }
         // A stone too small to hold the round anywhere keeps its plain outline.
         guard best.isFinite else { return nearest }
