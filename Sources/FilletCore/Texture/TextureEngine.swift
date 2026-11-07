@@ -293,44 +293,57 @@ public enum TextureEngine {
             m.smoothDirections(&solidNormals, where: smoothed, radius: max(solidAmplitude, 0.1))
             stages?.mark("smooth normals")
         }
-        for v in 0..<n where !pinned[v] {
-            var height = 0.0, direction = SIMD3<Double>.zero, count = 0.0, fade = 0.0
-            for f in adjacency.faces(of: v) {
-                guard let spec = specs[f] else { continue }
-                // Along the surface's own normal: the triangles' differs by a degree or two from one
-                // facet of the tessellation to the next, enough to fold a disc's thin rim strips.
-                let own = m.surfaceNormal(Int32(v), face: f)
-                let s: (height: Double, normal: SIMD3<Double>)
-                if let solid = solids[f] {
-                    s = (solid.height(at: m.points[v], normal: solidNormals[v]), solidNormals[v])
-                } else if let mapping = mappings[f], let pattern = patterns[f] {
-                    s = mapping.sample(m.points[v], normal: own != .zero ? own : normals[v], pattern)
-                } else {
-                    continue
+        do {
+            // Each point on its own, across the cores; the layouts, mappings and patterns by face
+            // in arrays (see `solidByFace`).
+            let fadeByFace = texturedFaces.indices.map { specs[Int32($0)]?.fade }
+            let mappingByFace = texturedFaces.indices.map { mappings[Int32($0)] }
+            let patternByFace = texturedFaces.indices.map { patterns[Int32($0)] }
+            let mesh = m, pinned = pinned, solidNormals = solidNormals
+            let sampled = concurrentMap(n) { v -> (direction: SIMD3<Double>, amount: Double)? in
+                guard !pinned[v] else { return nil }
+                var height = 0.0, direction = SIMD3<Double>.zero, count = 0.0, fade = 0.0
+                for f in adjacency.faces(of: v) {
+                    guard f >= 0, Int(f) < fadeByFace.count, let faceFade = fadeByFace[Int(f)] else { continue }
+                    // Along the surface's own normal: the triangles' differs by a degree or two from one
+                    // facet of the tessellation to the next, enough to fold a disc's thin rim strips.
+                    let own = mesh.surfaceNormal(Int32(v), face: f)
+                    let s: (height: Double, normal: SIMD3<Double>)
+                    if let solid = solidByFace[Int(f)] {
+                        s = (solid.height(at: mesh.points[v], normal: solidNormals[v]), solidNormals[v])
+                    } else if let mapping = mappingByFace[Int(f)], let pattern = patternByFace[Int(f)] {
+                        s = mapping.sample(mesh.points[v], normal: own != .zero ? own : normals[v], pattern)
+                    } else {
+                        continue
+                    }
+                    height += s.height
+                    direction += s.normal
+                    fade = max(fade, faceFade)
+                    count += 1
                 }
-                height += s.height
-                direction += s.normal
-                fade = max(fade, spec.fade)
-                count += 1
-            }
-            guard count > 0, simd_length(direction) > 1e-9 else { continue }
-            var weight = 1.0
-            if fade > 0, let d = distance?[v], d < fade {
-                let t = d / fade
-                weight = t * t * (3 - 2 * t)
-            }
-            var offset = height / count * weight
-            if offset < 0, let d = distance?[v] {
-                // Rounded into the limit rather than clipped by it, so where the limit takes
-                // over the cut doesn't break into a crease.
-                let limit = Self.cutLimit(at: d, amplitude: amplitudeLimit)
-                if limit.isFinite {
-                    let width = min(0.3 * amplitudeLimit, limit)
-                    offset = width > 0 ? min(Self.smoothMax(offset, -limit, width: width), 0) : 0
+                guard count > 0, simd_length(direction) > 1e-9 else { return nil }
+                var weight = 1.0
+                if fade > 0, let d = distance?[v], d < fade {
+                    let t = d / fade
+                    weight = t * t * (3 - 2 * t)
                 }
+                var offset = height / count * weight
+                if offset < 0, let d = distance?[v] {
+                    // Rounded into the limit rather than clipped by it, so where the limit takes
+                    // over the cut doesn't break into a crease.
+                    let limit = Self.cutLimit(at: d, amplitude: amplitudeLimit)
+                    if limit.isFinite {
+                        let width = min(0.3 * amplitudeLimit, limit)
+                        offset = width > 0 ? min(Self.smoothMax(offset, -limit, width: width), 0) : 0
+                    }
+                }
+                return (simd_normalize(direction), offset)
             }
-            directions[v] = simd_normalize(direction)
-            amounts[v] = offset
+            for v in 0..<n {
+                guard let s = sampled[v] else { continue }
+                directions[v] = s.direction
+                amounts[v] = s.amount
+            }
         }
         stages?.mark("height sampling")
         // Where a flat face meets a fillet the curvature jumps, which shades as a crisp line at any
