@@ -215,12 +215,14 @@ extension WorkMesh {
     /// Where the kernel gave each face's own normal at the vertex (``surfaceNormal(_:face:)``),
     /// those decide: near the tip of a corner blend its tessellation is all slivers, whose
     /// normals can stand 30° apart where the faces meet smoothly.
-    func sharpCreaseVertices(_ candidates: Set<Int>, angle: Double, where include: (Int32) -> Bool) -> Set<Int> {
+    /// `around` is the mesh's ``vertexFaces()``, when the caller has it already.
+    func sharpCreaseVertices(_ candidates: Set<Int>, angle: Double, where include: (Int32) -> Bool,
+                             around: VertexFaces? = nil) -> Set<Int> {
         guard !candidates.isEmpty else { return candidates }
         let cosAngle = cos(angle)
         var kernel: [Int: Bool] = [:]
         if !surfaceNormals.isEmpty {
-            let around = vertexFaces()
+            let around = around ?? vertexFaces()
             for v in candidates {
                 // Only each face's own normal there (not the one the point falls back to).
                 let normals = around.faces(of: v).filter(include).compactMap { edgeNormals[Self.pointFace(Int32(v), $0)] }
@@ -234,10 +236,14 @@ extension WorkMesh {
             }
         }
         var sums: [Int: [Int32: SIMD3<Double>]] = [:]
+        // The candidates by vertex, to test every triangle's corners without hashing.
+        var candidate = [Bool](repeating: false, count: points.count)
+        for v in candidates { candidate[v] = true }
         for (t, tri) in triangles.enumerated() where include(faces[t]) {
+            guard candidate[Int(tri.x)] || candidate[Int(tri.y)] || candidate[Int(tri.z)] else { continue }
             let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
             let n = simd_cross(b - a, c - a)
-            for v in [tri.x, tri.y, tri.z] where candidates.contains(Int(v)) {
+            for v in [tri.x, tri.y, tri.z] where candidate[Int(v)] {
                 sums[Int(v), default: [:]][faces[t], default: .zero] += n
             }
         }

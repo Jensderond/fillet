@@ -236,8 +236,9 @@ public enum TextureEngine {
         for v in 0..<n {
             for f in adjacency.faces(of: v) where !textured(f) { pinned[v] = true; break }
         }
-        let creases = m.creaseVertices(angle: creaseAngle, where: textured)
-        for v in m.sharpCreaseVertices(creases, angle: creaseAngle, where: textured) { pinned[v] = true }
+        // `adjacency` serves every pass up to the displacement: the mesh doesn't change before it.
+        let creases = m.creaseVertices(angle: creaseAngle, where: textured, around: adjacency)
+        for v in m.sharpCreaseVertices(creases, angle: creaseAngle, where: textured, around: adjacency) { pinned[v] = true }
         for v in m.openEdgeVertices() { pinned[v] = true }
 
         // Faded weight from the distance (along the surface) to the nearest pinned point.
@@ -291,7 +292,7 @@ public enum TextureEngine {
                 smoothed[v] = true
             }
             let solidAmplitude = specs.filter { solids[$0.key] != nil }.map(\.value.pattern.amplitude).max() ?? 0
-            m.smoothDirections(&solidNormals, where: smoothed, radius: max(solidAmplitude, 0.1))
+            m.smoothDirections(&solidNormals, where: smoothed, radius: max(solidAmplitude, 0.1), around: adjacency)
             stages?.mark("smooth normals")
         }
         do {
@@ -871,36 +872,42 @@ struct WorkMesh {
     /// Faces around each vertex: most vertices have one, those on face boundaries several.
     struct VertexFaces {
         var first: [Int32]
+        /// Whether each vertex is on more than one face (has an entry in `more`): checked before
+        /// hashing, which for the vertices inside a face is all there is to look up.
+        var several: [Bool]
         var more: [Int: [Int32]]
 
         func faces(of v: Int) -> [Int32] {
-            if let extra = more[v] { return extra }
+            if several[v], let extra = more[v] { return extra }
             return first[v] == Int32.min ? [] : [first[v]]
         }
 
         /// Whether vertex `v` is on face `f`.
         func contains(_ v: Int, _ f: Int32) -> Bool {
             if first[v] == f { return true }
-            return more.isEmpty ? false : more[v]?.contains(f) ?? false
+            return several[v] ? more[v]?.contains(f) ?? false : false
         }
     }
 
     func vertexFaces() -> VertexFaces {
         var first = [Int32](repeating: Int32.min, count: points.count)
+        var several = [Bool](repeating: false, count: points.count)
         var more: [Int: [Int32]] = [:]
         for (t, tri) in triangles.enumerated() {
             let f = faces[t]
-            for v in [Int(tri.x), Int(tri.y), Int(tri.z)] {
+            for k in 0..<3 {
+                let v = Int(tri[k])
                 if first[v] == Int32.min {
                     first[v] = f
-                } else if first[v] != f || more[v] != nil {
-                    var list = more[v] ?? [first[v]]
+                } else if first[v] != f || several[v] {
+                    var list = several[v] ? more[v]! : [first[v]]
                     if !list.contains(f) { list.append(f) }
                     more[v] = list
+                    several[v] = true
                 }
             }
         }
-        return VertexFaces(first: first, more: more)
+        return VertexFaces(first: first, several: several, more: more)
     }
 
     /// Area-weighted vertex normals from the triangles of faces `include` accepts (others: all).
@@ -924,11 +931,10 @@ struct WorkMesh {
 
     /// Endpoints of edges between two faces both accepted by `include` whose triangles meet at
     /// more than `angle`.
-    func creaseVertices(angle: Double, where include: (Int32) -> Bool) -> Set<Int> {
-        let boundary = vertexFaces()
+    /// `around` is the mesh's ``vertexFaces()``, when the caller has it already.
+    func creaseVertices(angle: Double, where include: (Int32) -> Bool, around: VertexFaces? = nil) -> Set<Int> {
         // Points on more than one face (only their edges can be between faces).
-        var shared = [Bool](repeating: false, count: points.count)
-        for v in boundary.more.keys { shared[v] = true }
+        let shared = (around ?? vertexFaces()).several
         var seen = EdgeMap<(face: Int32, normal: SIMD3<Double>)>(capacity: 1024, filler: (-1, .zero))
         var out = Set<Int>()
         let cosLimit = cos(angle)
@@ -1005,7 +1011,10 @@ struct WorkMesh {
     /// Where two faces' fits disagree along their shared edge (a kernel blend whose normals are a
     /// degree off its neighbour's), the difference is spread out over `radius` either side of the
     /// edge (see ``edgeSteps``), rather than left as a step that folds the fine triangles there.
-    func smoothDirections(_ directions: inout [SIMD3<Double>], where include: [Bool], radius: Double) {
+    ///
+    /// `around` is the mesh's ``vertexFaces()``, when the caller has it already.
+    func smoothDirections(_ directions: inout [SIMD3<Double>], where include: [Bool], radius: Double,
+                          around: VertexFaces? = nil) {
         let r = max(radius, 1e-6)
         let targets = points.indices.filter { include[$0] }
         guard !targets.isEmpty else { return }
@@ -1013,11 +1022,11 @@ struct WorkMesh {
         let grid = PointGrid(radius: r, items: targets.map { Int32($0) }) { points[Int($0)] }
         // The grid's points and directions in its order, read one after another.
         let near = grid.members.map { points[Int($0)] }, nearDirections = grid.members.map { source[Int($0)] }
-        let vertexFaces = self.vertexFaces()
+        let vertexFaces = around ?? self.vertexFaces()
         // The grid's points' first face and whether they are on others too, in its order: the
         // test whether a point is on a face (``VertexFaces/contains(_:_:)``) without hashing.
         let nearFace = grid.members.map { vertexFaces.first[Int($0)] }
-        let nearSeveral = grid.members.map { vertexFaces.more[Int($0)] != nil }
+        let nearSeveral = grid.members.map { vertexFaces.several[Int($0)] }
         // Each target's fit per face (up to `slots` faces), face index in `fitFaces`.
         let slots = 4
         let fits = UnsafeMutableBufferPointer<SIMD3<Double>>.allocate(capacity: targets.count * slots)
@@ -1035,7 +1044,7 @@ struct WorkMesh {
                 // Its faces (as ``VertexFaces/faces(of:)``, at most `slots`) and per face the sums
                 // below, kept on the stack: this runs for every point.
                 var faces = SIMD4<Int32>(repeating: Int32.min), faceCount = 0
-                if let more = vertexFaces.more[v] {
+                if vertexFaces.several[v], let more = vertexFaces.more[v] {
                     for f in more.prefix(slots) { faces[faceCount] = f; faceCount += 1 }
                 } else if vertexFaces.first[v] != Int32.min {
                     faces[0] = vertexFaces.first[v]; faceCount = 1
