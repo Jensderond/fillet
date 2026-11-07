@@ -640,12 +640,26 @@ struct WorkMesh {
                 // across the cores first (each is a pattern sample, often the most of a pass).
                 if wanted.count < points.count { wanted.append(contentsOf: repeatElement(-1, count: points.count - wanted.count)) }
                 var todo: [Int32] = [], todoFaces: [Int32] = []
-                for t in triangles.indices where include(faces[t]) {
-                    let tri = triangles[t]
-                    for k in 0..<3 where wanted[Int(tri[k])] < 0 && wanted[Int(tri[k])] != -2 {
-                        wanted[Int(tri[k])] = -2
-                        todo.append(tri[k])
-                        todoFaces.append(faces[t])
+                // The corners not yet known, block by block across the cores, then each taken
+                // once in triangle order, on the face of the first triangle with it.
+                let unknown: [[(point: Int32, face: Int32)]]
+                do {
+                    let triangles = triangles, faces = faces, wanted = wanted
+                    let blockSize = 16384
+                    unknown = concurrentMap((triangles.count + blockSize - 1) / blockSize, chunk: 1) { block in
+                        var out: [(point: Int32, face: Int32)] = []
+                        for t in (block * blockSize)..<min(triangles.count, (block + 1) * blockSize) where include(faces[t]) {
+                            let tri = triangles[t]
+                            for k in 0..<3 where wanted[Int(tri[k])] == -1 { out.append((tri[k], faces[t])) }
+                        }
+                        return out
+                    }
+                }
+                for block in unknown {
+                    for (v, f) in block where wanted[Int(v)] == -1 {
+                        wanted[Int(v)] = -2
+                        todo.append(v)
+                        todoFaces.append(f)
                     }
                 }
                 let mesh = self
@@ -659,19 +673,31 @@ struct WorkMesh {
             // Edges to split this pass, in triangle order, with how far each is over its length.
             var wantedSplits: [(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)] = []
             var seen = EdgeMap<Bool>(capacity: 1024, filler: true)
-            for t in triangles.indices where include(faces[t]) {
-                let tri = triangles[t]
-                var best = -1.0, bestK = 0
-                for k in 0..<3 {
-                    let d = simd_distance_squared(points[Int(tri[k])], points[Int(tri[(k + 1) % 3])])
-                    if d > best { best = d; bestK = k }
+            // Each triangle's verdict across the cores, in fixed blocks; then the edges in
+            // triangle order, each kept as the first triangle asking for it found it.
+            let found: [[(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)]]
+            do {
+                let triangles = triangles, faces = faces, points = points, wanted = wanted, local = local != nil
+                let blockSize = 16384
+                found = concurrentMap((triangles.count + blockSize - 1) / blockSize, chunk: 1) { block in
+                    var out: [(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)] = []
+                    for t in (block * blockSize)..<min(triangles.count, (block + 1) * blockSize) where include(faces[t]) {
+                        let tri = triangles[t]
+                        var best = -1.0, bestK = 0
+                        for k in 0..<3 {
+                            let d = simd_distance_squared(points[Int(tri[k])], points[Int(tri[(k + 1) % 3])])
+                            if d > best { best = d; bestK = k }
+                        }
+                        let wantedHere = !local ? limit : min(wanted[Int(tri.x)], wanted[Int(tri.y)], wanted[Int(tri.z)])
+                        guard best > wantedHere else { continue }
+                        let a = tri[bestK], b = tri[(bestK + 1) % 3]
+                        out.append((Self.key(a, b), a, b, faces[t], best / max(wantedHere, 1e-12)))
+                    }
+                    return out
                 }
-                let f = faces[t]
-                let wantedHere = local == nil ? limit : min(wanted[Int(tri.x)], wanted[Int(tri.y)], wanted[Int(tri.z)])
-                guard best > wantedHere else { continue }
-                let a = tri[bestK], b = tri[(bestK + 1) % 3]
-                let k = Self.key(a, b)
-                if !seen.findOrInsert(k).found { wantedSplits.append((k, a, b, f, best / max(wantedHere, 1e-12))) }
+            }
+            for block in found {
+                for split in block where !seen.findOrInsert(split.key).found { wantedSplits.append(split) }
             }
             if wantedSplits.isEmpty { break }
             // Over the budget: only the edges furthest over their length, as many as fit (each
@@ -700,63 +726,89 @@ struct WorkMesh {
                 }
             }
             for s in wantedSplits { splitEnd[Int(s.a)] = true; splitEnd[Int(s.b)] = true }
-            func mid(_ a: Int32, _ b: Int32) -> Int32? {
-                splitEnd[Int(a)] && splitEnd[Int(b)] ? mids[Self.key(a, b)] : nil
-            }
             if dirty != nil { dirty!.append(contentsOf: repeatElement(false, count: points.count - dirty!.count)) }
+            // Rebuilt in fixed blocks of triangles across the cores, then put together in order:
+            // the same triangles in the same order as going through them in one loop. Each block
+            // also lists the corners of the triangles it made (to mark dirty) and the face normals
+            // its new points get, which are set afterwards in the same order: they only read the
+            // normals at the old points, which no block sets.
+            let blockSize = 8192
+            let built: [RebuiltBlock]
+            do {
+                let mesh = self, splitEnd = splitEnd, mids = mids
+                let withNormals = !edgeNormals.isEmpty
+                built = concurrentMap((triangles.count + blockSize - 1) / blockSize, chunk: 1) { block -> RebuiltBlock in
+                    let range = (block * blockSize)..<min(mesh.triangles.count, (block + 1) * blockSize)
+                    var out = RebuiltBlock()
+                    out.triangles.reserveCapacity(range.count + range.count / 2)
+                    out.faces.reserveCapacity(range.count + range.count / 2)
+                    func mid(_ a: Int32, _ b: Int32) -> Int32? {
+                        splitEnd[Int(a)] && splitEnd[Int(b)] ? mids[Self.key(a, b)] : nil
+                    }
+                    for t in range {
+                        let v = mesh.triangles[t]
+                        let e0 = mid(v[0], v[1]), e1 = mid(v[1], v[2]), e2 = mid(v[2], v[0])
+                        let f = mesh.faces[t]
+                        func add(_ a: Int32, _ b: Int32, _ c: Int32) {
+                            out.triangles.append(SIMD3(a, b, c))
+                            out.faces.append(f)
+                            out.made.append(a); out.made.append(b); out.made.append(c)
+                        }
+                        func e(_ r: Int) -> Int32? { r == 0 ? e0 : (r == 1 ? e1 : e2) }
+                        // A point splitting an edge between faces: each face's normal there.
+                        if withNormals {
+                            for r in 0..<3 {
+                                guard let m = e(r) else { continue }
+                                let a = v[r], b = v[(r + 1) % 3]
+                                guard mesh.edgeNormals[a, f] != nil, mesh.edgeNormals[b, f] != nil else { continue }
+                                out.normals.append((m, f, Self.unit(mesh.surfaceNormal(a, face: f) + mesh.surfaceNormal(b, face: f))))
+                            }
+                        }
+                        switch (e0 != nil ? 1 : 0) + (e1 != nil ? 1 : 0) + (e2 != nil ? 1 : 0) {
+                        case 0:
+                            out.triangles.append(v)
+                            out.faces.append(f)
+                        case 1:
+                            let r = e0 != nil ? 0 : (e1 != nil ? 1 : 2)
+                            let a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3], m = e(r)!
+                            add(a, m, c)
+                            add(m, b, c)
+                        case 2:
+                            // Rotate so the unsplit edge is (c, a).
+                            let k = e0 == nil ? 0 : (e1 == nil ? 1 : 2)
+                            let r = (k + 1) % 3
+                            let a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3]
+                            let mab = e(r)!, mbc = e((r + 1) % 3)!
+                            add(mab, b, mbc)
+                            let points = mesh.points
+                            if simd_distance_squared(points[Int(a)], points[Int(mbc)]) < simd_distance_squared(points[Int(mab)], points[Int(c)]) {
+                                add(a, mab, mbc)
+                                add(a, mbc, c)
+                            } else {
+                                add(a, mab, c)
+                                add(mab, mbc, c)
+                            }
+                        default:
+                            let m0 = e0!, m1 = e1!, m2 = e2!
+                            add(v[0], m0, m2)
+                            add(m0, v[1], m1)
+                            add(m2, m1, v[2])
+                            add(m0, m1, m2)
+                        }
+                    }
+                    return out
+                }
+            }
             var newTriangles: [SIMD3<Int32>] = []
             var newFaces: [Int32] = []
-            newTriangles.reserveCapacity(triangles.count + 2 * mids.count)
-            newFaces.reserveCapacity(triangles.count + 2 * mids.count)
-            for t in triangles.indices {
-                let v = triangles[t]
-                let e0 = mid(v[0], v[1]), e1 = mid(v[1], v[2]), e2 = mid(v[2], v[0])
-                let f = faces[t]
-                func add(_ a: Int32, _ b: Int32, _ c: Int32) {
-                    newTriangles.append(SIMD3(a, b, c))
-                    newFaces.append(f)
-                    dirty?[Int(a)] = true; dirty?[Int(b)] = true; dirty?[Int(c)] = true
-                }
-                func e(_ r: Int) -> Int32? { r == 0 ? e0 : (r == 1 ? e1 : e2) }
-                // A point splitting an edge between faces: each face's normal there.
-                if !edgeNormals.isEmpty {
-                    for r in 0..<3 {
-                        guard let m = e(r) else { continue }
-                        let a = v[r], b = v[(r + 1) % 3]
-                        guard edgeNormals[a, f] != nil, edgeNormals[b, f] != nil else { continue }
-                        edgeNormals.set(m, f, Self.unit(surfaceNormal(a, face: f) + surfaceNormal(b, face: f)))
-                    }
-                }
-                switch (e0 != nil ? 1 : 0) + (e1 != nil ? 1 : 0) + (e2 != nil ? 1 : 0) {
-                case 0:
-                    newTriangles.append(v)
-                    newFaces.append(f)
-                case 1:
-                    let r = e0 != nil ? 0 : (e1 != nil ? 1 : 2)
-                    let a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3], m = e(r)!
-                    add(a, m, c)
-                    add(m, b, c)
-                case 2:
-                    // Rotate so the unsplit edge is (c, a).
-                    let k = e0 == nil ? 0 : (e1 == nil ? 1 : 2)
-                    let r = (k + 1) % 3
-                    let a = v[r], b = v[(r + 1) % 3], c = v[(r + 2) % 3]
-                    let mab = e(r)!, mbc = e((r + 1) % 3)!
-                    add(mab, b, mbc)
-                    if simd_distance_squared(points[Int(a)], points[Int(mbc)]) < simd_distance_squared(points[Int(mab)], points[Int(c)]) {
-                        add(a, mab, mbc)
-                        add(a, mbc, c)
-                    } else {
-                        add(a, mab, c)
-                        add(mab, mbc, c)
-                    }
-                default:
-                    let m0 = e0!, m1 = e1!, m2 = e2!
-                    add(v[0], m0, m2)
-                    add(m0, v[1], m1)
-                    add(m2, m1, v[2])
-                    add(m0, m1, m2)
-                }
+            let total = built.reduce(0) { $0 + $1.triangles.count }
+            newTriangles.reserveCapacity(total)
+            newFaces.reserveCapacity(total)
+            for block in built {
+                newTriangles += block.triangles
+                newFaces += block.faces
+                for (m, f, n) in block.normals { edgeNormals.set(m, f, n) }
+                if dirty != nil { for v in block.made { dirty![Int(v)] = true } }
             }
             triangles = newTriangles
             faces = newFaces
@@ -764,6 +816,16 @@ struct WorkMesh {
             if last { break }
         }
         improve(where: include, passes: 4, dirty: &dirty)
+    }
+
+    /// One block of triangles rebuilt by a pass of ``subdivide(maxEdge:where:maxTriangles:local:)``.
+    struct RebuiltBlock {
+        var triangles: [SIMD3<Int32>] = []
+        var faces: [Int32] = []
+        /// The corners of the triangles made (not those kept as they were).
+        var made: [Int32] = []
+        /// The face normals at the new points on edges between faces, in the order found.
+        var normals: [(point: Int32, face: Int32, normal: SIMD3<Double>)] = []
     }
 
     /// The point halfway along edge (`a`, `b`) on the face's curved surface rather than on the
