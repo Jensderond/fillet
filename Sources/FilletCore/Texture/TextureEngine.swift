@@ -756,6 +756,10 @@ struct WorkMesh {
                     for j in 0..<3 where o[j] == b && o[(j + 1) % 3] == a { d = o[(j + 2) % 3] }
                     guard d >= 0, d != c else { continue }
                     let pa = points[Int(a)], pb = points[Int(b)], pc = points[Int(c)], pd = points[Int(d)]
+                    // Both opposite angles acute: each atan2 below comes out at most π/2 (to an
+                    // ulp), their sum nowhere near the 1e-9 over π the flip needs. Most edges
+                    // are, and this spares them the two atan2.
+                    if simd_dot(pa - pc, pb - pc) > 0, simd_dot(pb - pd, pa - pd) > 0 { continue }
                     func angle(_ at: SIMD3<Double>, _ p: SIMD3<Double>, _ q: SIMD3<Double>) -> Double {
                         let x = p - at, y = q - at
                         return atan2(simd_length(simd_cross(x, y)), simd_dot(x, y))
