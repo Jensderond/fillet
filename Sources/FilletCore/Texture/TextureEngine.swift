@@ -1481,18 +1481,24 @@ struct WorkMesh {
                     // The folded points and a few rings round them (more each round), so the
                     // change fades out rather than folding the next ring.
                     var region = stubborn
+                    // `region` by point, for the test on every triangle of each step.
+                    var inRegion = [Bool](repeating: false, count: points.count)
+                    for v in region { inRegion[v] = true }
                     var around: [Int: Set<Int>] = [:]
                     for _ in 0...(round - aligning + 1) {
                         var grown = region
+                        var added: [Int] = []
                         for tri in triangles {
-                            let corners = [Int(tri.x), Int(tri.y), Int(tri.z)]
-                            guard corners.contains(where: { region.contains($0) }) else { continue }
+                            let a = Int(tri.x), b = Int(tri.y), c = Int(tri.z)
+                            guard inRegion[a] || inRegion[b] || inRegion[c] else { continue }
+                            let corners = [a, b, c]
                             for v in corners {
-                                grown.insert(v)
-                                if region.contains(v) { for w in corners where w != v { around[v, default: []].insert(w) } }
+                                if grown.insert(v).inserted { added.append(v) }
+                                if inRegion[v] { for w in corners where w != v { around[v, default: []].insert(w) } }
                             }
                         }
                         region = grown
+                        for v in added { inRegion[v] = true }
                     }
                     for _ in 0..<8 {
                         let before = offsets
