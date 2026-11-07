@@ -220,7 +220,7 @@ public enum TextureEngine {
         // Without one there is nothing to snap, nor any need for the mesh's open edges.
         if !solids.isEmpty {
             let open = m.openEdgeVertices()
-            m.snapToContours(solids) { !open.contains($0) }
+            m.snapToContours(solids) { !open[$0] }
         }
         stages?.mark("contour snap")
         m.dissolveSlivers(where: textured)
@@ -239,7 +239,7 @@ public enum TextureEngine {
         // `adjacency` serves every pass up to the displacement: the mesh doesn't change before it.
         let creases = m.creaseVertices(angle: creaseAngle, where: textured, around: adjacency)
         for v in m.sharpCreaseVertices(creases, angle: creaseAngle, where: textured, around: adjacency) { pinned[v] = true }
-        for v in m.openEdgeVertices() { pinned[v] = true }
+        for (v, open) in m.openEdgeVertices().enumerated() where open { pinned[v] = true }
 
         // Faded weight from the distance (along the surface) to the nearest pinned point.
         // Also far enough out to keep the deepest cut off the edges (see ``cutSlope``).
@@ -283,7 +283,7 @@ public enum TextureEngine {
         if !solids.isEmpty {
             for v in 0..<n where !pinned[v] {
                 var sum = SIMD3<Double>.zero
-                for f in adjacency.faces(of: v) where solids[f] != nil {
+                for f in adjacency.faces(of: v) where f >= 0 && Int(f) < solidByFace.count && solidByFace[Int(f)] != nil {
                     let own = m.surfaceNormal(Int32(v), face: f)
                     sum += own != .zero ? own : normals[v]
                 }
@@ -307,13 +307,14 @@ public enum TextureEngine {
                 var height = 0.0, direction = SIMD3<Double>.zero, count = 0.0, fade = 0.0
                 for f in adjacency.faces(of: v) {
                     guard f >= 0, Int(f) < fadeByFace.count, let faceFade = fadeByFace[Int(f)] else { continue }
-                    // Along the surface's own normal: the triangles' differs by a degree or two from one
-                    // facet of the tessellation to the next, enough to fold a disc's thin rim strips.
-                    let own = mesh.surfaceNormal(Int32(v), face: f)
                     let s: (height: Double, normal: SIMD3<Double>)
                     if let solid = solidByFace[Int(f)] {
                         s = (solid.height(at: mesh.points[v], normal: solidNormals[v]), solidNormals[v])
                     } else if let mapping = mappingByFace[Int(f)], let pattern = patternByFace[Int(f)] {
+                        // Along the surface's own normal: the triangles' differs by a degree or two
+                        // from one facet of the tessellation to the next, enough to fold a disc's
+                        // thin rim strips.
+                        let own = mesh.surfaceNormal(Int32(v), face: f)
                         s = mapping.sample(mesh.points[v], normal: own != .zero ? own : normals[v], pattern)
                     } else {
                         continue
@@ -877,9 +878,21 @@ struct WorkMesh {
         var several: [Bool]
         var more: [Int: [Int32]]
 
-        func faces(of v: Int) -> [Int32] {
-            if several[v], let extra = more[v] { return extra }
-            return first[v] == Int32.min ? [] : [first[v]]
+        /// The faces of vertex `v`, in the order its triangles came. Not an array: most vertices
+        /// have one face, and an array of it on the heap for every point was a good part of the
+        /// passes that ask for every point's faces.
+        func faces(of v: Int) -> FaceList {
+            if several[v], let extra = more[v] { return FaceList(one: Int32.min, list: extra) }
+            return FaceList(one: first[v], list: nil)
+        }
+
+        /// A vertex's faces: the one in `one` (none when it is `Int32.min`), or those in `list`.
+        struct FaceList: RandomAccessCollection {
+            let one: Int32
+            let list: [Int32]?
+            var startIndex: Int { 0 }
+            var endIndex: Int { list?.count ?? (one == Int32.min ? 0 : 1) }
+            subscript(i: Int) -> Int32 { list?[i] ?? one }
         }
 
         /// Whether vertex `v` is on face `f`.
@@ -918,8 +931,10 @@ struct WorkMesh {
             let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
             let n = simd_cross(b - a, c - a)
             let use = include(faces[t])
-            for v in [Int(tri.x), Int(tri.y), Int(tri.z)] {
-                if use { sums[v] += n } else { fallback[v] += n }
+            if use {
+                sums[Int(tri.x)] += n; sums[Int(tri.y)] += n; sums[Int(tri.z)] += n
+            } else {
+                fallback[Int(tri.x)] += n; fallback[Int(tri.y)] += n; fallback[Int(tri.z)] += n
             }
         }
         return sums.indices.map { i in
@@ -1226,11 +1241,13 @@ struct WorkMesh {
         return out
     }
 
-    /// Endpoints of edges used by only one triangle (a mesh that wasn't closed to begin with).
+    /// Whether each point is an end of an edge used by only one triangle (a mesh that wasn't
+    /// closed to begin with).
     ///
     /// Each edge is listed under its lower end, and each point's few edges counted among
-    /// themselves: rather than a hash map of every edge, whose lookups land all over memory.
-    func openEdgeVertices() -> Set<Int> {
+    /// themselves: rather than a hash map of every edge, whose lookups land all over memory. The
+    /// points are counted across the cores, each block listing the open edges' ends it finds.
+    func openEdgeVertices() -> [Bool] {
         var start = [Int](repeating: 0, count: points.count + 1)
         for tri in triangles {
             start[Int(min(tri.x, tri.y)) + 1] += 1
@@ -1248,27 +1265,33 @@ struct WorkMesh {
                 fill[lo] += 1
             }
         }
-        var out = Set<Int>()
-        for v in 0..<points.count where start[v + 1] - start[v] > 0 {
-            let list = upper[start[v]..<start[v + 1]]
-            if list.count > 32 {
-                // A fan round a pole: sorted, an edge's copies lie together.
-                let sorted = list.sorted()
-                var i = 0
-                while i < sorted.count {
-                    var j = i + 1
-                    while j < sorted.count, sorted[j] == sorted[i] { j += 1 }
-                    if j - i == 1 { out.insert(v); out.insert(Int(sorted[i])) }
-                    i = j
-                }
-            } else {
-                for i in list.indices {
-                    var copies = 0
-                    for j in list.indices where list[j] == list[i] { copies += 1 }
-                    if copies == 1 { out.insert(v); out.insert(Int(list[i])) }
+        let chunk = 4096
+        let found = concurrentMap((points.count + chunk - 1) / chunk, chunk: 1) { [start, upper] block -> [Int32] in
+            var ends: [Int32] = []
+            for v in (block * chunk)..<min(points.count, (block + 1) * chunk) where start[v + 1] - start[v] > 0 {
+                let list = upper[start[v]..<start[v + 1]]
+                if list.count > 32 {
+                    // A fan round a pole: sorted, an edge's copies lie together.
+                    let sorted = list.sorted()
+                    var i = 0
+                    while i < sorted.count {
+                        var j = i + 1
+                        while j < sorted.count, sorted[j] == sorted[i] { j += 1 }
+                        if j - i == 1 { ends.append(Int32(v)); ends.append(sorted[i]) }
+                        i = j
+                    }
+                } else {
+                    for i in list.indices {
+                        var copies = 0
+                        for j in list.indices where list[j] == list[i] { copies += 1 }
+                        if copies == 1 { ends.append(Int32(v)); ends.append(list[i]) }
+                    }
                 }
             }
+            return ends
         }
+        var out = [Bool](repeating: false, count: points.count)
+        for ends in found { for v in ends { out[Int(v)] = true } }
         return out
     }
 

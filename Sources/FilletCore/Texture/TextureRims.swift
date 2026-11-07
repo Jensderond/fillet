@@ -249,7 +249,7 @@ extension WorkMesh {
         // Points between the curves must belong to this face alone (not on a face edge).
         for t in cut {
             for v in [triangles[t].x, triangles[t].y, triangles[t].z] where cls(v) == 1 {
-                guard vertexFaces.faces(of: Int(v)) == [f] else { return nil }
+                guard vertexFaces.faces(of: Int(v)).elementsEqual(CollectionOfOne(f)) else { return nil }
             }
         }
         func dkey(_ a: Int32, _ b: Int32) -> UInt64 { UInt64(UInt32(bitPattern: a)) << 32 | UInt64(UInt32(bitPattern: b)) }
