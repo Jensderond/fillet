@@ -217,7 +217,8 @@ public enum TextureEngine {
         let rimMappings = m.followRims(specs, borders: borders, scale: quality.edgeScale)
         stages?.mark("rims")
         // Points in rows along the level lines of a pattern laid out in space (a stone's round).
-        do {
+        // Without one there is nothing to snap, nor any need for the mesh's open edges.
+        if !solids.isEmpty {
             let open = m.openEdgeVertices()
             m.snapToContours(solids) { !open.contains($0) }
         }
