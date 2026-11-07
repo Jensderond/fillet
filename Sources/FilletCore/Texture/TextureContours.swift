@@ -45,19 +45,33 @@ extension WorkMesh {
             candidateNormals.append(n)
         }
         // The nearest neighbour's distance, the measure and where the point would go, worked
-        // out across the cores from where the points are before any moves (each face's layout
-        // opened once, rather than its box copied and counted for every point on every core).
+        // out across the cores from where the points are before any moves (a face's layout
+        // opened once per block, rather than its box copied and counted for every point on
+        // every core).
         // At its turn below a point is still there, and where its nearest neighbour is still
         // as far (to the bit) everything up to the triangle check comes out the same, so only
         // the points next to an earlier move that changed that distance work it out again.
         var spans: [Int32: [Int]] = [:]
         for (i, v) in candidates.enumerated() { spans[faces[Int(around[start[Int(v)]])], default: []].append(i) }
-        var planned = [ContourPlan](repeating: ContourPlan(shortest: 0, measure: nil, target: nil), count: candidates.count)
+        // In blocks of one face's points, all of them in one go across the cores: a round of
+        // the cores per face had them wait for the slowest at the end of each, on every one of
+        // a rounded box's many small faces.
+        var order: [Int] = []
+        var blocks: [(face: Int32, range: Range<Int>)] = []
         for (f, list) in spans.sorted(by: { $0.key < $1.key }) {
-            let solid = solidByFace[Int(f)]!
-            let out = contourPlans(solid, list.map { Int(candidates[$0]) }, normals: list.map { candidateNormals[$0] },
-                                   start: start, around: around)
-            for (j, i) in list.enumerated() { planned[i] = out[j] }
+            let first = order.count
+            order += list
+            for lo in stride(from: first, to: order.count, by: 512) { blocks.append((f, lo..<min(lo + 512, order.count))) }
+        }
+        let made = concurrentMap(blocks.count, chunk: 1) { b -> [ContourPlan] in
+            let (f, range) = blocks[b]
+            let solid: any SolidTexture = solidByFace[Int(f)]!
+            return contourPlans(solid, levels: levelsByFace[Int(f)], order[range].map { Int(candidates[$0]) },
+                                normals: order[range].map { candidateNormals[$0] }, start: start, around: around)
+        }
+        var planned = [ContourPlan](repeating: ContourPlan(shortest: 0, measure: nil, target: nil), count: candidates.count)
+        for (b, block) in blocks.enumerated() {
+            for (j, i) in order[block.range].enumerated() { planned[i] = made[b][j] }
         }
         for v in points.indices where candidate[v] >= 0 {
             let f = faces[Int(around[start[v]])]
@@ -95,11 +109,10 @@ extension WorkMesh {
     }
 
     /// ``ContourPlan`` of each of the points `list` (normals `normals`) of one face laid out by
-    /// `solid`, across the cores; `start` and `around` list the triangles round each point.
-    private func contourPlans<S: SolidTexture>(_ solid: S, _ list: [Int], normals: [SIMD3<Double>],
+    /// `solid` (its levels `levels`); `start` and `around` list the triangles round each point.
+    private func contourPlans<S: SolidTexture>(_ solid: S, levels: [Double], _ list: [Int], normals: [SIMD3<Double>],
                                                start: [Int], around: [Int32]) -> [ContourPlan] {
-        let levels = solid.contourLevels
-        return concurrentMap(list.count) { j in
+        list.indices.map { j in
             let v = list[j], n = normals[j]
             var shortest = Double.infinity
             for k in start[v]..<start[v + 1] {
