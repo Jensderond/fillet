@@ -59,20 +59,20 @@ struct SolidFlagstones: SolidTexture {
         cell = 0.5 * size
         // Seeds by a coarse grid, then each cell the surface passes through gets those near it.
         var coarse: [SIMD3<Int32>: [Int32]] = [:]
-        for (i, s) in seeds.enumerated() { coarse[SIMD3<Int32>(floor3(s.point / reach)), default: []].append(Int32(i)) }
+        for (i, s) in seeds.enumerated() { coarse[int32x3(floor3(s.point / reach)), default: []].append(Int32(i)) }
         var index: [SIMD3<Int32>: [Int32]] = [:]
         let radius = reach + cell * 0.87
         for tri in surface.triangles {
             let a = surface.points[Int(tri.x)], b = surface.points[Int(tri.y)], c = surface.points[Int(tri.z)]
             let lo = simd_min(a, simd_min(b, c)) - 0.5 * cell, hi = simd_max(a, simd_max(b, c)) + 0.5 * cell
-            let k0 = SIMD3<Int32>(floor3(lo / cell)), k1 = SIMD3<Int32>(floor3(hi / cell))
+            let k0 = int32x3(floor3(lo / cell)), k1 = int32x3(floor3(hi / cell))
             for z in k0.z...k1.z {
                 for y in k0.y...k1.y {
                     for x in k0.x...k1.x {
                         let k = SIMD3(x, y, z)
                         guard index[k] == nil else { continue }
                         let centre = (SIMD3<Double>(k) + 0.5) * cell
-                        let g = SIMD3<Int32>(floor3(centre / reach))
+                        let g = int32x3(floor3(centre / reach))
                         var near: [Int32] = []
                         for dz in Int32(-1)...1 {
                             for dy in Int32(-1)...1 {
@@ -102,7 +102,7 @@ struct SolidFlagstones: SolidTexture {
             w -= simd_dot(w, n) * n
             p += (0.035 * size * pattern.irregularity) * w
         }
-        let key = SIMD3<Int32>(floor3(point / cell))
+        let key = int32x3(floor3(point / cell))
         guard let candidates = index[key] else {
             return Array(Int32(0)..<Int32(seeds.count)).withUnsafeBufferPointer { stone(at: p, normal: n, among: $0) }
         }
@@ -270,7 +270,7 @@ struct SolidFlagstones: SolidTexture {
         let base = floor3(q)
         let f = q - base
         let w = f * f * f * (f * (f * 6 - 15) + 10)
-        let k = SIMD3<Int32>(base)
+        let k = int32x3(base)
         func at(_ dx: Int32, _ dy: Int32, _ dz: Int32) -> Double {
             TextureSurface.unitHash(k &+ SIMD3(dx, dy, dz), pattern.seed, 16 + salt) * 2 - 1
         }

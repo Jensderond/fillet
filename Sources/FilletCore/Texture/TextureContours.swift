@@ -20,18 +20,21 @@ extension WorkMesh {
         var fill = start
         var around = [Int32](repeating: 0, count: start[points.count])
         for (t, tri) in triangles.enumerated() {
-            for v in [tri.x, tri.y, tri.z] { around[fill[Int(v)]] = Int32(t); fill[Int(v)] += 1 }
+            for j in 0..<3 { around[fill[Int(tri[j])]] = Int32(t); fill[Int(tri[j])] += 1 }
         }
         // The layouts by face index, and the points that may move (inside one such face, its
         // normal known) with the measure where they are now, worked out across the cores first:
         // a point only ever moves at its own turn below, so this is where it still is then.
         var solidByFace = [(any SolidTexture)?](repeating: nil, count: Int(max(faces.max() ?? -1, -1)) + 1)
         for (f, solid) in solids where f >= 0 && Int(f) < solidByFace.count { solidByFace[Int(f)] = solid }
+        // Each layout's levels, asked for once: the property makes a new array every time, and
+        // it was asked for at every point.
+        let levelsByFace = solidByFace.map { $0?.contourLevels ?? [] }
         var candidates: [Int32] = [], candidateNormals: [SIMD3<Double>] = []
         var candidate = [Int32](repeating: -1, count: points.count)
         for v in points.indices where start[v + 1] > start[v] && movable(v) {
             let f = faces[Int(around[start[v]])]
-            guard f >= 0, let solid = solidByFace[Int(f)], !solid.contourLevels.isEmpty else { continue }
+            guard f >= 0, solidByFace[Int(f)] != nil, !levelsByFace[Int(f)].isEmpty else { continue }
             var oneFace = true
             for k in start[v]..<start[v + 1] where faces[Int(around[k])] != f { oneFace = false; break }
             guard oneFace else { continue }
@@ -63,14 +66,14 @@ extension WorkMesh {
             var shortest = Double.infinity
             for k in start[v]..<start[v + 1] {
                 let tri = triangles[Int(around[k])]
-                for w in [tri.x, tri.y, tri.z] where Int(w) != v { shortest = min(shortest, simd_distance(points[Int(w)], points[v])) }
+                for j in 0..<3 where Int(tri[j]) != v { shortest = min(shortest, simd_distance(points[Int(tri[j])], points[v])) }
             }
             let plan = planned[Int(candidate[v])]
             let target: SIMD3<Double>?
             if shortest.bitPattern == plan.shortest.bitPattern {
                 target = plan.target
             } else if let e = plan.measure {
-                target = Self.contourTarget(solid, levels: solid.contourLevels, at: points[v], normal: candidateNormals[Int(candidate[v])],
+                target = Self.contourTarget(solid, levels: levelsByFace[Int(f)], at: points[v], normal: candidateNormals[Int(candidate[v])],
                                             measure: e, shortest: shortest)
             } else {
                 target = nil
@@ -101,7 +104,7 @@ extension WorkMesh {
             var shortest = Double.infinity
             for k in start[v]..<start[v + 1] {
                 let tri = triangles[Int(around[k])]
-                for w in [tri.x, tri.y, tri.z] where Int(w) != v { shortest = min(shortest, simd_distance(points[Int(w)], points[v])) }
+                for i in 0..<3 where Int(tri[i]) != v { shortest = min(shortest, simd_distance(points[Int(tri[i])], points[v])) }
             }
             let e = solid.contour(at: points[v], normal: n)
             let target = e.flatMap { Self.contourTarget(solid, levels: levels, at: points[v], normal: n, measure: $0, shortest: shortest) }

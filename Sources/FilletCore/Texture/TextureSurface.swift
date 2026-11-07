@@ -71,7 +71,7 @@ public struct TextureSurface: Sendable {
                 guard area2 > 1e-14 else { continue }
                 let normal = cross / area2
                 let lo = simd_min(a, simd_min(b, d)) - reach, hi = simd_max(a, simd_max(b, d)) + reach
-                let k0 = SIMD3<Int32>(floor3(lo / c) - 1), k1 = SIMD3<Int32>(floor3(hi / c) + 1)
+                let k0 = int32x3(floor3(lo / c) - 1), k1 = int32x3(floor3(hi / c) + 1)
                 for z in k0.z...k1.z {
                     for y in k0.y...k1.y {
                         for x in k0.x...k1.x {
@@ -111,7 +111,7 @@ public struct TextureSurface: Sendable {
         let r2 = spacing * spacing
         for k in order {
             let cand = nearest[k]!
-            let g = SIMD3<Int32>(floor3(cand.point / spacing))
+            let g = int32x3(floor3(cand.point / spacing))
             var free = true
             search: for dz in -1...1 {
                 for dy in -1...1 {
@@ -279,3 +279,11 @@ extension SolidTexture {
 
 /// Each component rounded down.
 @inline(__always) func floor3(_ v: SIMD3<Double>) -> SIMD3<Double> { v.rounded(.down) }
+
+/// Whole-number components as integers, lane by lane: one instruction each, where the generic
+/// `SIMD3<Int32>(_:)` takes the slow path through `FixedWidthInteger`'s conversion (a few
+/// percent of the flagstones' time, in their noise and the point grids).
+@inline(__always) func int32x3(_ v: SIMD3<Double>) -> SIMD3<Int32> { SIMD3(Int32(v.x), Int32(v.y), Int32(v.z)) }
+
+/// As ``int32x3(_:)``, to `Int`.
+@inline(__always) func intx3(_ v: SIMD3<Double>) -> SIMD3<Int> { SIMD3(Int(v.x), Int(v.y), Int(v.z)) }

@@ -194,14 +194,16 @@ public enum TextureEngine {
             // measured on a trial subdivision a little coarser (the count goes with 1 / length²).
             // The trial is skipped when a quick estimate from samples is well under the budget:
             // it leaves out the triangles between fine and coarse, so it counts up to about half.
+            // From the array by face, as in `wanted`: copying the layout out of the dictionary
+            // for every sample had the cores count references on it.
             let estimate = m.estimatedTriangles(maxEdge: edge, where: textured) { p, normal, f in
-                solids[f].map { $0.detail(at: p, normal: normal) * localScale }
+                f >= 0 && Int(f) < solidByFace.count ? solidByFace[Int(f)].map { $0.detail(at: p, normal: normal) * localScale } : nil
             }
             if 2.5 * estimate > budget {
                 let trial = Self.trialScale
                 budgetScale = trial
                 var probe = m
-                probe.subdivide(maxEdge: edge * trial, where: textured, maxTriangles: .max, local: wanted)
+                probe.subdivide(maxEdge: edge * trial, where: textured, maxTriangles: .max, local: wanted, polish: false)
                 let needed = Double(probe.triangles.count - m.triangles.count) * trial * trial
                 // Aimed a little under: the estimate comes within a few percent either way, and a
                 // mesh that runs into the cap ends on a partial pass, uneven along the stone edges.
@@ -625,9 +627,11 @@ struct WorkMesh {
     /// edge keeps triangles well shaped, even from the long thin strips a cylinder tessellates into.
     /// `local`, when given, is the edge length wanted at a point of a face (squared and capped at
     /// `maxEdge`); a triangle is split while its longest edge is longer than the smallest
-    /// length wanted at its corners.
+    /// length wanted at its corners. `polish` false leaves out the last passes of edge flips,
+    /// which change only the triangles' shapes, not how many there are (for a trial that only
+    /// counts them).
     mutating func subdivide(maxEdge: Double, where include: (Int32) -> Bool, maxTriangles: Int,
-                            local: ((SIMD3<Double>, SIMD3<Double>, Int32) -> Double)? = nil) {
+                            local: ((SIMD3<Double>, SIMD3<Double>, Int32) -> Double)? = nil, polish: Bool = true) {
         let limit = maxEdge * maxEdge
         // The squared length wanted at each point (-1: not yet known), on the face of the first
         // triangle (in order) that needed it.
@@ -815,7 +819,7 @@ struct WorkMesh {
             improve(where: include, dirty: &dirty)
             if last { break }
         }
-        improve(where: include, passes: 4, dirty: &dirty)
+        if polish { improve(where: include, passes: 4, dirty: &dirty) }
     }
 
     /// One block of triangles rebuilt by a pass of ``subdivide(maxEdge:where:maxTriangles:local:)``.

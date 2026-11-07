@@ -174,7 +174,7 @@ private struct TriangleGrid: Sendable {
                               Int((size.z / cell).rounded(.down)) + 1)
         self.lo = lo; self.cell = cell; self.dims = dims
         func cellOf(_ p: SIMD3<Double>) -> SIMD3<Int> {
-            simd_clamp(SIMD3<Int>(((p - lo) / cell).rounded(.down)), .zero, dims &- 1)
+            simd_clamp(intx3(((p - lo) / cell).rounded(.down)), .zero, dims &- 1)
         }
         func index(_ x: Int, _ y: Int, _ z: Int) -> Int { (z * dims.y + y) * dims.x + x }
         // Each triangle's cells, as the corners of its box.
@@ -239,7 +239,7 @@ private struct TriangleGrid: Sendable {
     }
 
     func cellOf(_ p: SIMD3<Double>) -> SIMD3<Int> {
-        simd_clamp(SIMD3<Int>(((p - lo) / cell).rounded(.down)), .zero, dims &- 1)
+        simd_clamp(intx3(((p - lo) / cell).rounded(.down)), .zero, dims &- 1)
     }
 
     func index(_ c: SIMD3<Int>) -> Int { (c.z * dims.y + c.y) * dims.x + c.x }

@@ -64,7 +64,7 @@ struct PointGrid {
         around = concurrentMap(keys.count, chunk: 256) { grid.neighbours(of: keys[$0]) }.flatMap { $0 }
     }
 
-    static func cell(_ p: SIMD3<Double>, _ r: Double) -> SIMD3<Int32> { SIMD3<Int32>(floor3(p / r)) }
+    static func cell(_ p: SIMD3<Double>, _ r: Double) -> SIMD3<Int32> { int32x3(floor3(p / r)) }
 
     /// The 27 cubes round cube `key` (which needn't have items itself) in the visiting order, as
     /// indices into this grid, -1 where none has items.
