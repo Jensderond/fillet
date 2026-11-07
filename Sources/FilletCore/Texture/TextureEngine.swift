@@ -994,13 +994,17 @@ struct WorkMesh {
     /// edge (see ``edgeSteps``), rather than left as a step that folds the fine triangles there.
     func smoothDirections(_ directions: inout [SIMD3<Double>], where include: [Bool], radius: Double) {
         let r = max(radius, 1e-6)
-        var cells: [SIMD3<Int32>: [Int32]] = [:]
-        func cell(_ p: SIMD3<Double>) -> SIMD3<Int32> { SIMD3<Int32>(floor3(p / r)) }
-        for v in points.indices where include[v] { cells[cell(points[v]), default: []].append(Int32(v)) }
         let targets = points.indices.filter { include[$0] }
         guard !targets.isEmpty else { return }
         let source = directions, points = self.points
+        let grid = PointGrid(radius: r, items: targets.map { Int32($0) }) { points[Int($0)] }
+        // The grid's points and directions in its order, read one after another.
+        let near = grid.members.map { points[Int($0)] }, nearDirections = grid.members.map { source[Int($0)] }
         let vertexFaces = self.vertexFaces()
+        // The grid's points' first face and whether they are on others too, in its order: the
+        // test whether a point is on a face (``VertexFaces/contains(_:_:)``) without hashing.
+        let nearFace = grid.members.map { vertexFaces.first[Int($0)] }
+        let nearSeveral = grid.members.map { vertexFaces.more[Int($0)] != nil }
         // Each target's fit per face (up to `slots` faces), face index in `fitFaces`.
         let slots = 4
         let fits = UnsafeMutableBufferPointer<SIMD3<Double>>.allocate(capacity: targets.count * slots)
@@ -1014,66 +1018,76 @@ struct WorkMesh {
             for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
                 let v = targets[i]
                 let p = points[v], own = source[v]
-                let c = cell(p)
-                let faces = Array(vertexFaces.faces(of: v).prefix(slots))
+                let around = Int(grid.cellOfItem[i]) * 27
+                // Its faces (as ``VertexFaces/faces(of:)``, at most `slots`) and per face the sums
+                // below, kept on the stack: this runs for every point.
+                var faces = SIMD4<Int32>(repeating: Int32.min), faceCount = 0
+                if let more = vertexFaces.more[v] {
+                    for f in more.prefix(slots) { faces[faceCount] = f; faceCount += 1 }
+                } else if vertexFaces.first[v] != Int32.min {
+                    faces[0] = vertexFaces.first[v]; faceCount = 1
+                }
                 // Per face: weighted least squares of n ≈ a + b·x + c·y over the tangent plane (x, y
                 // in units of `r`), as the normal equations' sums.
                 let helper: SIMD3<Double> = abs(own.x) < 0.9 ? SIMD3(1, 0, 0) : SIMD3(0, 1, 0)
                 let e1 = simd_normalize(helper - simd_dot(helper, own) * own), e2 = simd_cross(own, e1)
-                var m = [simd_double3x3](repeating: simd_double3x3(0), count: max(faces.count, 1))
-                var rhs = m
-                for dz in Int32(-1)...1 {
-                    for dy in Int32(-1)...1 {
-                        for dx in Int32(-1)...1 {
-                            for w in cells[c &+ SIMD3(dx, dy, dz)] ?? [] {
-                                let d = (points[Int(w)] - p) / r
-                                let d2 = simd_length_squared(d)
-                                guard d2 < 1 else { continue }
-                                let n = source[Int(w)]
-                                guard simd_dot(n, own) > 0.5 else { continue }
-                                let k = (1 - d2) * (1 - d2)
-                                let x = SIMD3(1, simd_dot(d, e1), simd_dot(d, e2))
-                                for (j, f) in faces.enumerated() where vertexFaces.contains(Int(w), f) {
-                                    m[j] += simd_double3x3(columns: (k * x[0] * x, k * x[1] * x, k * x[2] * x))
-                                    // Row q of the right-hand side, Σ k x_q n, as column q here.
-                                    rhs[j] += simd_double3x3(columns: (k * x[0] * n, k * x[1] * n, k * x[2] * n))
-                                }
+                withUnsafeTemporaryAllocation(of: simd_double3x3.self, capacity: 2 * slots) { sums in
+                    let m = UnsafeMutableBufferPointer(rebasing: sums[0..<slots])
+                    let rhs = UnsafeMutableBufferPointer(rebasing: sums[slots..<(2 * slots)])
+                    sums.initialize(repeating: simd_double3x3(0))
+                    for c in grid.around[around..<(around + 27)] where c >= 0 {
+                        for slot in grid.start[Int(c)]..<grid.start[Int(c) + 1] {
+                            let w = grid.members[slot]
+                            let d = (near[slot] - p) / r
+                            let d2 = simd_length_squared(d)
+                            guard d2 < 1 else { continue }
+                            let n = nearDirections[slot]
+                            guard simd_dot(n, own) > 0.5 else { continue }
+                            let k = (1 - d2) * (1 - d2)
+                            let x = SIMD3(1, simd_dot(d, e1), simd_dot(d, e2))
+                            for j in 0..<faceCount {
+                                let f = faces[j]
+                                guard nearFace[slot] == f || (nearSeveral[slot] && vertexFaces.contains(Int(w), f)) else { continue }
+                                m[j] += simd_double3x3(columns: (k * x[0] * x, k * x[1] * x, k * x[2] * x))
+                                // Row q of the right-hand side, Σ k x_q n, as column q here.
+                                rhs[j] += simd_double3x3(columns: (k * x[0] * n, k * x[1] * n, k * x[2] * n))
                             }
                         }
                     }
-                }
-                for j in faces.indices {
-                    var mj = m[j]
-                    let total = mj[0][0]
-                    var fitted = own
-                    if total > 0 {
-                        // A trace of ridge on the slopes, so points all along one line (or too few)
-                        // fall back towards the plain average rather than a wild slope. Not more:
-                        // on one side of a face's edge the points all lie to one side, and a
-                        // shrunken slope moves the value at the point towards their average.
-                        mj[1][1] += 1e-4 * total
-                        mj[2][2] += 1e-4 * total
-                        fitted = Self.unit(rhs[j].columns.0)
-                        if abs(mj.determinant) > 1e-12 * total * total * total {
-                            // The value at the point: a = Σ_q (M⁻¹)₀q · rhs_q.
-                            let inverse = mj.inverse
-                            let plane = Self.unit(rhs[j] * SIMD3(inverse[0][0], inverse[1][0], inverse[2][0]))
-                            if simd_dot(plane, own) > 0.5 { fitted = plane }
+                    for j in 0..<faceCount {
+                        var mj = m[j]
+                        let total = mj[0][0]
+                        var fitted = own
+                        if total > 0 {
+                            // A trace of ridge on the slopes, so points all along one line (or too few)
+                            // fall back towards the plain average rather than a wild slope. Not more:
+                            // on one side of a face's edge the points all lie to one side, and a
+                            // shrunken slope moves the value at the point towards their average.
+                            mj[1][1] += 1e-4 * total
+                            mj[2][2] += 1e-4 * total
+                            fitted = Self.unit(rhs[j].columns.0)
+                            if abs(mj.determinant) > 1e-12 * total * total * total {
+                                // The value at the point: a = Σ_q (M⁻¹)₀q · rhs_q.
+                                let inverse = mj.inverse
+                                let plane = Self.unit(rhs[j] * SIMD3(inverse[0][0], inverse[1][0], inverse[2][0]))
+                                if simd_dot(plane, own) > 0.5 { fitted = plane }
+                            }
                         }
+                        fitOut.buffer[i * slots + j] = fitted == .zero ? own : fitted
+                        faceOut.buffer[i * slots + j] = faces[j]
                     }
-                    fitOut.buffer[i * slots + j] = fitted == .zero ? own : fitted
-                    faceOut.buffer[i * slots + j] = faces[j]
-                }
-                if faces.isEmpty {
-                    fitOut.buffer[i * slots] = own
+                    if faceCount == 0 {
+                        fitOut.buffer[i * slots] = own
+                    }
                 }
             }
         }
-        // Points on more than one face, by cell, for spreading out the steps between faces.
-        var edgeCells: [SIMD3<Int32>: [Int32]] = [:]
-        for (i, v) in targets.enumerated() where fitFaces[i * slots + 1] != Int32.min {
-            edgeCells[cell(points[v]), default: []].append(Int32(i))
+        // Points on more than one face (by their place in `targets`), by cell, for spreading out
+        // the steps between faces; and the cells of them round each cell of `grid`.
+        let edges = PointGrid(radius: r, items: targets.indices.filter { fitFaces[$0 * slots + 1] != Int32.min }.map { Int32($0) }) {
+            points[targets[Int($0)]]
         }
+        let edgesAround = concurrentMap(grid.cellCount, chunk: 256) { edges.neighbours(of: grid.key(of: $0)) }
         func mean(_ i: Int) -> SIMD3<Double> {
             var sum = SIMD3<Double>.zero
             for j in 0..<slots where j == 0 || fitFaces[i * slots + j] != Int32.min { sum += fits[i * slots + j] }
@@ -1094,22 +1108,18 @@ struct WorkMesh {
                 }
                 // Inside one face: shifted by the step to the edge's average at the nearby points of
                 // the face's edges, fully at the edge and fading out over `r`.
-                let p = points[v], c = cell(p)
+                let p = points[v]
                 var step = SIMD3<Double>.zero, weight = 0.0, nearest = 1.0
-                for dz in Int32(-1)...1 {
-                    for dy in Int32(-1)...1 {
-                        for dx in Int32(-1)...1 {
-                            for e in edgeCells[c &+ SIMD3(dx, dy, dz)] ?? [] {
-                                let b = Int(e)
-                                let d2 = simd_distance_squared(points[targets[b]], p) / (r * r)
-                                guard d2 < 1 else { continue }
-                                guard let j = (0..<slots).first(where: { fitFaces[b * slots + $0] == face }) else { continue }
-                                let k = (1 - d2) * (1 - d2)
-                                step += k * (mean(b) - fits[b * slots + j])
-                                weight += k
-                                nearest = min(nearest, d2.squareRoot())
-                            }
-                        }
+                for c in edgesAround[Int(grid.cellOfItem[i])] where c >= 0 {
+                    for e in edges.members[edges.start[Int(c)]..<edges.start[Int(c) + 1]] {
+                        let b = Int(e)
+                        let d2 = simd_distance_squared(points[targets[b]], p) / (r * r)
+                        guard d2 < 1 else { continue }
+                        guard let j = (0..<slots).first(where: { fitFaces[b * slots + $0] == face }) else { continue }
+                        let k = (1 - d2) * (1 - d2)
+                        step += k * (mean(b) - fits[b * slots + j])
+                        weight += k
+                        nearest = min(nearest, d2.squareRoot())
                     }
                 }
                 guard weight > 0 else { out.buffer[i] = own; continue }
@@ -1140,14 +1150,13 @@ struct WorkMesh {
             let third = simd_length(simd_cross(b - a, c - a)) / 6
             area[Int(tri.x)] += third; area[Int(tri.y)] += third; area[Int(tri.z)] += third
         }
-        var cells: [SIMD3<Int32>: [Int32]] = [:]
-        func cell(_ p: SIMD3<Double>) -> SIMD3<Int32> { SIMD3<Int32>(floor3(p / r)) }
-        for v in points.indices where include[v] && directions[v] != .zero {
-            cells[cell(points[v]), default: []].append(Int32(v))
-        }
         let targets = points.indices.filter { include[$0] && directions[$0] != .zero }
         guard !targets.isEmpty else { return out }
         let points = self.points
+        let grid = PointGrid(radius: r, items: targets.map { Int32($0) }) { points[Int($0)] }
+        // The grid's points, directions and areas in its order, read one after another.
+        let near = grid.members.map { points[Int($0)] }, nearDirections = grid.members.map { directions[Int($0)] }
+        let nearArea = grid.members.map { area[Int($0)] }
         let found = UnsafeMutableBufferPointer<Double>.allocate(capacity: targets.count)
         defer { found.deallocate() }
         let sink = SendableHeights(buffer: found)
@@ -1155,26 +1164,23 @@ struct WorkMesh {
         DispatchQueue.concurrentPerform(iterations: (targets.count + chunk - 1) / chunk) { block in
             for i in (block * chunk)..<min(targets.count, (block + 1) * chunk) {
                 let v = targets[i]
-                let p = points[v], n = directions[v], c = cell(p)
+                let p = points[v], n = directions[v]
+                let around = Int(grid.cellOfItem[i]) * 27
                 var sum = 0.0, weight = 0.0
-                for dz in Int32(-1)...1 {
-                    for dy in Int32(-1)...1 {
-                        for dx in Int32(-1)...1 {
-                            for w in cells[c &+ SIMD3(dx, dy, dz)] ?? [] {
-                                let d = points[Int(w)] - p
-                                let d2 = simd_length_squared(d) / (r * r)
-                                guard d2 < 1 else { continue }
-                                // Faded out from 45° to 78° apart rather than cut off: round a tight
-                                // blend a cut-off took points in or out a micron apart, and the
-                                // average jumped there.
-                                let t = (simd_dot(directions[Int(w)], n) - 0.2) / 0.5
-                                guard t > 0 else { continue }
-                                let facing = t >= 1 ? 1 : t * t * (3 - 2 * t)
-                                let k = (1 - d2) * (1 - d2) * (1 - d2) * area[Int(w)] * facing
-                                sum += k * simd_dot(d, n)
-                                weight += k
-                            }
-                        }
+                for c in grid.around[around..<(around + 27)] where c >= 0 {
+                    for slot in grid.start[Int(c)]..<grid.start[Int(c) + 1] {
+                        let d = near[slot] - p
+                        let d2 = simd_length_squared(d) / (r * r)
+                        guard d2 < 1 else { continue }
+                        // Faded out from 45° to 78° apart rather than cut off: round a tight
+                        // blend a cut-off took points in or out a micron apart, and the
+                        // average jumped there.
+                        let t = (simd_dot(nearDirections[slot], n) - 0.2) / 0.5
+                        guard t > 0 else { continue }
+                        let facing = t >= 1 ? 1 : t * t * (3 - 2 * t)
+                        let k = (1 - d2) * (1 - d2) * (1 - d2) * nearArea[slot] * facing
+                        sum += k * simd_dot(d, n)
+                        weight += k
                     }
                 }
                 sink.buffer[i] = weight > 0 ? sum / weight : 0
