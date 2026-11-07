@@ -193,8 +193,10 @@ struct ParametricChart: Sendable {
         func test(_ cell: Int) {
             let i = cell % nu, j = cell / nu
             let a = points[cell], b = points[cell + 1], c = points[cell + nu], d = points[cell + nu + 1]
-            // Two triangles: (a, b, d) and (a, d, c), with their corners' grid offsets.
-            for (q0, q1, q2, o1, o2) in [(a, b, d, SIMD2(1.0, 0), SIMD2(1.0, 1)), (a, d, c, SIMD2(1.0, 1), SIMD2(0.0, 1))] {
+            // Two triangles: (a, b, d) and (a, d, c), with their corners' grid offsets (written
+            // out rather than looped over a list of them: this runs for every cell near every
+            // point, and the list was a heap allocation each time).
+            func consider(_ q0: SIMD3<Double>, _ q1: SIMD3<Double>, _ q2: SIMD3<Double>, _ o1: SIMD2<Double>, _ o2: SIMD2<Double>) {
                 let (s, t, d2) = Self.closest(p, q0, q1, q2)
                 if d2 < best {
                     best = d2
@@ -203,6 +205,8 @@ struct ParametricChart: Sendable {
                     bj = Double(j) + o.y
                 }
             }
+            consider(a, b, d, SIMD2(1.0, 0), SIMD2(1.0, 1))
+            consider(a, d, c, SIMD2(1.0, 1), SIMD2(0.0, 1))
         }
         // The point's own bucket holds every cell within the margin; a point further off the
         // surface (a chord of a coarse tessellation) looks in rings of buckets around it.

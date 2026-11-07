@@ -84,9 +84,12 @@ struct SurfaceMapping: Sendable {
             kind = .triplanar
         }
         if case .triplanar = kind { return }
+        // Each point's (u, v) across the cores (a free-form face finds each on its grid), then
+        // the bounds in point order.
+        let mapping = self
+        let uvs = concurrentMap(points.count) { mapping.uv(points[$0]) }
         var lo = SIMD2<Double>(repeating: .infinity), hi = -lo
-        for p in points {
-            let q = uv(p)
+        for q in uvs {
             lo = simd_min(lo, q)
             hi = simd_max(hi, q)
         }
@@ -267,6 +270,17 @@ struct SurfaceMapping: Sendable {
     /// be open there; nil for a face that goes all the way around.
     private static func gapEnd(_ angles: [Double]) -> Double? {
         guard angles.count > 1 else { return nil }
+        // A face that goes all the way around has an angle in each of 64 equal stretches of the
+        // circle, so no gap (the one across ±π included) is wider than two of them, well under
+        // the 0.35 that counts as open: no need to sort them all to find that out.
+        let bins = 64
+        var filled = [Bool](repeating: false, count: bins), inRange = true
+        for a in angles {
+            // atan2's range (and not NaN); anything else is left to the sort.
+            guard a >= -.pi, a <= .pi else { inRange = false; break }
+            filled[min(bins - 1, Int((a + .pi) / (2 * .pi) * Double(bins)))] = true
+        }
+        if inRange, !filled.contains(false) { return nil }
         let sorted = angles.sorted()
         var gap = sorted[0] + 2 * .pi - sorted[sorted.count - 1], end = sorted[0]
         for i in 1..<sorted.count where sorted[i] - sorted[i - 1] > gap {
