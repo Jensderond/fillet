@@ -12,16 +12,6 @@ extension WorkMesh {
     /// surface `base` and the new triangles don't turn over, and never onto an edge that already
     /// exists, so the mesh stays manifold, conforming and the same shape apart from the crease.
     mutating func alignCreases(base: [SIMD3<Double>], where include: (Int32) -> Bool, passes: Int = 6) {
-        let cosLimit = cos(80.0 * .pi / 180)
-        func normal(_ p: [SIMD3<Double>], _ a: Int32, _ b: Int32, _ c: Int32) -> SIMD3<Double> {
-            simd_cross(p[Int(b)] - p[Int(a)], p[Int(c)] - p[Int(a)])
-        }
-        func has(_ t: SIMD3<Int32>, _ v: Int32) -> Bool { t.x == v || t.y == v || t.z == v }
-        func angle(_ n1: SIMD3<Double>, _ n2: SIMD3<Double>) -> Double {
-            let l = simd_length(n1) * simd_length(n2)
-            guard l > 0 else { return .pi }
-            return acos(max(-1, min(1, simd_dot(n1, n2) / l)))
-        }
         // Nothing to do on a mesh without such faces (a layout in space only).
         var lastFace = Int32.min, any = false
         for f in faces where f != lastFace {
@@ -42,17 +32,43 @@ extension WorkMesh {
             let recent = Int32(pass - 1)
             // Edge -> the (up to) two triangles on it.
             var edges = EdgeMap<SIMD2<Int32>>(capacity: triangles.count * 3 / 2, filler: SIMD2(-1, -1))
+            // Whether some edge has more than two triangles (only the first and last are kept).
+            var nonManifold = false
             for t in triangles.indices {
                 let tri = triangles[t]
                 for k in 0..<3 {
                     let (slot, found) = edges.findOrInsert(Self.key(tri[k], tri[(k + 1) % 3]))
                     if found {
                         var pair = edges.values[slot]
+                        if pair.y >= 0 { nonManifold = true }
                         pair.y = Int32(t)
                         edges.set(slot: slot, pair)
                     } else {
                         edges.set(slot: slot, SIMD2(Int32(t), -1))
                     }
+                }
+            }
+            // The edges with nothing to flip whatever this pass flips first, worked out across
+            // the cores (bit k of a triangle's: its k-th edge): listed under another triangle or
+            // on the mesh's edge, or their quad turned down. Whether a quad flips depends on the
+            // pass's flips so far only through `touched` and `created`: a flip touches every
+            // triangle sharing an edge with its quad, so a quad whose two triangles are
+            // untouched has the same triangles and neighbours as when the pass began (on a
+            // manifold mesh: with an edge of three triangles `edges` keeps only two of them, so
+            // there it is all worked out one by one, as before).
+            var nothing: [UInt8] = []
+            if !nonManifold {
+                let mesh = self, edges = edges, flipped = flipped
+                nothing = concurrentMap(triangles.count) { t in
+                    let tri = mesh.triangles[t]
+                    if pass > 0, flipped[Int(tri.x)] < recent, flipped[Int(tri.y)] < recent, flipped[Int(tri.z)] < recent { return 0 }
+                    var bits: UInt8 = 0
+                    for k in 0..<3 {
+                        guard let pair = edges[Self.key(tri[k], tri[(k + 1) % 3])], Int(pair.x) == t, pair.y >= 0,
+                              mesh.creaseFlip(t, Int(pair.y), edges: edges, base: base, where: include) != nil
+                        else { bits |= 1 << k; continue }
+                    }
+                    return bits
                 }
             }
             var touched = [Bool](repeating: false, count: triangles.count)
@@ -63,49 +79,12 @@ extension WorkMesh {
             let snapshot = triangles
             for (t, tri) in snapshot.enumerated() { for k in 0..<3 {
                 if pass > 0, flipped[Int(tri.x)] < recent, flipped[Int(tri.y)] < recent, flipped[Int(tri.z)] < recent { break }
+                if !nothing.isEmpty, nothing[t] & (1 << k) != 0 { continue }
                 guard let pair = edges[Self.key(tri[k], tri[(k + 1) % 3])], Int(pair.x) == t, pair.y >= 0 else { continue }
                 let t1 = Int(pair.x), t2 = Int(pair.y)
-                guard !touched[t1], !touched[t2], faces[t1] == faces[t2], include(faces[t1]) else { continue }
-                // t1 = (a, b, c) and t2 = (b, a, d) in their winding order.
-                let tri1 = triangles[t1], tri2 = triangles[t2]
-                var k1 = -1
-                for k in 0..<3 where has(tri2, tri1[k]) && has(tri2, tri1[(k + 1) % 3]) { k1 = k }
-                guard k1 >= 0 else { continue }
-                let a = tri1[k1], b = tri1[(k1 + 1) % 3], c = tri1[(k1 + 2) % 3]
-                guard let d = [tri2.x, tri2.y, tri2.z].first(where: { $0 != a && $0 != b }), d != c else { continue }
-                guard edges[Self.key(c, d)] == nil, !created.contains(Self.key(c, d)) else { continue }
-
-                // Valid on the undisplaced surface: both new triangles face the same way as the old.
-                let baseNormal = normal(base, a, b, c) + normal(base, b, a, d)
-                let bn1 = normal(base, a, d, c), bn2 = normal(base, d, b, c)
-                let baseArea = simd_length(baseNormal)
-                guard baseArea > 0,
-                      simd_dot(bn1, baseNormal) > 0.02 * simd_length(bn1) * baseArea,
-                      simd_dot(bn2, baseNormal) > 0.02 * simd_length(bn2) * baseArea,
-                      simd_length(bn1) > 0.05 * baseArea, simd_length(bn2) > 0.05 * baseArea else { continue }
-                // And displaced, they don't turn over.
-                let n1 = normal(points, a, d, c), n2 = normal(points, d, b, c)
-                guard simd_dot(n1, baseNormal) > cosLimit * simd_length(n1) * baseArea,
-                      simd_dot(n2, baseNormal) > cosLimit * simd_length(n2) * baseArea else { continue }
-
-                // Bending across the diagonal and the four outer edges, before and after.
-                let o1 = normal(points, a, b, c), o2 = normal(points, b, a, d)
-                func outside(_ p: Int32, _ q: Int32, _ own: Int) -> SIMD3<Double>? {
-                    guard let e = edges[Self.key(p, q)] else { return nil }
-                    let other = Int(e.x) == own ? Int(e.y) : Int(e.x)
-                    guard other >= 0 else { return nil }
-                    let t = triangles[other]
-                    return normal(points, t.x, t.y, t.z)
-                }
-                let nbc = outside(b, c, t1), nca = outside(c, a, t1)
-                let nad = outside(a, d, t2), ndb = outside(d, b, t2)
-                var before = angle(o1, o2), after = angle(n1, n2)
-                if let n = nbc { before += angle(o1, n); after += angle(n2, n) }
-                if let n = nca { before += angle(o1, n); after += angle(n1, n) }
-                if let n = nad { before += angle(o2, n); after += angle(n1, n) }
-                if let n = ndb { before += angle(o2, n); after += angle(n2, n) }
-                guard after < before - 0.05 else { continue }
-
+                guard !touched[t1], !touched[t2] else { continue }
+                guard let (a, b, c, d) = creaseFlip(t1, t2, edges: edges, base: base, where: include),
+                      !created.contains(Self.key(c, d)) else { continue }
                 triangles[t1] = SIMD3(a, d, c)
                 triangles[t2] = SIMD3(d, b, c)
                 touched[t1] = true
@@ -123,6 +102,67 @@ extension WorkMesh {
             } }
             if flips == 0 { return }
         }
+    }
+
+    /// The quad of triangles `t1` = (a, b, c) and `t2` = (b, a, d) (in their winding order), when
+    /// ``alignCreases(base:where:passes:)`` would swap its diagonal for (c, d): both inside one
+    /// face `include` accepts, (c, d) not an edge in `edges`, valid on `base` and displaced, and
+    /// bending less. Leaves out only what the pass's earlier flips decide (touched triangles,
+    /// diagonals made in this pass).
+    func creaseFlip(_ t1: Int, _ t2: Int, edges: EdgeMap<SIMD2<Int32>>, base: [SIMD3<Double>],
+                    where include: (Int32) -> Bool) -> (Int32, Int32, Int32, Int32)? {
+        let cosLimit = cos(80.0 * .pi / 180)
+        func normal(_ p: [SIMD3<Double>], _ a: Int32, _ b: Int32, _ c: Int32) -> SIMD3<Double> {
+            simd_cross(p[Int(b)] - p[Int(a)], p[Int(c)] - p[Int(a)])
+        }
+        func has(_ t: SIMD3<Int32>, _ v: Int32) -> Bool { t.x == v || t.y == v || t.z == v }
+        func angle(_ n1: SIMD3<Double>, _ n2: SIMD3<Double>) -> Double {
+            let l = simd_length(n1) * simd_length(n2)
+            guard l > 0 else { return .pi }
+            return acos(max(-1, min(1, simd_dot(n1, n2) / l)))
+        }
+        guard faces[t1] == faces[t2], include(faces[t1]) else { return nil }
+        let tri1 = triangles[t1], tri2 = triangles[t2]
+        var k1 = -1
+        for k in 0..<3 where has(tri2, tri1[k]) && has(tri2, tri1[(k + 1) % 3]) { k1 = k }
+        guard k1 >= 0 else { return nil }
+        let a = tri1[k1], b = tri1[(k1 + 1) % 3], c = tri1[(k1 + 2) % 3]
+        // The first corner of t2 that isn't a or b.
+        let d = tri2.x != a && tri2.x != b ? tri2.x : (tri2.y != a && tri2.y != b ? tri2.y : tri2.z)
+        guard d != a, d != b, d != c else { return nil }
+        guard edges[Self.key(c, d)] == nil else { return nil }
+
+        // Valid on the undisplaced surface: both new triangles face the same way as the old.
+        let baseNormal = normal(base, a, b, c) + normal(base, b, a, d)
+        let bn1 = normal(base, a, d, c), bn2 = normal(base, d, b, c)
+        let baseArea = simd_length(baseNormal)
+        guard baseArea > 0,
+              simd_dot(bn1, baseNormal) > 0.02 * simd_length(bn1) * baseArea,
+              simd_dot(bn2, baseNormal) > 0.02 * simd_length(bn2) * baseArea,
+              simd_length(bn1) > 0.05 * baseArea, simd_length(bn2) > 0.05 * baseArea else { return nil }
+        // And displaced, they don't turn over.
+        let n1 = normal(points, a, d, c), n2 = normal(points, d, b, c)
+        guard simd_dot(n1, baseNormal) > cosLimit * simd_length(n1) * baseArea,
+              simd_dot(n2, baseNormal) > cosLimit * simd_length(n2) * baseArea else { return nil }
+
+        // Bending across the diagonal and the four outer edges, before and after.
+        let o1 = normal(points, a, b, c), o2 = normal(points, b, a, d)
+        func outside(_ p: Int32, _ q: Int32, _ own: Int) -> SIMD3<Double>? {
+            guard let e = edges[Self.key(p, q)] else { return nil }
+            let other = Int(e.x) == own ? Int(e.y) : Int(e.x)
+            guard other >= 0 else { return nil }
+            let t = triangles[other]
+            return normal(points, t.x, t.y, t.z)
+        }
+        let nbc = outside(b, c, t1), nca = outside(c, a, t1)
+        let nad = outside(a, d, t2), ndb = outside(d, b, t2)
+        var before = angle(o1, o2), after = angle(n1, n2)
+        if let n = nbc { before += angle(o1, n); after += angle(n2, n) }
+        if let n = nca { before += angle(o1, n); after += angle(n1, n) }
+        if let n = nad { before += angle(o2, n); after += angle(n1, n) }
+        if let n = ndb { before += angle(o2, n); after += angle(n2, n) }
+        guard after < before - 0.05 else { return nil }
+        return (a, b, c, d)
     }
 }
 
