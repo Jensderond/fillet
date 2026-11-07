@@ -33,6 +33,8 @@ extension WorkMesh {
         var vertexFaces: VertexFaces?
         // (u, v) of the current face's points (a point on a face edge gets each face's in turn).
         var uv = [SIMD2<Double>](repeating: .zero, count: points.count)
+        // The face whose (u, v) is in `uv` now, by point: each point is mapped once per face.
+        var mappedFace = [Int32](repeating: Int32.min, count: points.count)
         var used: [Int32: SurfaceMapping] = [:]
 
         for f in specs.keys.sorted() {
@@ -45,18 +47,28 @@ extension WorkMesh {
             for t in tris {
                 for v in [triangles[t].x, triangles[t].y, triangles[t].z] {
                     let i = Int(v)
-                    uv[i] = mapping.uv(points[i])
+                    if mappedFace[i] != f {
+                        mappedFace[i] = f
+                        uv[i] = mapping.uv(points[i])
+                    }
                     lo = simd_min(lo, uv[i])
                     hi = simd_max(hi, uv[i])
                 }
             }
+            let (pointsLo, pointsHi) = (lo, hi)
             let period = mapping.wraps ? extent.x : nil
             if period != nil { lo.x = 0; hi.x = extent.x }
             let rims = pattern.rims(lo: lo, hi: hi, scale: scale)
             guard !rims.isEmpty else { continue }
             if vertexFaces == nil { vertexFaces = self.vertexFaces() }
+            // The face's triangles by where they are in (u, v), so each rim only looks at those
+            // near it, not at all of them.
+            var widest = 0.0
+            for rim in rims { for o in rim.rings.first ?? [] { widest = max(widest, simd_length(o)) } }
+            let buckets = RimBuckets(tris.map { uv[Int(triangles[$0].x)] }, lo: pointsLo, hi: pointsHi,
+                                     cell: max(widest + 3, simd_reduce_max(pointsHi - pointsLo) / 2048))
             for rim in rims {
-                guard let patch = rimPatch(rim, face: f, triangles: tris, uv: uv, period: period,
+                guard let patch = rimPatch(rim, face: f, triangles: tris, buckets: buckets, uv: uv, period: period,
                                            removed: removed, vertexFaces: vertexFaces!) else { continue }
                 used[f] = mapping
                 for t in patch.removed { removed[t] = true }
@@ -160,7 +172,8 @@ extension WorkMesh {
         var minRadius: Double { offsets.map { simd_length($0) }.min() ?? 0 }
     }
 
-    private func rimPatch(_ rim: TextureRim, face f: Int32, triangles tris: [Int], uv: [SIMD2<Double>], period: Double?,
+    private func rimPatch(_ rim: TextureRim, face f: Int32, triangles tris: [Int], buckets: RimBuckets,
+                          uv: [SIMD2<Double>], period: Double?,
                           removed: [Bool], vertexFaces: VertexFaces) -> RimPatch? {
         guard rim.rings.count >= 2, let count = rim.rings.first?.count, count >= 8,
               rim.rings.allSatisfy({ $0.count == count }) else { return nil }
@@ -205,7 +218,10 @@ extension WorkMesh {
         // Triangles to replace: everything not wholly inside or wholly outside.
         var cut = Set<Int>()
         var near: [Int32: [Int]] = [:]
-        for t in tris {
+        // Only the face's triangles that can be near (in their order): the others fail the
+        // first test.
+        for j in buckets.near(rim.center, within: reach, period: period) {
+            let t = tris[j]
             let tri = triangles[t]
             let d = offset(tri.x)
             guard abs(d.x) < reach, abs(d.y) < reach else { continue }
@@ -499,6 +515,90 @@ extension WorkMesh {
             }
         }
         return nil
+    }
+}
+
+/// A face's triangles (by their place in its list) in a grid of square cells over (u, v), by
+/// the (u, v) of their first corner: lets each rim look only at the triangles near it.
+private struct RimBuckets {
+    let lo: SIMD2<Double>
+    /// The largest u of a key (the grid's last column takes any beyond it).
+    let hiU: Double
+    let cell: Double
+    let columns: Int, rows: Int
+    /// The triangles of cell `c` are `items[start[c]..<start[c + 1]]`, in their list's order.
+    var start: [Int32]
+    var items: [Int32]
+
+    /// `keys`: the (u, v) of each triangle's first corner; `lo`…`hi` the range they lie in.
+    init(_ keys: [SIMD2<Double>], lo: SIMD2<Double>, hi: SIMD2<Double>, cell: Double) {
+        let finite = lo.x.isFinite && lo.y.isFinite && hi.x.isFinite && hi.y.isFinite && cell.isFinite && cell > 0
+        self.lo = finite ? lo : .zero
+        hiU = finite ? hi.x : 0
+        self.cell = finite ? cell : 1
+        columns = finite ? max(1, min(4096, Int(((hi.x - lo.x) / cell).rounded(.down)) + 1)) : 1
+        rows = finite ? max(1, min(4096, Int(((hi.y - lo.y) / cell).rounded(.down)) + 1)) : 1
+        var cellOf = [Int32](repeating: -1, count: keys.count)
+        var counts = [Int32](repeating: 0, count: columns * rows + 1)
+        for (j, k) in keys.enumerated() where k.x.isFinite && k.y.isFinite {
+            let c = Int32(Self.index(k.y, self.lo.y, self.cell, rows) * columns + Self.index(k.x, self.lo.x, self.cell, columns))
+            cellOf[j] = c
+            counts[Int(c) + 1] += 1
+        }
+        for c in 0..<(columns * rows) { counts[c + 1] += counts[c] }
+        start = counts
+        var fill = counts
+        items = [Int32](repeating: 0, count: Int(counts[columns * rows]))
+        for j in keys.indices where cellOf[j] >= 0 {
+            items[Int(fill[Int(cellOf[j])])] = Int32(j)
+            fill[Int(cellOf[j])] += 1
+        }
+    }
+
+    /// The cell along one axis for coordinate `x`, clamped into the grid.
+    static func index(_ x: Double, _ lo: Double, _ cell: Double, _ count: Int) -> Int {
+        Int(max(0, min(Double(count - 1), ((x - lo) / cell).rounded(.down))))
+    }
+
+    /// In their list's order, every triangle whose key `k` may have `|k - center|` under `reach`
+    /// in both coordinates, u taken as the nearest repeat when it wraps around every `period`
+    /// (a few more: whole cells, a cell to spare either way); none has a key that isn't finite.
+    func near(_ center: SIMD2<Double>, within reach: Double, period: Double?) -> [Int] {
+        guard center.x.isFinite, center.y.isFinite, reach.isFinite, reach > 0 else { return [] }
+        let r0 = Self.index(center.y - reach, lo.y, cell, rows) - 1, r1 = Self.index(center.y + reach, lo.y, cell, rows) + 1
+        // Ranges of columns: the one around the centre, or one per repeat.
+        var spans: [(Int, Int)] = []
+        func span(_ a: Double, _ b: Double) {
+            spans.append((Self.index(a, lo.x, cell, columns) - 1, Self.index(b, lo.x, cell, columns) + 1))
+        }
+        if let period {
+            let n0 = ((lo.x - center.x - reach) / period).rounded(.down) - 1
+            let n1 = ((hiU - center.x + reach) / period).rounded(.up) + 1
+            if !(period > 0) || !n0.isFinite || !n1.isFinite || 2 * reach >= period || n1 - n0 > Double(columns) {
+                spans.append((0, columns - 1))
+            } else {
+                var n = n0
+                while n <= n1 {
+                    span(center.x + n * period - reach, center.x + n * period + reach)
+                    n += 1
+                }
+            }
+        } else {
+            span(center.x - reach, center.x + reach)
+        }
+        var taken = [Bool](repeating: false, count: columns)
+        var out: [Int] = []
+        for (a, b) in spans {
+            for c in max(a, 0)...min(b, columns - 1) where !taken[c] {
+                taken[c] = true
+                for row in max(r0, 0)...min(r1, rows - 1) {
+                    let cell = row * columns + c
+                    for k in Int(start[cell])..<Int(start[cell + 1]) { out.append(Int(items[k])) }
+                }
+            }
+        }
+        out.sort()
+        return out
     }
 }
 
