@@ -25,7 +25,7 @@ enum MeshIO {
         case "stl": return [LoadedMesh(name: url.deletingPathExtension().lastPathComponent, mesh: try stl(Data(contentsOf: url)))]
         case "3mf": return try threeMF(url)
         case "fillet":
-            let (_, model) = try await design(url)
+            let (_, model) = try await design(url, displayMeshes: false)
             let bodies = model.bodies
             let meshes = try bodies.printMeshes(quality: quality)
             return zip(bodies, meshes).map { LoadedMesh(name: $0.name, mesh: $1) }
@@ -33,9 +33,11 @@ enum MeshIO {
         }
     }
 
-    static func design(_ url: URL) async throws -> (Document, EvaluatedModel) {
+    /// The design in `url`, recomputed. Without `displayMeshes` the model has no viewport meshes
+    /// (so an export doesn't texture every body twice, once at display detail).
+    static func design(_ url: URL, displayMeshes: Bool = true) async throws -> (Document, EvaluatedModel) {
         let doc = try Document(data: Data(contentsOf: url))
-        let model = await ModelEvaluator().evaluate(doc)
+        let model = await ModelEvaluator(displayMeshes: displayMeshes).evaluate(doc)
         for f in doc.activeFeatures {
             if case .failed(let m) = model.status[f.id] { FileHandle.standardError.write(Data("warning: step “\(f.name)” failed: \(m)\n".utf8)) }
         }

@@ -91,6 +91,7 @@ public enum TextureEngine {
                 specs[Int32(f)] = FaceTexture(surface: FaceSurface(face: f, of: shape), pattern: pattern, fade: fade, group: i)
             }
         }
+        TextureStageTimes.current?.mark("face surfaces")
         guard !specs.isEmpty else { return mesh }
         return displace(mesh, faces: specs, quality: quality)
     }
@@ -126,11 +127,14 @@ public enum TextureEngine {
 
     /// The textured mesh for `faces` (by B-rep face index in `mesh.triangleFaces`).
     static func displace(_ mesh: Mesh, faces specs: [Int32: FaceTexture], quality: TextureQuality) -> Mesh {
+        let stages = TextureStageTimes.current
         var m = WorkMesh(welding: mesh)
         guard !m.triangles.isEmpty else { return mesh }
         let textured: (Int32) -> Bool = { specs[$0] != nil }
+        stages?.mark("weld")
         // Patterns laid out over their whole surface in space, by face.
         let solids = m.solidTextures(specs, detailScale: quality.edgeScale * quality.edgeScale)
+        stages?.mark("solid layout")
 
         // Target edge length: the finest pattern's detail, coarsened to respect the triangle budget.
         var edge = specs.values.map { $0.pattern.detail }.min() ?? 1
@@ -163,6 +167,7 @@ public enum TextureEngine {
                 coarse[f] = (mapping, spec.pattern.fitted(to: mapping.face(border: borders[f] ?? [])))
             }
         }
+        stages?.mark("bands, borders, coarse mappings")
         // How much longer than asked for every triangle comes out, to stay within the budget.
         var budgetScale = 1.0
         func wanted(_ p: SIMD3<Double>, _ normal: SIMD3<Double>, _ f: Int32) -> Double {
@@ -194,16 +199,21 @@ public enum TextureEngine {
                 budgetScale = needed > aim ? (needed / aim).squareRoot() : 1
                 edge *= budgetScale
             }
+            stages?.mark("budget trial")
         }
         m.subdivide(maxEdge: edge, where: textured, maxTriangles: quality.maxTriangles, local: wanted)
+        stages?.mark("subdivide")
         // Sharp round outlines (a disc's edge) meshed along their own curves (``TextureRim``).
         let rimMappings = m.followRims(specs, borders: borders, scale: quality.edgeScale)
+        stages?.mark("rims")
         // Points in rows along the level lines of a pattern laid out in space (a stone's round).
         do {
             let open = m.openEdgeVertices()
             m.snapToContours(solids) { !open.contains($0) }
         }
+        stages?.mark("contour snap")
         m.dissolveSlivers(where: textured)
+        stages?.mark("slivers")
 
         let n = m.points.count
         let adjacency = m.vertexFaces()
@@ -223,7 +233,9 @@ public enum TextureEngine {
         // Also far enough out to keep the deepest cut off the edges (see ``cutSlope``).
         let maxFade = specs.values.map(\.fade).max() ?? 0
         let reach = max(maxFade, Self.cutLimitRange(amplitude: specs.values.map(\.pattern.amplitude).max() ?? 0))
+        stages?.mark("normals, pins")
         let distance = reach > 0 ? m.distances(from: pinned, upTo: reach) : nil
+        stages?.mark("edge distances")
         // Surface mapping per face, from its points.
         var facePoints: [Int32: [SIMD3<Double>]] = [:]
         for (t, f) in m.faces.enumerated() where textured(f) {
@@ -240,6 +252,7 @@ public enum TextureEngine {
             mappings[f] = mapping
             patterns[f] = spec.pattern.fitted(to: mapping.face(border: borders[f] ?? []))
         }
+        stages?.mark("face mappings")
 
         let amplitudeLimit = max(specs.values.map(\.pattern.amplitude).max() ?? 0, 1e-3)
         var offsets = [SIMD3<Double>](repeating: .zero, count: n)
@@ -268,6 +281,7 @@ public enum TextureEngine {
             }
             let solidAmplitude = specs.filter { solids[$0.key] != nil }.map(\.value.pattern.amplitude).max() ?? 0
             m.smoothDirections(&solidNormals, where: smoothed, radius: max(solidAmplitude, 0.1))
+            stages?.mark("smooth normals")
         }
         for v in 0..<n where !pinned[v] {
             var height = 0.0, direction = SIMD3<Double>.zero, count = 0.0, fade = 0.0
@@ -308,6 +322,7 @@ public enum TextureEngine {
             directions[v] = simd_normalize(direction)
             amounts[v] = offset
         }
+        stages?.mark("height sampling")
         // Where a flat face meets a fillet the curvature jumps, which shades as a crisp line at any
         // fine tessellation; across a stone it read as a seam slicing it. Faired out under a
         // layout in space (see ``WorkMesh/fairing(along:where:radius:)``), faded in from the
@@ -322,12 +337,14 @@ public enum TextureEngine {
                 }
                 amounts[v] += fair[v] * weight
             }
+            stages?.mark("fairing")
         }
         for v in 0..<n where amounts[v] != 0 { offsets[v] = directions[v] * amounts[v] }
 
         // A crevice deeper than the wall is thick must not come out the other side.
         let amplitude = specs.values.map(\.pattern.amplitude).max() ?? 0
         m.limitThroughWalls(&offsets, ramp: max(2 * amplitude, 1), where: textured)
+        stages?.mark("wall limit")
         m.relax(&offsets, floor: lowest)
         let base = m.points
         for v in 0..<n {
@@ -338,8 +355,12 @@ public enum TextureEngine {
         // Not on a layout in space: its relief has no creases (a stone's edge is a smooth round),
         // and flipping towards the least bend there chained into fans of needle triangles that
         // shaded as spikes along the stone edges.
+        stages?.mark("relax folds")
         m.alignCreases(base: base) { textured($0) && solids[$0] == nil }
-        return m.mesh(keeping: mesh)
+        stages?.mark("crease flips")
+        let result = m.mesh(keeping: mesh)
+        stages?.mark("mesh assembly")
+        return result
     }
 
     /// Deepest a cut may go `d` mm (straight) from a sharp or untextured edge, for patterns at

@@ -7,6 +7,7 @@ extension EvaluatedBody {
     public func printMesh(quality: TextureQuality = .export) throws -> Mesh {
         let d = TextureEngine.exportDeflection
         let mesh = try shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular)
+        TextureStageTimes.current?.mark("tessellate")
         guard !textures.isEmpty else { return mesh }
         return TextureEngine.apply(textures, to: mesh, of: shape, quality: quality)
     }

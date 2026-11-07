@@ -1,0 +1,150 @@
+{
+  "features": [
+    {
+      "id": "93D275CA-DE18-4F71-A4FB-537FCBE1E37A",
+      "kind": {
+        "plane": {
+          "offset": "0",
+          "plane": "xz",
+          "type": "standard"
+        },
+        "shapes": [
+          {
+            "construction": false,
+            "id": "D9AC49CA-63BF-42AA-8807-64AB127EBCB4",
+            "kind": {
+              "a": {
+                "x": "0",
+                "y": "0"
+              },
+              "b": {
+                "x": "30",
+                "y": "0"
+              },
+              "type": "line"
+            }
+          },
+          {
+            "construction": false,
+            "id": "53DA4AF1-71C5-4AC2-ADCE-4AD5BB64EF87",
+            "kind": {
+              "points": [
+                {
+                  "x": "30",
+                  "y": "0"
+                },
+                {
+                  "x": "37.5",
+                  "y": "28"
+                },
+                {
+                  "x": "31.365000000000002",
+                  "y": "56"
+                },
+                {
+                  "x": "24",
+                  "y": "80"
+                }
+              ],
+              "type": "spline"
+            }
+          },
+          {
+            "construction": false,
+            "id": "2488CB32-6588-4C33-BC30-040618DAD89F",
+            "kind": {
+              "a": {
+                "x": "24",
+                "y": "80"
+              },
+              "b": {
+                "x": "0",
+                "y": "80"
+              },
+              "type": "line"
+            }
+          },
+          {
+            "construction": false,
+            "id": "B55ED3BE-99CC-4E2B-B3AB-0053D32C014A",
+            "kind": {
+              "a": {
+                "x": "0",
+                "y": "80"
+              },
+              "b": {
+                "x": "0",
+                "y": "0"
+              },
+              "type": "line"
+            }
+          }
+        ],
+        "type": "sketch"
+      },
+      "name": "Profile",
+      "suppressed": false
+    },
+    {
+      "id": "48085A34-DCD4-4C9D-8CA3-BF69A3A1F186",
+      "kind": {
+        "angle": "360",
+        "axis": {
+          "type": "y"
+        },
+        "operation": "newBody",
+        "regions": [
+          {
+            "x": 9,
+            "y": 40
+          }
+        ],
+        "sketch": "93D275CA-DE18-4F71-A4FB-537FCBE1E37A",
+        "targets": [],
+        "type": "revolve"
+      },
+      "name": "Vase",
+      "suppressed": false
+    },
+    {
+      "id": "C9AD690B-271A-43B8-B58C-222E0BB9938D",
+      "kind": {
+        "body": "48085A34-DCD4-4C9D-8CA3-BF69A3A1F186",
+        "faces": [
+          {
+            "body": "48085A34-DCD4-4C9D-8CA3-BF69A3A1F186",
+            "signature": {
+              "area": 17216.62270042208,
+              "centroid": {
+                "x": 0,
+                "y": 4.451187239267959e-16,
+                "z": 37.69048628776172
+              },
+              "extent": {
+                "x": 75.12868359113399,
+                "y": 75.12868359113399,
+                "z": 80.00000019999999
+              },
+              "normal": {
+                "x": -0.33476128264090993,
+                "y": 0.9028287768748188,
+                "z": 0.2698797570981039
+              },
+              "surface": "other"
+            }
+          }
+        ],
+        "pattern": "flagstone",
+        "type": "texture",
+        "values": {}
+      },
+      "name": "Flagstone",
+      "suppressed": false
+    }
+  ],
+  "formatVersion": 1,
+  "name": "Flagstone vase",
+  "parameters": [],
+  "printer": "bambu-a1-mini",
+  "units": "mm"
+}

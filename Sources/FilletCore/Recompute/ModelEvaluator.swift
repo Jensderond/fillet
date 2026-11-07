@@ -89,10 +89,15 @@ public actor ModelEvaluator {
     /// Shapes the last `evaluate` or `preview` had to tessellate (the rest had cached meshes).
     private(set) var lastTessellatedCount = 0
 
+    /// Whether `evaluate` and `preview` make display meshes (``EvaluatedModel/meshes``).
+    private let makesDisplayMeshes: Bool
+
     /// `recordsTimings` makes `evaluate` measure every recomputed feature and the display
-    /// tessellation (for benchmarks; off in the app).
-    public init(recordsTimings: Bool = false) {
+    /// tessellation (for benchmarks; off in the app). Without `displayMeshes` the model comes
+    /// without display meshes (for tools that only export: textures aren't computed twice).
+    public init(recordsTimings: Bool = false, displayMeshes: Bool = true) {
         self.recordsTimings = recordsTimings
+        self.makesDisplayMeshes = displayMeshes
     }
 
     private static func seconds(since start: ContinuousClock.Instant) -> Double {
@@ -164,7 +169,9 @@ public actor ModelEvaluator {
             changedBefore = (bodiesBefore ?? []).filter { b in state.bodies.first { $0.ref == b.ref }?.shape !== b.shape }
         default: break
         }
-        (model.meshes, model.meshesBefore) = displayMeshes(for: state.bodies, before: changedBefore, preview: preview)
+        if makesDisplayMeshes {
+            (model.meshes, model.meshesBefore) = displayMeshes(for: state.bodies, before: changedBefore, preview: preview)
+        }
         if let meshStart {
             lastStepTimings = timings
             lastMeshSeconds = Self.seconds(since: meshStart)
@@ -191,7 +198,7 @@ public actor ModelEvaluator {
     /// Tessellation a textured body's display mesh starts from (see ``displayMeshes``): the
     /// export one. Subdivision splits edges on their chords, so a coarse start leaves the relief
     /// sampled on flats with skewed normals, which shows as spikes where a vase narrows.
-    static func texturedBaseDeflection(for shape: Shape) -> (linear: Double, angular: Double) {
+    public static func texturedBaseDeflection(for shape: Shape) -> (linear: Double, angular: Double) {
         TextureEngine.exportDeflection
     }
 

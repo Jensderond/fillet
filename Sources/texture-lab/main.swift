@@ -29,6 +29,13 @@ let usage = """
           Builds a textured sample design from flags (to match a reference's proportions).
       texture-lab patterns
           Lists the texture catalogue: ids, names and parameters (id, default, unit, range).
+      texture-lab bench [--runs 5] [--fixture <name|file.fillet> ...] [--mode display|export]
+                        [--stages] [--loop <seconds>] [--dir Benchmarks/textures]
+          Times the texture step as the app runs it on the fixtures in Benchmarks/textures:
+          display (the viewport's recompute on every edit) and export. Prints the median ms,
+          triangles and a bit-exact mesh digest per fixture and mode (markdown; progress on
+          stderr). --stages adds the engine's time per stage; --loop re-runs one fixture and
+          mode for that long (to attach a profiler). See docs/texture-performance.md.
     """
 
 var arguments = Array(CommandLine.arguments.dropFirst())
@@ -142,10 +149,10 @@ do {
 
     case "export":
         let out = option("-o") ?? option("--output")
-        let display = flag("--display")
+        let display = flag("--display"), viewport = flag("--viewport")
         guard let input = arguments.first, let out else { fail("export needs a .fillet file and -o out.3mf") }
-        let (doc, model) = try await MeshIO.design(url(input))
-        if flag("--viewport") {
+        let (doc, model) = try await MeshIO.design(url(input), displayMeshes: viewport)
+        if viewport {
             // Exactly the meshes the app's viewport shows (display tessellation, display texture
             // quality, crease shading), for checking what users see.
             let meshes = model.bodies.compactMap { model.meshes[$0.ref] }
@@ -203,13 +210,30 @@ do {
         let doc = try await TextureSamples.document(o)
         try doc.encoded().write(to: url(out), options: .atomic)
         print("wrote \(out)")
-        let model = await ModelEvaluator().evaluate(doc)
+        let model = await ModelEvaluator(displayMeshes: false).evaluate(doc)
         for f in doc.features { if let e = model.error(for: f.id) { FileHandle.standardError.write(Data("warning: \(f.name): \(e)\n".utf8)) } }
         if let threeMF { try writeExport(model.bodies, document: doc, to: threeMF, quality: .export) }
         if let png {
             try render(try model.bodies.printMeshes(), to: png, cameraNames: cam, size: CGSize(width: 1200, height: 1200),
                        color: LabRender.defaultColor, crease: 60)
         }
+
+    case "bench":
+        let runs = Int(number("--runs") ?? 5)
+        guard runs >= 1 else { fail("--runs must be at least 1") }
+        let names = options("--fixture")
+        let modes: [TextureBench.Mode]
+        if let m = option("--mode") {
+            guard let mode = TextureBench.Mode(rawValue: m) else { fail("--mode must be display or export") }
+            modes = [mode]
+        } else {
+            modes = TextureBench.Mode.allCases
+        }
+        let stages = flag("--stages")
+        let loop = number("--loop")
+        let dir = option("--dir").map(url) ?? TextureBench.defaultDirectory()
+        if let extra = arguments.first { fail("bench: unexpected argument \(extra)") }
+        try await TextureBench.main(directory: dir, names: names, modes: modes, runs: runs, stages: stages, loop: loop)
 
     default:
         fail("unknown command \(command)\n\n\(usage)")
