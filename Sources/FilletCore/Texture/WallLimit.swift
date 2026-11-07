@@ -173,30 +173,67 @@ private struct TriangleGrid: Sendable {
         let dims = SIMD3<Int>(Int((size.x / cell).rounded(.down)) + 1, Int((size.y / cell).rounded(.down)) + 1,
                               Int((size.z / cell).rounded(.down)) + 1)
         self.lo = lo; self.cell = cell; self.dims = dims
-        var start = [Int32](repeating: 0, count: dims.x * dims.y * dims.z + 1)
-        var boxes: [(SIMD3<Int>, SIMD3<Int>)] = []
-        boxes.reserveCapacity(triangles.count)
         func cellOf(_ p: SIMD3<Double>) -> SIMD3<Int> {
             simd_clamp(SIMD3<Int>(((p - lo) / cell).rounded(.down)), .zero, dims &- 1)
         }
-        func index(_ c: SIMD3<Int>) -> Int { (c.z * dims.y + c.y) * dims.x + c.x }
-        for tri in triangles {
+        func index(_ x: Int, _ y: Int, _ z: Int) -> Int { (z * dims.y + y) * dims.x + x }
+        // Each triangle's cells, as the corners of its box.
+        let boxes = concurrentMap(triangles.count) { t -> (lo: SIMD3<Int32>, hi: SIMD3<Int32>) in
+            let tri = triangles[t]
             let a = points[Int(tri.x)], b = points[Int(tri.y)], c = points[Int(tri.z)]
-            let box = (cellOf(simd_min(simd_min(a, b), c)), cellOf(simd_max(simd_max(a, b), c)))
-            boxes.append(box)
-            for z in box.0.z...box.1.z { for y in box.0.y...box.1.y { for x in box.0.x...box.1.x {
-                start[index(SIMD3(x, y, z)) + 1] += 1
-            } } }
+            return (SIMD3<Int32>(truncatingIfNeeded: cellOf(simd_min(simd_min(a, b), c))),
+                    SIMD3<Int32>(truncatingIfNeeded: cellOf(simd_max(simd_max(a, b), c))))
+        }
+        // Filled across the cores in slabs of z (cell indices run z, y, x, so each slab is one
+        // run of `start` and of `cells`), each slab going through its triangles in order: every
+        // cell lists its triangles in order, as filling it in one go does.
+        let slabCount = min(dims.z, 64)
+        var slabOfZ = [Int](repeating: 0, count: dims.z)
+        for s in 0..<slabCount { for z in (s * dims.z / slabCount)..<((s + 1) * dims.z / slabCount) { slabOfZ[z] = s } }
+        // The triangles in each slab, in order.
+        var slabStart = [Int](repeating: 0, count: slabCount + 1)
+        for box in boxes { for s in slabOfZ[Int(box.lo.z)]...slabOfZ[Int(box.hi.z)] { slabStart[s + 1] += 1 } }
+        for s in 0..<slabCount { slabStart[s + 1] += slabStart[s] }
+        var slabFill = slabStart
+        var slabTriangles = [Int32](repeating: 0, count: slabStart[slabCount])
+        for (t, box) in boxes.enumerated() {
+            for s in slabOfZ[Int(box.lo.z)]...slabOfZ[Int(box.hi.z)] {
+                slabTriangles[slabFill[s]] = Int32(t)
+                slabFill[s] += 1
+            }
+        }
+        // Calls `body` with each cell of each of slab `s`'s triangles, in order.
+        func eachCell(inSlab s: Int, _ body: (Int, Int32) -> Void) {
+            let z0 = s * dims.z / slabCount, z1 = (s + 1) * dims.z / slabCount - 1
+            for t in slabTriangles[slabStart[s]..<slabStart[s + 1]] {
+                let box = boxes[Int(t)]
+                for z in max(Int(box.lo.z), z0)...min(Int(box.hi.z), z1) {
+                    for y in Int(box.lo.y)...Int(box.hi.y) { for x in Int(box.lo.x)...Int(box.hi.x) {
+                        body(index(x, y, z), t)
+                    } }
+                }
+            }
+        }
+        var start = [Int32](repeating: 0, count: dims.x * dims.y * dims.z + 1)
+        start.withUnsafeMutableBufferPointer { buffer in
+            let counts = SendableBuffer(buffer)
+            DispatchQueue.concurrentPerform(iterations: slabCount) { s in
+                eachCell(inSlab: s) { i, _ in counts.buffer[i + 1] += 1 }
+            }
         }
         for i in 1..<start.count { start[i] += start[i - 1] }
         var fill = start
         var cells = [Int32](repeating: 0, count: Int(start[start.count - 1]))
-        for (t, box) in boxes.enumerated() {
-            for z in box.0.z...box.1.z { for y in box.0.y...box.1.y { for x in box.0.x...box.1.x {
-                let i = index(SIMD3(x, y, z))
-                cells[Int(fill[i])] = Int32(t)
-                fill[i] += 1
-            } } }
+        cells.withUnsafeMutableBufferPointer { buffer in
+            fill.withUnsafeMutableBufferPointer { fillBuffer in
+                let out = SendableBuffer(buffer), next = SendableBuffer(fillBuffer)
+                DispatchQueue.concurrentPerform(iterations: slabCount) { s in
+                    eachCell(inSlab: s) { i, t in
+                        out.buffer[Int(next.buffer[i])] = t
+                        next.buffer[i] += 1
+                    }
+                }
+            }
         }
         self.start = start; self.cells = cells
     }
