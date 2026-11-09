@@ -3,6 +3,11 @@
 
 #include <BRepAdaptor_Curve.hxx>
 #include <BRepAdaptor_Surface.hxx>
+#include <gp_Ax1.hxx>
+#include <gp_Cone.hxx>
+#include <gp_Cylinder.hxx>
+#include <gp_Sphere.hxx>
+#include <gp_Torus.hxx>
 #include <BRepBndLib.hxx>
 #include <BRepBuilderAPI_MakeVertex.hxx>
 #include <BRepCheck_Analyzer.hxx>
@@ -472,6 +477,59 @@ extern "C" bool fk_face_radius(const FKShape *shape, int32_t faceIndex, double *
     case GeomAbs_Sphere: *radius = surf.Sphere().Radius(); return true;
     default: fk::setError("The face is not cylindrical or spherical"); return false;
     }
+  });
+}
+
+extern "C" bool fk_face_axis(const FKShape *shape, int32_t faceIndex, int32_t *kind, FKVec3 *origin, FKVec3 *direction,
+                             double *radius, double *minor, double *angle) {
+  return guarded("Face axis", false, [&] {
+    shapeOf(shape);
+    if (!kind || !origin || !direction || !radius || !minor || !angle) fail("Missing output pointer");
+    BRepAdaptor_Surface surf(faceAt(shape, faceIndex), false);
+    gp_Ax1 axis;
+    *radius = 0; *minor = 0; *angle = 0;
+    switch (surf.GetType()) {
+    case GeomAbs_Cylinder: *kind = 1; axis = surf.Cylinder().Axis(); *radius = surf.Cylinder().Radius(); break;
+    case GeomAbs_Cone:
+      *kind = 2; axis = surf.Cone().Axis(); *radius = surf.Cone().RefRadius(); *angle = surf.Cone().SemiAngle(); break;
+    case GeomAbs_Sphere: *kind = 3; axis = surf.Sphere().Position().Axis(); *radius = surf.Sphere().Radius(); break;
+    case GeomAbs_Torus:
+      *kind = 4; axis = surf.Torus().Axis(); *radius = surf.Torus().MajorRadius(); *minor = surf.Torus().MinorRadius(); break;
+    case GeomAbs_SurfaceOfRevolution: *kind = 5; axis = surf.AxeOfRevolution(); break;
+    default: fk::setError("The face does not turn around an axis"); return false;
+    }
+    const gp_Pnt &o = axis.Location();
+    const gp_Dir &d = axis.Direction();
+    *origin = FKVec3{o.X(), o.Y(), o.Z()};
+    *direction = FKVec3{d.X(), d.Y(), d.Z()};
+    return true;
+  });
+}
+
+extern "C" bool fk_face_grid(const FKShape *shape, int32_t faceIndex, int32_t nu, int32_t nv, FKVec3 *points,
+                             double *bounds, bool *uClosed, bool *vClosed, bool *reversed) {
+  return guarded("Face grid", false, [&] {
+    shapeOf(shape);
+    if (!points || !bounds || !uClosed || !vClosed || !reversed) fail("Missing output pointer");
+    if (nu < 2 || nv < 2 || nu > 1024 || nv > 1024) fail("The grid must be 2…1024 points each way");
+    const TopoDS_Face face = faceAt(shape, faceIndex);
+    BRepAdaptor_Surface surf(face, true);
+    double u1, u2, v1, v2;
+    BRepTools::UVBounds(face, u1, u2, v1, v2);
+    if (!(u2 > u1) || !(v2 > v1)) fail("The face has no parameter range");
+    bounds[0] = u1; bounds[1] = u2; bounds[2] = v1; bounds[3] = v2;
+    *uClosed = surf.IsUPeriodic() && u2 - u1 >= surf.UPeriod() * (1 - 1e-6);
+    *vClosed = surf.IsVPeriodic() && v2 - v1 >= surf.VPeriod() * (1 - 1e-6);
+    *reversed = face.Orientation() == TopAbs_REVERSED;
+    for (int32_t j = 0; j < nv; ++j) {
+      const double v = v1 + (v2 - v1) * j / (nv - 1);
+      for (int32_t i = 0; i < nu; ++i) {
+        const double u = u1 + (u2 - u1) * i / (nu - 1);
+        const gp_Pnt p = surf.Value(u, v);
+        points[j * nu + i] = FKVec3{p.X(), p.Y(), p.Z()};
+      }
+    }
+    return true;
   });
 }
 

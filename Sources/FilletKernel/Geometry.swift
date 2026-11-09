@@ -218,6 +218,54 @@ public struct EdgeInfo: Hashable, Codable, Sendable {
     }
 }
 
+/// The axis a curved face turns around, with its analytic sizes (see ``Shape/faceAxis(_:)``).
+public struct FaceAxis: Hashable, Sendable {
+    public enum Kind: Int32, Sendable {
+        case cylinder = 1, cone, sphere, torus, revolution
+    }
+
+    public var kind: Kind
+    /// A point on the axis: the sphere's or torus' centre, the cone's reference circle centre.
+    public var origin: Vec3
+    /// Unit direction of the axis.
+    public var direction: Vec3
+    /// Cylinder or sphere radius, cone radius at `origin`, torus major radius; 0 for a revolution.
+    public var radius: Double
+    /// Torus minor radius, else 0.
+    public var minorRadius: Double
+    /// Cone semi-angle in radians, else 0.
+    public var semiAngle: Double
+
+    public init(kind: Kind, origin: Vec3, direction: Vec3, radius: Double = 0, minorRadius: Double = 0, semiAngle: Double = 0) {
+        self.kind = kind; self.origin = origin; self.direction = direction
+        self.radius = radius; self.minorRadius = minorRadius; self.semiAngle = semiAngle
+    }
+}
+
+/// A face's surface sampled on a grid of its own parameters (see ``Shape/faceGrid(_:nu:nv:)``):
+/// `points[j * nu + i]` lies at u = `uRange` split evenly into `nu` points (ends included) and
+/// likewise v. For laying a texture out in the face's own coordinates.
+public struct FaceGrid: Hashable, Sendable {
+    public var nu: Int
+    public var nv: Int
+    public var points: [Vec3]
+    public var uRange: ClosedRange<Double>
+    public var vRange: ClosedRange<Double>
+    /// The surface goes all the way around in u (periodic and the face spans a whole period).
+    public var uClosed: Bool
+    public var vClosed: Bool
+    /// The face's outward normal is -(dS/du × dS/dv).
+    public var reversed: Bool
+
+    public init(nu: Int, nv: Int, points: [Vec3], uRange: ClosedRange<Double>, vRange: ClosedRange<Double>,
+                uClosed: Bool, vClosed: Bool, reversed: Bool) {
+        self.nu = nu; self.nv = nv; self.points = points; self.uRange = uRange; self.vRange = vRange
+        self.uClosed = uClosed; self.vClosed = vClosed; self.reversed = reversed
+    }
+
+    public func point(_ i: Int, _ j: Int) -> Vec3 { points[j * nu + i] }
+}
+
 /// Display/export triangulation of a shape.
 public struct Mesh: Sendable {
     public var positions: [SIMD3<Float>]

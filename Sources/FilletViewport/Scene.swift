@@ -69,6 +69,13 @@ public struct SceneBody: Identifiable, Sendable {
     public var showsEdges: Bool
     /// Whether the body takes part in picking.
     public var pickable: Bool
+    /// Whether its curved faces get silhouette outlines (with edges shown). Off for a textured
+    /// body: every stitch or dot would be outlined, burying the relief in ink.
+    public var showsSilhouettes = true
+    /// Faces (by B-rep face index, as in `mesh.triangleFaces`) drawn faded: greyer and veiled
+    /// towards the background, so a relief that is being recomputed doesn't read as the result.
+    /// The renderer fades them in and out rather than switching, so a quick recompute barely shows.
+    public var fadedFaces: Set<Int> = []
 
     public init(id: UUID, mesh: Mesh, version: Int = 0, color: ViewportColor? = nil, opacity: Float = 1,
                 visible: Bool = true, highlight: BodyHighlight = .none, showsEdges: Bool = true, pickable: Bool = true) {

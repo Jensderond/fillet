@@ -4,7 +4,8 @@ Recompute benchmark, the baseline numbers, and what each optimisation round chan
 [Round 1](#round-1-kernel-booleans-2026-10-25), [Round 1b](#round-1b-agent-steps-candidates-2-and-3),
 [Round 2](#round-2-meshing-face-infos-and-report-queries-2026-10-25) and
 [Round 3](#round-3-report-values-solid-classification-and-meshing-2026-10-26)), then how a
-[section drag](#section-drag-2026-10-30) is measured and what it costs per frame.
+[section drag](#section-drag-2026-10-30) is measured and what it costs per frame, and the
+[surface texture](#textures-2026-11-07) bench and its five rounds.
 
 ## Running it
 
@@ -691,4 +692,292 @@ What's left: input → screen is about 3.6 refreshes, two of them frames queued 
 (two drawables instead of three made frames wait and dropped the rate to 57 fps; skipping a
 refresh while two frames were unshown halved it). Most main-thread time mid-drag is SwiftUI
 laying out the window for the value pill and the panel's offset field, which change every step.
+
+## Textures (2026-11-07)
+
+The surface texture step (`TextureEngine.apply`, see [adding-a-texture.md](adding-a-texture.md))
+for knit, dots and flagstone, on the branch `feat/surface-textures`. Five rounds, 33 commits, every
+output mesh bit-identical to the baseline. The viewport recompute is **7.4–9.5× faster** (flagstone
+box 2 867 → 301 ms), export **4.3–11.4×** (flagstone box 10.5 → 1.5 s). The baseline's stage
+breakdown and the profiling recipe are in [texture-performance.md](texture-performance.md).
+
+### Running it
+
+```sh
+swift build -c release --product texture-lab
+.build/release/texture-lab bench --stages > bench.md   # all 5 fixtures × display + export, 5 runs each; progress on stderr
+```
+
+The full run took about 4 min 50 s at baseline and takes about 45 s now.
+`texture-lab bench [--runs N] [--fixture <name|file.fillet>] [--mode display|export] [--stages]
+[--loop <s>] [--dir <dir>]`: `--runs` (default 5) sets how many runs the median is taken of,
+`--fixture` (repeatable) and `--mode` pick a subset, and `--dir` points at another fixture
+directory (default `Benchmarks/textures`). Each run measures:
+
+- **display**: what the viewport recomputes on every edit of a textured body, the latency the user
+  feels: `TextureEngine.apply` at `TextureQuality.display`, then `creaseShaded()`. It starts from the
+  fine base tessellation (`ModelEvaluator.texturedBaseDeflection`), which the app caches per shape,
+  so the bench makes it once, outside the timing.
+- **export**: what a 3MF/STL export runs once: `EvaluatedBody.printMesh(quality: .export)` of every
+  body, which tessellates the shape and calls `apply` once.
+- **Digest**: a bit-exact 64-bit FNV-1a over every output mesh's positions, normals, indices and
+  triangle faces, in order. **An optimisation must leave every digest unchanged.** Every run's digest
+  is compared, and runs that differ are flagged **UNSTABLE** (exit status 1).
+- **`--stages`**: the engine's time per stage, from a task-local `TextureStageTimes` recorder. The
+  app leaves it unbound, so a mark costs one task-local read there. The digests are the same with
+  and without it.
+- **`--loop S`**: re-runs one fixture and mode for S seconds and prints the pid, for a profiler.
+
+The design is evaluated once per fixture, without display meshes, outside the timing.
+
+**The texture step runs once per timed run.** `texture-lab export` used to texture every body
+twice: it evaluated the design with display meshes first, so it textured once at display detail and
+then again for the file. That was real and was fixed with the bench (`a0eb495`, before the
+baseline): `export --display` of flagstone-box went from 6.0 to 3.1 s, and the files are
+byte-identical. That path, two display runs of about 2.9 s, is the most likely source of the
+6.6 s flagstone "viewport" time seen while the pattern was built; the viewport recompute itself
+was 2.9 s at baseline. The bench was written after the fix, and `printMesh` calls `apply` once.
+
+### Fixtures
+
+`Benchmarks/textures/`, each one body with one texture step:
+
+| fixture | design | path through the engine |
+|---|---|---|
+| `dots-vase` | revolved vase Ø70 × 110, shelled 2 mm, dots Ø8 at 12 × 11 mm, whole dots on | per face (revolved mapping), rims, wall limit across a thin wall |
+| `flagstone-box` | box 60 × 60 × 45, corners r8, top r20 (corner blends), flagstone defaults on every face but the bed | laid out in space: `TextureSurface.scatter`, `SolidFlagstones`, budget trial, contour snap, smoothed normals, fairing; `fk_face_grid` for the fillets' `FaceSurface` |
+| `flagstone-vase` | revolved vase Ø75 × 80, flagstone defaults on the side | laid out in space over one large free-form face (stress) |
+| `knit-box` | the same rounded box, knit 5 × 4.5 mm, 1 mm deep, on every face but the bed | per face on fillets and corner blends: `ParametricChart` / `fk_face_grid`, wall bands |
+| `knit-vase` | revolved vase Ø70 × 110, knit defaults on the side | per face, revolved mapping, crease flips |
+
+Every export passes `texture-lab check` (watertight, manifold, no self-intersections).
+
+### Baseline (Apple M4 Pro 14-core, macOS 27.0.1, release build, median of 5)
+
+| fixture | mode | ms | triangles | digest |
+|---|---|---:|---:|---|
+| dots-vase | display | 2 246 | 730 236 | `92ff8befc2e78bd8` |
+| dots-vase | export | 9 426 | 1 799 556 | `1414fc5025e6af55` |
+| flagstone-box | display | **2 867** | 309 924 | `b962c35bde25be1d` |
+| flagstone-box | export | 10 534 | 1 427 640 | `0ebc5d5b7d114f53` |
+| flagstone-vase | display | 3 024 | 376 802 | `bdc6d36f195f91f8` |
+| flagstone-vase | export | 12 720 | 1 670 312 | `9ccb5661919a73e9` |
+| knit-box | display | 2 266 | 318 260 | `dedc7a9ca1b58f51` |
+| knit-box | export | 7 923 | 871 944 | `f8864982df86c5a4` |
+| knit-vase | display | 1 167 | 227 454 | `019463016a59ce5d` |
+| knit-vase | export | 4 767 | 693 902 | `9d246d727d112cdc` |
+
+At baseline, subdivision was half of flagstone's viewport time (with its budget trial, a second
+subdivision at display detail), then contour snapping, height sampling and rims. For per-face
+patterns (knit, dots) it was subdivision and the crease flips, plus rims for dots. The main costs
+were `Dictionary` hashing of edge keys, `atan2`, and `SolidFlagstones.stone`, which sorted the
+neighbouring seeds for every new point. The parallel parts were very few.
+
+### Results
+
+Median ms at the end of each round, from a full `bench --stages` on the round's last commit. The
+last column is the check run for this write-up on `9b9941d` (with other load on the machine,
+load average about 13):
+
+| fixture | mode | baseline | round 1 | round 2 | round 3 | round 4 | round 5 | speedup | check run |
+|---|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| dots-vase | display | 2 246 | 1 262 | 669 | 405 | 335 | **268** | 8.4× | 268 |
+| dots-vase | export | 9 426 | 5 227 | 2 868 | 1 975 | 1 737 | **1 471** | 6.4× | 1 447 |
+| flagstone-box | display | 2 867 | 1 066 | 673 | 528 | 393 | **301** | 9.5× | 304 |
+| flagstone-box | export | 10 534 | 5 262 | 3 682 | 2 427 | 1 863 | **1 544** | 6.8× | 1 535 |
+| flagstone-vase | display | 3 024 | 1 215 | 691 | 569 | 447 | **336** | 9.0× | 347 |
+| flagstone-vase | export | 12 720 | 6 251 | 4 144 | 3 122 | 2 656 | **2 113** | 6.0× | 2 112 |
+| knit-box | display | 2 266 | 1 107 | 675 | 394 | 330 | **250** | 9.1× | 269 |
+| knit-box | export | 7 923 | 4 317 | 2 065 | 1 265 | 976 | **695** | 11.4× | 705 |
+| knit-vase | display | 1 167 | 610 | 374 | 239 | 198 | **158** | 7.4× | 161 |
+| knit-vase | export | 4 767 | 3 038 | 1 887 | 1 465 | 1 348 | **1 097** | 4.3× | 1 070 |
+
+Triangle counts and digests are unchanged after every commit (see
+[reference digests](#reference-mesh-digests)).
+
+**How each round was checked.** Each commit was measured interleaved against its parent with
+median of 3–9, and a commit stayed only if its own stage gained. At the end of each round, a
+separate verifier:
+
+- read every diff for exactness and determinism
+- did a clean release build
+- ran `bench --stages` twice, where all 10 digests had to match the reference in every run
+- ran `swift test --filter Texture` (42 tests plus 5 MCP texture tests) and
+  `swift test --filter FilletCoreTests` (257 tests)
+
+Nothing was reverted at that stage in any round.
+
+**Parallelism without changing a bit.** All parallel work goes through `concurrentMap`: fixed
+blocks, one output slot per index, and no floating-point sums across blocks. Merges happen in
+index or block order. Hash tables built in shards give each key to exactly one shard, and each
+shard walks the triangles in order. Serial loops whose steps depend on each other (contour snap,
+edge flips) work out their verdicts ahead in parallel against data that can't change before that
+step's turn. They apply the verdicts in the original order and fall back to the full check
+wherever a neighbour has changed.
+
+### Round 1
+
+Per-commit numbers are display / export ms, from back-to-back bench runs (noisy, ±5%).
+
+| commit | change | effect |
+|---|---|---|
+| `7cab4cc` | flagstones: take the nearest inside corner without sorting the candidates | flagstone-box 2 867 → 2 302 / 10 534 → 9 076; flagstone-vase 3 024 → 2 334 / 12 720 → 10 546 |
+| `2adebfd` | `EdgeMap`, a flat open-addressing table, instead of `Dictionary` for mesh edges | every fixture 13–28%: knit-box 2 477 → 1 816 / 8 383 → 6 459, dots-vase 2 368 → 2 038 / 9 986 → 8 516 |
+| `66bd5cb` | later crease-flip passes retry only quads near the last flips | dots-vase 2 038 → 1 607 / 8 516 → 6 374 |
+| `766bfb6` | `improve` skips the `atan2` test when both opposite angles are acute (same dot products) | flagstone-box 1 894 → 1 651 / 7 520 → 6 746; knit-box 1 707 → 1 550 / 6 145 → 5 268 |
+| `6ff488d` | textured faces as a flag array instead of hashing specs | about 3% (flagstone-vase 1 724 → 1 650 / 8 131 → 7 906) |
+| `991c787` | subdivide's wanted edge lengths across the cores | flagstone-vase 1 650 → 1 452 / 7 906 → 7 165 |
+| `e967aa2` | texture heights sampled across the cores | flagstone-box 1 521 → 1 309 / 6 432 → 5 758; knit-vase 738 → 657 / 3 238 → 2 852 |
+| `ee561c2` | look for rims only on faces whose pattern has them (dots) | flagstone-box 1 309 → 1 112 / 5 758 → 5 314; knit-box 1 382 → 1 158 / 4 721 → 4 357 |
+| `5af6dc6` | contour snap measures every point across the cores first | contour snap stage: flagstone-box 223 → 163 / 921 → 697 |
+| `2dc26e6` | rims look only at the triangles near each rim (uv bucket grid) | rims stage: dots-vase 549 → 354 / 1 702 → 1 016 |
+
+### Round 2
+
+Interleaved A/B against the parent, median of 3–5.
+
+| commit | change | effect |
+|---|---|---|
+| `3dfba35` | `improve` flips only edges whose ends changed since its last pass | flagstone-box 1 061 → 850 / 4 797 → 4 000; flagstone-vase 1 225 → 1 030 / 6 218 → 4 875; knit-box 1 140 → 1 059 / 4 268 → 3 278 |
+| `690c5ba` | each face's rim patches across the cores | rims stage: dots-vase 349 → 87 / 1 038 → 279 |
+| `0d08898` | crease flips: turn down candidate quads across the cores before each pass | crease flips stage, display: knit-box 464 → 195, knit-vase 360 → 144, dots-vase 350 → 128; knit-vase 617 → 373 / 2 777 → 1 996 |
+| `f12a7c5` | contour snap works out each snap ahead across the cores | contour snap stage: flagstone-box 181 → 86 / 749 → 413, flagstone-vase 237 → 94 / 821 → 389 |
+| `0caef71` | `PointGrid`: points near a point from a flat grid | smooth normals + fairing: flagstone-box 152 → 106 / 1 437 → 1 163 |
+| `af13199` | the scatter's lattice dropped onto the surface across the cores | solid layout stage: flagstone-box 81 → 14, flagstone-vase 152 → 25 |
+| `1ca2984` | budget trial's triangle estimate sampled across the cores | budget trial stage: flagstone-box 139 → 122 / 40 → 24 |
+| `5378de7` | open edges for contour snap only when a layout is in space | contour snap stage for knit/dots: 11–40 ms display, 55–125 ms export → 0 |
+| `63218bc` | relax's growing region as a flag array instead of a `Set` | relax folds stage: knit-box 69 → 12 / 376 → 42 |
+
+### Round 3
+
+Interleaved A/B, median of 5, two rounds (first round shown).
+
+| commit | change | effect |
+|---|---|---|
+| `699a936` | crease flips keep their edge map up to date instead of rebuilding it per pass | knit-box 680 → 591 / 2 054 → 1 654; dots-vase 666 → 610 / 2 809 → 2 428 |
+| `6538ca4` | vertex faces built once; a flag checked before hashing | flagstone-box 643 → 591 / 3 276 → 2 941; knit-vase 336 → 287 / 1 719 → 1 602 |
+| `d504b02` | surface mappings set up without sorting or an array per cell test | knit-box 559 → 446 / 1 554 → 1 369 |
+| `06cdc26` | fairing and smooth normals visit points cube by cube, testing reach first | fairing stage: flagstone-box 48 → 39 / 646 → 574, flagstone-vase 53 → 41 / 637 → 525 |
+| `a2fa21e` | open edges and sliver neighbours without a map of every edge (per-point edge count) | dots-vase 529 → 458 / 2 311 → 2 068; flagstone-box 590 → 559 / 2 920 → 2 556 |
+| `539cb23` | wall limit's triangle grid built across the cores (z-slabs) | wall limit stage: dots-vase 88 → 35 / 199 → 86 |
+
+### Round 4
+
+Interleaved A/B, median of 3–5.
+
+| commit | change | effect |
+|---|---|---|
+| `dba560d` | crease-shaded corner normals across the cores (display only) | crease shading stage: dots-vase 33 → 12, knit-box 22 → 7 |
+| `204fb90` | each point's own-face normal in a slot beside the points (`PointFaceNormals`) instead of a `Dictionary` | flagstone-box 548 → 510 / 2 605 → 2 146; knit-box 376 → 351 / 1 243 → 1 154 |
+| `879cb36` | a point's faces walked without an array; open edges counted in parallel | normals, pins stage: dots-vase 37 → 18, flagstone-box 19 → 8; flagstone-box 500 → 446 / 2 180 → 2 076 |
+| `310270f` | subdivide's scans and split rebuild across the cores, in fixed blocks | subdivide stage: flagstone-box 131 → 108 / 679 → 449, knit-box 129 → 98 / 438 → 296 |
+
+Round 4 overall, A/B of `539cb23` against `310270f`: flagstone-box 542 → 427 / 2 581 → 1 925,
+flagstone-vase 577 → 474 / 3 276 → 2 639.
+
+### Round 5
+
+Interleaved A/B, median of 5, two rounds (first round shown).
+
+| commit | change | effect |
+|---|---|---|
+| `72853c8` | `improve`'s flips found across the cores (16 edge shards), made in order | flagstone-box 440 → 339 / 1 840 → 1 695; flagstone-vase 442 → 395 / 2 655 → 2 267; dots-vase 356 → 294 / 1 689 → 1 541 |
+| `b2bc3cd` | crease flips keep triangle neighbours in an array, build edges in shards | crease flips stage: knit-box 113 → 81 / 405 → 258, dots-vase 53 → 31 / 201 → 95 |
+| `bd2c676` | the budget trial's probe skips the final polish (only edge flips, so the same count); contour snap busywork trimmed | budget trial stage, display: flagstone-box 70 → 55, flagstone-vase 71 → 50; contour snap 62 → 52 / 70 → 61 |
+| `9b9941d` | every face's contour snaps planned in one parallel round | contour snap stage: flagstone-box 51 → 41 display, 193 → 184 export (about 3% of flagstone-box display; vase the same within noise) |
+
+### Tried and dropped
+
+- **Parallel subdivide wanted lengths, first version** (closure copying layouts and mappings out of
+  dictionaries on every core): dots-vase 3–7% slower (1 534 → 1 583 / 6 087 → 6 213), probably
+  because every core retained the same objects. It became `991c787` after the rework to read them
+  from per-face arrays.
+- **Reuse the first `openEdgeVertices()` result for pinning**: not tried. `dissolveSlivers` can
+  expose a new open edge when the edge it removes has three or more triangles, so the reuse is not
+  exact for every input.
+- **`edgeNormals` in an `EdgeMap`**: no gain (subdivide 152 → 151 ms). The rebuild's cost isn't in
+  the hashing.
+- **Skip `PointGrid` cells wholly out of reach** (box-distance test): no gain, because at r = 2.5 mm
+  the sphere covers most of the 27 cells.
+- **Skip far seeds in `SolidFlagstones.stone` with exact lower bounds**, plus one shared lattice
+  for its three noise calls: digests unchanged, but the gain was small and inconsistent
+  (flagstone-box display 594 → 577, 598 → 593; export 2 915 → 2 968), and user CPU didn't change.
+  A call has only about 20 candidates, and about 14 still get unfolded, because a side within
+  2 × corner radius (about 11 mm) can matter.
+- **Skip runs of 16 grid members by their bounding box in fairing**: no gain on top of the cube
+  order. A cube's members are in vertex order, which isn't spatially coherent, and reordering
+  them would change the summation order.
+- **Per-sub-cube candidate lists in fairing and smooth normals** (splits 2–4, contiguous copies,
+  tiling, branchless body): the 27-cube scan visits 3.03 billion members on flagstone-box
+  export, and sub-cubes cut that to 1.75 billion. The loop's wall time stayed at 420–495 ms all
+  the same, and smooth normals got worse (282 → 294–350). The loop is spread evenly over 14
+  cores (6.4 s CPU in 461 ms), and swapping its division for a multiply didn't change the time
+  either. It needs a real profiler.
+- **A per-triangle "changed" flag for subdivide's scans**: no gain. The scans were 6–51 ms; the
+  rebuild and `improve` dominate. It was replaced by `310270f`.
+- **Displace's `solidNormals` loop across the cores**: no gain once the face walk stopped
+  allocating (28.5 → 27.6 / 255 → 260).
+- **Contour snap's serial loop skipping the ring rescan where no neighbour moved**: 51 → 50 ms.
+  The stage is bound by the parallel plans, so `9b9941d` went after those instead.
+- **Profiling with `sample`**: it hangs on `bench --loop` processes. Temporary `CFAbsoluteTime`
+  instrumentation, never committed, was used instead.
+
+### Reference mesh digests
+
+Unchanged from the baseline after every commit, and stable across runs and processes:
+
+| fixture | display | export |
+|---|---|---|
+| dots-vase | `92ff8befc2e78bd8` (730 236 triangles) | `1414fc5025e6af55` (1 799 556) |
+| flagstone-box | `b962c35bde25be1d` (309 924) | `0ebc5d5b7d114f53` (1 427 640) |
+| flagstone-vase | `bdc6d36f195f91f8` (376 802) | `9ccb5661919a73e9` (1 670 312) |
+| knit-box | `dedc7a9ca1b58f51` (318 260) | `f8864982df86c5a4` (871 944) |
+| knit-vase | `019463016a59ce5d` (227 454) | `9d246d727d112cdc` (693 902) |
+
+One determinism risk predates these rounds. `relax` averages over `around`, a dictionary of `Set`s,
+by walking the sets. Swift seeds its hashing per process, so the order of that float sum could in
+principle differ between processes. The digests have matched across every separate bench process
+so far.
+
+### Where the time goes now (`9b9941d`, `--stages`, median ms)
+
+| stage | flagstone-box display | flagstone-vase display | flagstone-box export | knit-box display | knit-box export | dots-vase display | dots-vase export | knit-vase export |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| tessellate (export only) | – | – | 28 | – | 28 | – | **664** | **578** |
+| solid layout | 13 | 24 | 13 | 1 | 1 | 3 | 3 | 2 |
+| budget trial | **52** | **51** | 7 | – | – | – | – | – |
+| subdivide | **63** | **64** | 257 | **68** | 178 | 42 | 176 | 126 |
+| rims | – | – | – | – | – | **61** | 190 | – |
+| contour snap | 40 | **60** | 179 | – | – | – | – | – |
+| smooth normals | 25 | 28 | 231 | – | – | – | – | – |
+| fairing | 37 | 41 | **530** | – | – | – | – | – |
+| height sampling | 12 | 15 | 51 | 14 | 32 | 13 | 27 | 26 |
+| wall limit | 13 | 18 | 73 | 15 | 43 | 32 | 83 | 37 |
+| crease flips | 0 | 0 | 0 | **90** | **255** | 29 | 93 | **202** |
+| other stages | 49 | 47 | 166 | 81 | 168 | 91 | 212 | 101 |
+| **total** | 304 | 347 | 1 535 | 269 | 705 | 268 | 1 447 | 1 070 |
+
+### What's left (ranked)
+
+1. **Reuse the viewport's cached fine tessellation for export.** Tessellation is now 46% of
+   dots-vase export (664 ms), 54% of knit-vase export (578 ms) and 17% of flagstone-vase export
+   (356 ms). The shape's fine base mesh is already cached for the viewport. This would mean
+   passing it from `ModelEvaluator` through `App/Export.swift` and `ModelingTools` into
+   `printMesh`, across the detached export task. It needs an app build to check, and the bench's
+   export number would then mean a warm cache. It saves about 40% of those two exports but does
+   nothing for the viewport.
+2. **Flagstone export's neighbour loops**: fairing (530 ms) and smooth normals (231 ms) are half of
+   flagstone-box export. Fewer candidates didn't make the loop faster, so find what bounds it with
+   a real profiler (`xctrace` Time Profiler; `sample` hangs on `--loop`) before trying again.
+3. **Flagstone viewport**: the budget trial (52 ms, a probe subdivision to count triangles),
+   subdivide (63 ms) and contour snap (40–60 ms) are about half of it, and all of them go through
+   `SolidFlagstones.stone`. Exact seed culling didn't pay off (see above). What remains is either
+   cheaper work per stone or less of it, for example letting the probe and the real subdivision
+   share work, if that can be shown to be exact.
+4. **Crease flips on knit**: 33–38% of knit display (90 ms on the box) and 255 ms of knit-box
+   export.
+5. **Rims on dots**: 61 ms (23%) of dots-vase display, 190 ms on export. A lazy `near`, a flat
+   classes cache and per-face arrays in `followRims` would gain about 5% of that one fixture.
+6. **Flat tables for `SolidFlagstones.index` and `PointGrid.index`**: their `Dictionary` lookups are
+   about 2% of `stone()` (0.7% of busy CPU), too little to measure against ±5% noise for now.
 

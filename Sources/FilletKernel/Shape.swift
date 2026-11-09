@@ -400,6 +400,33 @@ public final class Shape: @unchecked Sendable {
         return r
     }
 
+    /// The axis a face turns around (cylinder, cone, sphere, torus, surface of revolution);
+    /// nil for other faces or invalid indices.
+    public func faceAxis(_ index: Int) -> FaceAxis? {
+        var kind: Int32 = 0
+        var origin = FKVec3(), direction = FKVec3()
+        var radius = 0.0, minor = 0.0, angle = 0.0
+        guard index >= 0, fk_face_axis(handle, Int32(clamping: index), &kind, &origin, &direction, &radius, &minor, &angle),
+            let k = FaceAxis.Kind(rawValue: kind)
+        else { return nil }
+        return FaceAxis(kind: k, origin: Vec3(origin), direction: Vec3(direction).normalized, radius: radius,
+                        minorRadius: minor, semiAngle: angle)
+    }
+
+    /// A face's surface sampled on an `nu` × `nv` grid of its parameters (see ``FaceGrid``); nil for
+    /// invalid indices or a face without a parameter range.
+    public func faceGrid(_ index: Int, nu: Int, nv: Int) -> FaceGrid? {
+        guard index >= 0, (2...1024).contains(nu), (2...1024).contains(nv) else { return nil }
+        var points = [FKVec3](repeating: FKVec3(), count: nu * nv)
+        var bounds = [Double](repeating: 0, count: 4)
+        var uClosed = false, vClosed = false, reversed = false
+        guard fk_face_grid(handle, Int32(clamping: index), Int32(nu), Int32(nv), &points, &bounds,
+                           &uClosed, &vClosed, &reversed)
+        else { return nil }
+        return FaceGrid(nu: nu, nv: nv, points: points.map(Vec3.init), uRange: bounds[0]...bounds[1],
+                        vRange: bounds[2]...bounds[3], uClosed: uClosed, vClosed: vClosed, reversed: reversed)
+    }
+
     /// The solids of this shape as separate shapes.
     public func solids() -> [Shape] {
         guard let list = fk_solids(handle) else { return [] }

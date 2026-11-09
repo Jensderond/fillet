@@ -1,0 +1,189 @@
+{
+  "features": [
+    {
+      "id": "D41DFE1B-D130-42D7-BA30-E5F046A3C2BC",
+      "kind": {
+        "plane": {
+          "offset": "0",
+          "plane": "xz",
+          "type": "standard"
+        },
+        "shapes": [
+          {
+            "construction": false,
+            "id": "F61645D6-68D4-429B-B3AB-5C411AE68AEB",
+            "kind": {
+              "a": {
+                "x": "0",
+                "y": "0"
+              },
+              "b": {
+                "x": "35",
+                "y": "0"
+              },
+              "type": "line"
+            }
+          },
+          {
+            "construction": false,
+            "id": "E3D8B8A5-21EE-4C28-9661-55ED87249601",
+            "kind": {
+              "points": [
+                {
+                  "x": "35",
+                  "y": "0"
+                },
+                {
+                  "x": "43.75",
+                  "y": "38.5"
+                },
+                {
+                  "x": "36.5925",
+                  "y": "77"
+                },
+                {
+                  "x": "28",
+                  "y": "110"
+                }
+              ],
+              "type": "spline"
+            }
+          },
+          {
+            "construction": false,
+            "id": "006A3E3F-D32B-4FE2-9AD3-1BED62D1F7D7",
+            "kind": {
+              "a": {
+                "x": "28",
+                "y": "110"
+              },
+              "b": {
+                "x": "0",
+                "y": "110"
+              },
+              "type": "line"
+            }
+          },
+          {
+            "construction": false,
+            "id": "022AD74D-D2F5-4D39-A5F2-47C6DFB93926",
+            "kind": {
+              "a": {
+                "x": "0",
+                "y": "110"
+              },
+              "b": {
+                "x": "0",
+                "y": "0"
+              },
+              "type": "line"
+            }
+          }
+        ],
+        "type": "sketch"
+      },
+      "name": "Profile",
+      "suppressed": false
+    },
+    {
+      "id": "8B22DDC9-2D98-41D1-B535-D6D6D0E116B7",
+      "kind": {
+        "angle": "360",
+        "axis": {
+          "type": "y"
+        },
+        "operation": "newBody",
+        "regions": [
+          {
+            "x": 10.5,
+            "y": 55
+          }
+        ],
+        "sketch": "D41DFE1B-D130-42D7-BA30-E5F046A3C2BC",
+        "targets": [],
+        "type": "revolve"
+      },
+      "name": "Vase",
+      "suppressed": false
+    },
+    {
+      "id": "447B2653-5BBA-471B-8206-C5E62F8203DF",
+      "kind": {
+        "body": "8B22DDC9-2D98-41D1-B535-D6D6D0E116B7",
+        "removeFaces": [
+          {
+            "body": "8B22DDC9-2D98-41D1-B535-D6D6D0E116B7",
+            "signature": {
+              "area": 2463.0086404143976,
+              "centroid": {
+                "x": -3.552713678800501e-15,
+                "y": 2.011996011973753e-15,
+                "z": 110
+              },
+              "extent": {
+                "x": 56,
+                "y": 56,
+                "z": 0
+              },
+              "normal": {
+                "x": 0,
+                "y": 0,
+                "z": 1
+              },
+              "surface": "plane"
+            }
+          }
+        ],
+        "thickness": "2",
+        "type": "shell"
+      },
+      "name": "Shell",
+      "suppressed": false
+    },
+    {
+      "id": "B5633F93-FBE1-4ED8-B059-326F52F0055F",
+      "kind": {
+        "body": "8B22DDC9-2D98-41D1-B535-D6D6D0E116B7",
+        "faces": [
+          {
+            "body": "8B22DDC9-2D98-41D1-B535-D6D6D0E116B7",
+            "signature": {
+              "area": 27321.956569413458,
+              "centroid": {
+                "x": -3.552713678800501e-15,
+                "y": -8.203667409092058e-17,
+                "z": 51.8909066979589
+              },
+              "extent": {
+                "x": 87.6441793964022,
+                "y": 87.6441793964022,
+                "z": 110.00000019999999
+              },
+              "normal": {
+                "x": -0.9324175666260466,
+                "y": 0.2924505942271114,
+                "z": 0.21229727125747885
+              },
+              "surface": "other"
+            }
+          }
+        ],
+        "pattern": "dots",
+        "type": "texture",
+        "values": {
+          "diameter": "8",
+          "rowSpacing": "11",
+          "spacing": "12",
+          "whole": "1"
+        }
+      },
+      "name": "Dots",
+      "suppressed": false
+    }
+  ],
+  "formatVersion": 1,
+  "name": "Dots shelled vase",
+  "parameters": [],
+  "printer": "bambu-a1-mini",
+  "units": "mm"
+}

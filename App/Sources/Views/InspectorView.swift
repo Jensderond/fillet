@@ -33,8 +33,12 @@ struct InspectorView: View {
                 .font(Theme.body)
                 .tint(Theme.ink)
             }
-            // A row cut by a short drawer or panel fades out, so it reads as "more below".
+            // A row cut by a short drawer or panel fades out, so it reads as "more below"; the
+            // scroll indicator flashes on opening a step for forms whose last row ends at the edge.
+            // (Nothing floats over the form: a cue drawn on top would cover a live field.)
             .scrollEdgeFade()
+            .scrollIndicatorsFlash(onAppear: true)
+            .scrollIndicatorsFlash(trigger: session.editingFeature?.id)
             if session.sketchEditor != nil {
                 if showsSketchFooter { SketchFooter(finish: session.finishSketch) }
             } else if let measure = session.measure {
@@ -249,6 +253,7 @@ struct FeatureInspector: View {
         case .shell(let s): shell(s)
         case .hole(let h): HoleInspector(hole: h, evaluator: ev, set: { set(.hole($0)) }, applyPreset: { session.applyHolePreset($0) })
         case .pressPull(let p): PressPullInspector(session: session, pressPull: p)
+        case .texture(let t): TextureInspector(session: session, texture: t)
         case .primitive(let p): primitive(p)
         case .combine(let c): combine(c)
         case .move(let m): move(m)
@@ -801,6 +806,7 @@ extension FeatureKind {
         case .chamfer: "skew"
         case .shell: "cube.transparent"
         case .pressPull: "arrow.up.and.down.square"
+        case .texture: TextureCatalog.toolSymbol
         case .primitive(let p):
             switch p.kind {
             case .box: "cube"
@@ -834,6 +840,7 @@ extension FeatureKind {
         case .chamfer: "Bevels edges"
         case .shell: "Hollows a body"
         case .pressPull: "Moves faces in or out"
+        case .texture(let t): "\(TextureCatalog.pattern(t.pattern)?.displayName ?? t.pattern.rawValue) surface texture"
         case .primitive(let p): "\(p.kind.rawValue.capitalized) solid"
         case .combine: "Joins, cuts or intersects bodies"
         case .move: "Moves and rotates bodies"

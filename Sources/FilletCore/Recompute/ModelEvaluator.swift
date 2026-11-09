@@ -45,6 +45,14 @@ public actor ModelEvaluator {
 
     private typealias MeshCache = [ObjectIdentifier: (shape: Shape, mesh: Mesh)]
 
+    /// A textured display mesh: the shape it was made from and the textures on it.
+    private struct TexturedKey: Hashable {
+        var shape: ObjectIdentifier
+        var textures: [BodyTexture]
+    }
+
+    private typealias TexturedCache = [TexturedKey: (shape: Shape, mesh: Mesh)]
+
     /// The state after each step of the last evaluated document.
     private var cache: [CacheEntry] = []
     /// The same for the last previewed document, kept apart so a preview that is thrown away
@@ -57,6 +65,12 @@ public actor ModelEvaluator {
     /// `meshCache` as it was before the last `evaluate`, so undoing a step (or setting a value
     /// back) finds the meshes of the bodies it brings back instead of meshing them again.
     private var previousMeshCache: MeshCache = [:]
+    /// Textured display meshes, kept like `meshCache` (this run's and the one before).
+    private var texturedCache: TexturedCache = [:]
+    private var previousTexturedCache: TexturedCache = [:]
+    /// The fine tessellation textured display meshes start from, per shape, so editing a
+    /// texture's values doesn't mesh the unchanged body again.
+    private var texturedBaseCache: MeshCache = [:]
 
     /// Wall-clock cost of one recomputed feature (see ``init(recordsTimings:)``).
     public struct StepTiming: Sendable {
@@ -75,10 +89,15 @@ public actor ModelEvaluator {
     /// Shapes the last `evaluate` or `preview` had to tessellate (the rest had cached meshes).
     private(set) var lastTessellatedCount = 0
 
+    /// Whether `evaluate` and `preview` make display meshes (``EvaluatedModel/meshes``).
+    private let makesDisplayMeshes: Bool
+
     /// `recordsTimings` makes `evaluate` measure every recomputed feature and the display
-    /// tessellation (for benchmarks; off in the app).
-    public init(recordsTimings: Bool = false) {
+    /// tessellation (for benchmarks; off in the app). Without `displayMeshes` the model comes
+    /// without display meshes (for tools that only export: textures aren't computed twice).
+    public init(recordsTimings: Bool = false, displayMeshes: Bool = true) {
         self.recordsTimings = recordsTimings
+        self.makesDisplayMeshes = displayMeshes
     }
 
     private static func seconds(since start: ContinuousClock.Instant) -> Double {
@@ -150,7 +169,9 @@ public actor ModelEvaluator {
             changedBefore = (bodiesBefore ?? []).filter { b in state.bodies.first { $0.ref == b.ref }?.shape !== b.shape }
         default: break
         }
-        (model.meshes, model.meshesBefore) = displayMeshes(for: state.bodies, before: changedBefore, preview: preview)
+        if makesDisplayMeshes {
+            (model.meshes, model.meshesBefore) = displayMeshes(for: state.bodies, before: changedBefore, preview: preview)
+        }
         if let meshStart {
             lastStepTimings = timings
             lastMeshSeconds = Self.seconds(since: meshStart)
@@ -169,6 +190,16 @@ public actor ModelEvaluator {
         meshCache = [:]
         previewMeshCache = [:]
         previousMeshCache = [:]
+        texturedCache = [:]
+        previousTexturedCache = [:]
+        texturedBaseCache = [:]
+    }
+
+    /// Tessellation a textured body's display mesh starts from (see ``displayMeshes``): the
+    /// export one. Subdivision splits edges on their chords, so a coarse start leaves the relief
+    /// sampled on flats with skewed normals, which shows as spikes where a vase narrows.
+    public static func texturedBaseDeflection(for shape: Shape) -> (linear: Double, angular: Double) {
+        TextureEngine.exportDeflection
     }
 
     /// Tessellation fine enough to look smooth, scaled to the part size.
@@ -195,11 +226,65 @@ public actor ModelEvaluator {
 
         var result: [BodyRef: Mesh] = [:], resultBefore: [BodyRef: Mesh] = [:]
         var kept: MeshCache = [:]
+        var texturedJobs: [(ref: BodyRef, key: TexturedKey, shape: Shape, base: Mesh, textures: [BodyTexture])] = []
+        var keptTextured: TexturedCache = [:]
         for body in bodies {
             let id = ObjectIdentifier(body.shape)
             let mesh = cached(id) ?? fresh[id] ?? .empty
             kept[id] = (body.shape, mesh)
             result[body.ref] = mesh
+            guard !body.textures.isEmpty else { continue }
+            let key = TexturedKey(shape: id, textures: body.textures)
+            if let hit = texturedCache[key] ?? previousTexturedCache[key] {
+                keptTextured[key] = hit
+                result[body.ref] = hit.mesh
+            } else {
+                texturedJobs.append((body.ref, key, body.shape, mesh, body.textures))
+            }
+        }
+        if !texturedJobs.isEmpty {
+            let made = Mutex<[Int: Mesh]>([:])
+            let madeBases = Mutex<[Int: Mesh]>([:])
+            let knownBases = texturedJobs.map { texturedBaseCache[ObjectIdentifier($0.shape)]?.mesh }
+            let jobs = texturedJobs
+            DispatchQueue.concurrentPerform(iterations: jobs.count) { i in
+                let job = jobs[i]
+                // Textured from a finer tessellation than the plain display mesh (see
+                // ``texturedBaseDeflection``).
+                let base: Mesh
+                if let known = knownBases[i] {
+                    base = known
+                } else {
+                    let d = Self.texturedBaseDeflection(for: job.shape)
+                    base = (try? job.shape.tessellate(linearDeflection: d.linear, angularDeflection: d.angular)) ?? job.base
+                    madeBases.withLock { $0[i] = base }
+                }
+                // Normals split at the relief's sharp steps, so a disc's foot shades as a clean edge.
+                var mesh = TextureEngine.apply(job.textures, to: base, of: job.shape, quality: .display)
+                    .creaseShaded()
+                // Edge lines from the display tessellation: the fine one's thousands of tiny
+                // segments draw as a beaded line where their antialiased ends overlap.
+                mesh.edges = job.base.edges
+                mesh.brepVertices = job.base.brepVertices
+                made.withLock { $0[i] = mesh }
+            }
+            let meshes = made.withLock { $0 }
+            // Fine bases of the shapes still shown, plus the ones just made.
+            texturedBaseCache = texturedBaseCache.filter { kept[$0.key] != nil }
+            for (i, base) in madeBases.withLock({ $0 }) {
+                texturedBaseCache[ObjectIdentifier(texturedJobs[i].shape)] = (texturedJobs[i].shape, base)
+            }
+            for (i, job) in texturedJobs.enumerated() {
+                let mesh = meshes[i] ?? job.base
+                keptTextured[job.key] = (job.shape, mesh)
+                result[job.ref] = mesh
+            }
+        }
+        if !preview {
+            previousTexturedCache = texturedCache
+            texturedCache = keptTextured
+        } else {
+            texturedCache.merge(keptTextured) { a, _ in a }
         }
         for body in before {
             let id = ObjectIdentifier(body.shape)
@@ -258,6 +343,7 @@ public actor ModelEvaluator {
             case .layFlat(let l): try layFlat(l, feature, &state)
             case .hole(let h): try hole(h, feature, &state, ev)
             case .pressPull(let p): try pressPull(p, feature, &state, ev)
+            case .texture(let t): try texture(t, feature, &state, ev)
             case .unknown(let type, _):
                 throw FeatureError("“\(type)” features need a newer version of Fillet")
             }
@@ -454,6 +540,32 @@ public actor ModelEvaluator {
         guard distance != 0 else { throw FeatureError("Distance must not be zero") }
         state.bodies[index].shape = try body.shape.offsettingFaces(faces, by: distance)
         state.bodies[index].lastFeature = feature.id
+    }
+
+    private func texture(_ t: Texture, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {
+        let (index, body) = try bodyIndex(t.body, state)
+        let infos = body.shape.faceInfos
+        var signatures: [FaceSignature] = []
+        var found: [ResolvedReference?] = []
+        var missing = 0
+        for ref in t.faces {
+            if let m = ReferenceResolver.match(ref.signature, in: infos) {
+                let s = FaceSignature(infos[m.index])
+                if !signatures.contains(s) { signatures.append(s) }
+                found.append(ResolvedReference(m, offset: ref.signature.centroid.distance(to: infos[m.index].centroid)))
+            } else {
+                missing += 1
+                found.append(nil)
+            }
+        }
+        state.references[feature.id] = found
+        if missing > 0 {
+            throw FeatureError(missing == 1 ? "1 face can no longer be found — reselect it" : "\(missing) faces can no longer be found — reselect them")
+        }
+        let values = try TextureCatalog.resolve(t, using: ev)
+        state.bodies[index].textures.removeAll { $0.feature == feature.id }
+        state.bodies[index].textures.append(
+            BodyTexture(feature: feature.id, pattern: t.pattern, values: values, faces: t.faces.isEmpty ? nil : signatures))
     }
 
     private func primitive(_ p: Primitive, _ feature: Feature, _ state: inout State, _ ev: Evaluator) throws {

@@ -8,6 +8,7 @@ let package = Package(
         .library(name: "FilletKit", targets: ["FilletKernel", "FilletCore", "FilletViewport", "FilletAgent"]),
         .executable(name: "fillet-mcp", targets: ["fillet-mcp"]),
         .executable(name: "fillet-bench", targets: ["fillet-bench"]),
+        .executable(name: "texture-lab", targets: ["texture-lab"]),
     ],
     targets: [
         // Built by scripts/build-occt.sh: OpenCascade (with scripts/occt-patches) as one dynamic
@@ -30,6 +31,8 @@ let package = Package(
         .executableTarget(name: "fillet-mcp", dependencies: ["FilletAgent", "FilletCore"]),
         // Recompute benchmark: `swift run -c release fillet-bench [design.fillet]` (see docs/performance.md).
         .executableTarget(name: "fillet-bench", dependencies: ["FilletCore", "FilletKernel"]),
+        // Surface-texture workbench: `swift run -c release texture-lab help` (renders, export, mesh checks, samples).
+        .executableTarget(name: "texture-lab", dependencies: ["FilletAgent", "FilletCore", "FilletKernel", "FilletViewport"]),
         .testTarget(name: "FilletKernelTests", dependencies: ["FilletKernel", "CFilletKernel"]),
         .testTarget(name: "FilletCoreTests", dependencies: ["FilletCore"]),
         .testTarget(name: "FilletViewportTests", dependencies: ["FilletViewport"]),

@@ -93,6 +93,27 @@ struct VisualStyleTests {
         #expect(blue(picked) > blue(plain) + 100)
     }
 
+    /// A relief being recomputed is faded (`SceneBody.fadedFaces`): just its faces, towards the
+    /// background, and a picked one still shows picked.
+    @Test func fadedFacesFadeTowardsTheBackgroundAndStayPickable() throws {
+        let id = UUID()
+        var scene = ViewportScene(bodies: [SceneBody(id: id, mesh: DemoMeshes.cube(size: 20))], showsGroundGrid: false)
+        scene.visualStyle = .shaded
+        let image = { pixels(try #require(self.renderer.snapshot(scene: scene, camera: self.front,
+                                                                 size: CGSize(width: 160, height: 160), scale: 1))) }
+        let centre = 64 * 160 + 64, background = 64 * 160
+        let plain = try image()
+        scene.bodies[0].fadedFaces = [2]
+        let faded = try image()
+        #expect(distance(faded[centre], faded[background]) < distance(plain[centre], plain[background]) - 12)
+        scene.bodies[0].fadedFaces = [3]  // another face: the front one is left as it was
+        #expect(distance(try image()[centre], plain[centre]) <= 3)
+        scene.bodies[0].fadedFaces = [2]
+        scene.selection = [.face(body: id, index: 2)]
+        let picked = try image()[centre]
+        #expect(picked.z > picked.x + 20)
+    }
+
     /// Every style on the showcase scene, light and dark, for looking at.
     @Test(arguments: VisualStyle.allCases)
     func showcase(_ style: VisualStyle) throws {

@@ -10,6 +10,11 @@ struct ExprField: View {
     /// Width of the label column; nil lets a short label ("=") hug its text.
     var labelWidth: CGFloat? = 64
     let evaluator: Evaluator
+    /// Values the field accepts (in its unit). With a range, a value outside it shows the bounds
+    /// right under the field instead of being applied (and failing the step).
+    var range: ClosedRange<Double>? = nil
+    /// Return pressed or the field left: the typing is done (after any last `onChange`).
+    var onCommit: (() -> Void)? = nil
     let onChange: (Expr) -> Void
 
     @State private var text = ""
@@ -111,7 +116,11 @@ struct ExprField: View {
     private func validate() {
         let expr = Expr(stringLiteral: text.trimmingCharacters(in: .whitespaces))
         do {
-            _ = try evaluator.evaluate(expr, as: kind)
+            let v = try evaluator.evaluate(expr, as: kind)
+            if let range, !range.contains(v) {
+                self.error = text.isEmpty ? nil : "Use \(Self.format(range.lowerBound)) to \(Self.format(range.upperBound))\(unit.isEmpty ? "" : " \(unit)")"
+                return
+            }
             error = nil
             if expr != value { onChange(expr) }
         } catch {
@@ -125,6 +134,7 @@ struct ExprField: View {
             text = value.source
             error = nil
         }
+        onCommit?()
     }
 
     static func format(_ v: Double) -> String {

@@ -1,0 +1,150 @@
+{
+  "features": [
+    {
+      "id": "0651805F-9670-4AB5-85B7-A31D061BBECB",
+      "kind": {
+        "plane": {
+          "offset": "0",
+          "plane": "xz",
+          "type": "standard"
+        },
+        "shapes": [
+          {
+            "construction": false,
+            "id": "18ABBA6F-E79E-47BE-AD2A-D56982F7AD1A",
+            "kind": {
+              "a": {
+                "x": "0",
+                "y": "0"
+              },
+              "b": {
+                "x": "35",
+                "y": "0"
+              },
+              "type": "line"
+            }
+          },
+          {
+            "construction": false,
+            "id": "3E442875-8FE4-4362-9FDA-820420BC2A96",
+            "kind": {
+              "points": [
+                {
+                  "x": "35",
+                  "y": "0"
+                },
+                {
+                  "x": "43.75",
+                  "y": "38.5"
+                },
+                {
+                  "x": "36.5925",
+                  "y": "77"
+                },
+                {
+                  "x": "28",
+                  "y": "110"
+                }
+              ],
+              "type": "spline"
+            }
+          },
+          {
+            "construction": false,
+            "id": "76E76127-853E-4560-83D6-5BC4C9DA4944",
+            "kind": {
+              "a": {
+                "x": "28",
+                "y": "110"
+              },
+              "b": {
+                "x": "0",
+                "y": "110"
+              },
+              "type": "line"
+            }
+          },
+          {
+            "construction": false,
+            "id": "FC1C8245-37C7-488A-A1E9-275094C101A9",
+            "kind": {
+              "a": {
+                "x": "0",
+                "y": "110"
+              },
+              "b": {
+                "x": "0",
+                "y": "0"
+              },
+              "type": "line"
+            }
+          }
+        ],
+        "type": "sketch"
+      },
+      "name": "Profile",
+      "suppressed": false
+    },
+    {
+      "id": "647140E5-1D77-4559-A8A1-9F504D0CBECE",
+      "kind": {
+        "angle": "360",
+        "axis": {
+          "type": "y"
+        },
+        "operation": "newBody",
+        "regions": [
+          {
+            "x": 10.5,
+            "y": 55
+          }
+        ],
+        "sketch": "0651805F-9670-4AB5-85B7-A31D061BBECB",
+        "targets": [],
+        "type": "revolve"
+      },
+      "name": "Vase",
+      "suppressed": false
+    },
+    {
+      "id": "518382C9-CE10-4D01-825F-9164AE899455",
+      "kind": {
+        "body": "647140E5-1D77-4559-A8A1-9F504D0CBECE",
+        "faces": [
+          {
+            "body": "647140E5-1D77-4559-A8A1-9F504D0CBECE",
+            "signature": {
+              "area": 27321.956569413458,
+              "centroid": {
+                "x": -3.552713678800501e-15,
+                "y": -8.203667409092058e-17,
+                "z": 51.8909066979589
+              },
+              "extent": {
+                "x": 87.6441793964022,
+                "y": 87.6441793964022,
+                "z": 110.00000019999999
+              },
+              "normal": {
+                "x": -0.9324175666260466,
+                "y": 0.2924505942271114,
+                "z": 0.21229727125747885
+              },
+              "surface": "other"
+            }
+          }
+        ],
+        "pattern": "knit",
+        "type": "texture",
+        "values": {}
+      },
+      "name": "Knit",
+      "suppressed": false
+    }
+  ],
+  "formatVersion": 1,
+  "name": "Knit vase",
+  "parameters": [],
+  "printer": "bambu-a1-mini",
+  "units": "mm"
+}

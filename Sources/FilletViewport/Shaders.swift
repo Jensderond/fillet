@@ -73,7 +73,7 @@ struct MeshDraw {
     uint flags;          // 1 = overhang, 2 = unlit (flat colour), 4 = pull towards the camera,
                          // 8 = only picked / hovered faces (open-face visual styles),
                          // 16 = not cut by the section (handles)
-    float pad0;
+    float fade;          // how far faces marked faded (face state bit 4) are faded, 0…1
     float pad1;
 };
 
@@ -143,6 +143,9 @@ fragment float4 mesh_fragment(MeshOut in [[stage_in]], bool front [[front_facing
     if (!front && hasSection(U)) return float4(mix(base, U.sectionColor.rgb, U.sectionColor.a), D.color.a);
     base = mix(base, D.highlight.rgb, D.highlight.a);
     uint st = in.face < D.faceStateCount ? uint(faceState[in.face]) : 0u;
+    // Bit 4 marks a faded face; the low bits are hover (1) or picked (2).
+    bool faded = (st & 4u) != 0u;
+    st &= 3u;
     if ((D.flags & 8u) != 0u && st == 0u && D.highlight.a <= 0.0) discard_fragment();
     if (st == 2u) base = mix(base, U.accent.rgb, U.accent.a);
     else if (st == 1u) base = mix(base, U.hover.rgb, U.hover.a);
@@ -151,6 +154,13 @@ fragment float4 mesh_fragment(MeshOut in [[stage_in]], bool front [[front_facing
     float3 c = (D.flags & 2u) != 0u ? base : shade(base, normalize(in.worldNormal), in.worldPos, U);
     // Overhangs face down into the shadowed hemisphere; add a little emission so they read clearly.
     c += U.overhangColor.rgb * oh * 0.22;
+    if (faded && D.fade > 0.0) {
+        // Out of date: greyer, and veiled towards the background (lighter on a light one, darker
+        // on a dark one). The relief keeps some of its shading, so it still reads as the part.
+        float luma = dot(c, float3(0.2126, 0.7152, 0.0722));
+        float3 veil = mix(float3(luma), mix(U.bgBottom.rgb, U.bgTop.rgb, 0.5), 0.55);
+        c = mix(c, veil, 0.6 * D.fade);
+    }
     return float4(c, D.color.a);
 }
 
