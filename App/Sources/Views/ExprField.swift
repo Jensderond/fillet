@@ -13,6 +13,8 @@ struct ExprField: View {
     /// Values the field accepts (in its unit). With a range, a value outside it shows the bounds
     /// right under the field instead of being applied (and failing the step).
     var range: ClosedRange<Double>? = nil
+    /// Return pressed or the field left: the typing is done (after any last `onChange`).
+    var onCommit: (() -> Void)? = nil
     let onChange: (Expr) -> Void
 
     @State private var text = ""
@@ -132,6 +134,7 @@ struct ExprField: View {
             text = value.source
             error = nil
         }
+        onCommit?()
     }
 
     static func format(_ v: Double) -> String {

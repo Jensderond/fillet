@@ -185,6 +185,8 @@ final class DesignSession {
     @ObservationIgnored private let evaluator = ModelEvaluator()
     @ObservationIgnored private var recomputeTask: Task<Void, Never>?
     @ObservationIgnored private var pendingRecompute = false
+    /// A recompute waiting for typing to pause (see `recompute(settling:)`).
+    @ObservationIgnored private var settleTask: Task<Void, Never>?
     /// The document before a gesture's live changes (see `performLive`).
     @ObservationIgnored private var liveChangeStart: Document?
 
@@ -235,12 +237,12 @@ final class DesignSession {
         recompute()
     }
 
-    private func setDocument(_ newDocument: Document) {
+    private func setDocument(_ newDocument: Document, settling: Bool = false) {
         document = keepingVisibility(newDocument)
         // An error is about the last action; the next edit moves on from it.
         if message?.kind == .error, message?.failedFeature == nil { message = nil }
         onDocumentChange?(document)
-        recompute()
+        if settling { recompute(settling: Self.typingPause) } else { recompute() }
     }
 
     /// `newDocument` with today's hidden bodies. Visibility isn't an undo step, so a snapshot coming
@@ -293,13 +295,16 @@ final class DesignSession {
         recompute()
     }
 
-    /// Live update of the feature being edited (no undo step until commit).
-    func updateEditing(_ change: (inout Feature) -> Void) {
+    /// Live update of the feature being edited (no undo step until commit). `whileTyping` is for
+    /// a value typed key by key: the document follows every key, but the recompute waits until
+    /// the typing pauses (see `recompute(settling:)`), so a costly step (a texture) isn't rebuilt
+    /// for the "2" on the way to "20".
+    func updateEditing(whileTyping: Bool = false, _ change: (inout Feature) -> Void) {
         guard let edit = editing, let i = document.index(of: edit.feature) else { return }
         var doc = document
         change(&doc.features[i])
         guard doc != document else { return }
-        setDocument(doc)
+        setDocument(doc, settling: whileTyping)
     }
 
     /// Live update of the document around the feature being edited (e.g. a parameter it starts
@@ -364,10 +369,37 @@ final class DesignSession {
 
     // MARK: Recompute
 
-    /// A recompute is running or queued, so `model` may not match `document` yet.
-    var isRecomputePending: Bool { recomputeTask != nil || pendingRecompute }
+    /// A recompute is running, queued or waiting for typing to pause, so `model` may not match
+    /// `document` yet.
+    var isRecomputePending: Bool { recomputeTask != nil || pendingRecompute || settleTask != nil }
+
+    /// How long typing has to pause before a typed value is recomputed: longer than the gap
+    /// between two keys, short enough that the result still follows the typing.
+    static let typingPause = Duration.milliseconds(400)
+
+    /// Recomputes once nothing has changed for `pause`; every call starts the wait again. Counts
+    /// as recomputing from the start (`isRecomputing`), so the stale relief fades and the
+    /// inspector says it's updating while the user types.
+    func recompute(settling pause: Duration) {
+        settleTask?.cancel()
+        isRecomputing = true
+        settleTask = Task { [weak self] in
+            try? await Task.sleep(for: pause)
+            guard !Task.isCancelled, let self else { return }
+            self.settleTask = nil
+            self.recompute()
+        }
+    }
+
+    /// Runs a recompute that waits for typing to pause right away (Return, or leaving the field).
+    func recomputeIfSettling() {
+        if settleTask != nil { recompute() }
+    }
 
     func recompute() {
+        // Anything recomputed now includes what a waiting recompute was for.
+        settleTask?.cancel()
+        settleTask = nil
         pendingRecompute = true
         guard recomputeTask == nil else { return }
         recomputeTask = Task { [weak self] in
@@ -384,7 +416,8 @@ final class DesignSession {
                 self.reframeAfterRecompute(previousBodyCount: previousBodies)
                 self.announceFailures(previous: previousStatus)
             }
-            self?.isRecomputing = false
+            // Typing since the last pass keeps it "recomputing" until that pause has passed too.
+            if self?.settleTask == nil { self?.isRecomputing = false }
             self?.recomputeTask = nil
         }
     }

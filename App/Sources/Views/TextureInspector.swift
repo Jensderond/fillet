@@ -166,9 +166,14 @@ struct TextureInspector: View {
             }
             .help(param.help)
         case .length, .angle, .count, .number:
+            // Typed key by key: rebuilding the relief for each key ("2" on the way to "20", far
+            // more stones) would keep it busy with values nobody wants, so it waits for a pause.
             ExprField(label: param.name, value: value, kind: param.quantity, labelWidth: 112, evaluator: ev,
-                      range: param.range, onChange: update)
-                .help(param.helpWithRange)
+                      range: param.range, onCommit: { session.recomputeIfSettling() }) { e in
+                var x = t; x.values[param.id] = e
+                session.updateEditing(whileTyping: true) { $0.kind = .texture(x) }
+            }
+            .help(param.helpWithRange)
         }
     }
 }
