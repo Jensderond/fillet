@@ -721,19 +721,25 @@ public struct ViewCube: View {
         let look = appearance
         let hovered = hoveredRegion
         let arrows = isAnimating ? [] : Self.arrows(camera: cam, size: size)
-        Canvas { ctx, sz in
+        let size = size
+        // A corner pointing straight up or sideways reaches 0.52 × size from the centre, past the
+        // frame: the canvas overhangs it by `bleed` so the corner isn't cut flat. Layout, hover and
+        // hits stay in the `size` square.
+        let bleed = (size * 0.04).rounded(.up)
+        Canvas { ctx, _ in
+            ctx.translateBy(x: bleed, y: bleed)
             let back = cam.back
             // Back to front, so nearer faces paint over the ones behind.
             for face in Self.visibleFaces(cam).reversed() {
-                let outline = Self.path(face.corners, camera: cam, size: sz.width)
+                let outline = Self.path(face.corners, camera: cam, size: size)
                 let facing = face.normal.dot(back)
                 ctx.fill(outline, with: .color(look.cubeFace(facing: facing)))
                 if let hovered, let patch = Self.patch(hovered, on: face) {
-                    ctx.fill(Self.path(patch, camera: cam, size: sz.width), with: .color(look.cubeHover))
+                    ctx.fill(Self.path(patch, camera: cam, size: size), with: .color(look.cubeHover))
                 }
                 ctx.stroke(outline, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
                 if facing > 0.3 {
-                    let c = Self.project(face.normal, camera: cam, size: sz.width)
+                    let c = Self.project(face.normal, camera: cam, size: size)
                     ctx.opacity = min(1, (facing - 0.3) * 2.5)
                     ctx.draw(Text(face.label).font(.system(size: 10, weight: .semibold).width(.condensed))
                                 .foregroundStyle(look.chipInk),
@@ -750,7 +756,7 @@ public struct ViewCube: View {
                 ctx.stroke(p, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
             }
             // Axis triad in the bottom-left corner.
-            let o = CGPoint(x: 10, y: sz.height - 10)
+            let o = CGPoint(x: 10, y: size - 10)
             let pal = look.palette
             for (axis, color) in [(Vec3.unitX, pal.axisX.color), (Vec3.unitY, pal.axisY.color), (Vec3.unitZ, pal.axisZ.color)] {
                 var p = Path()
@@ -759,7 +765,8 @@ public struct ViewCube: View {
                 ctx.stroke(p, with: .color(color.opacity(0.85)), style: StrokeStyle(lineWidth: 2, lineCap: .round))
             }
         }
-        .frame(width: size, height: size)
+        .frame(width: size + 2 * bleed, height: size + 2 * bleed)
+        .padding(-bleed)
         // The whole frame, arrows included: a drag here never reaches the viewport underneath.
         .contentShape(Rectangle())
         .gesture(
