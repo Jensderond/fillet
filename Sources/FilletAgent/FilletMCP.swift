@@ -298,6 +298,7 @@ struct FilletTools {
         "view": string("Standard view (default iso)", enum: ["iso", "front", "back", "left", "right", "top", "bottom"]),
         "yaw": number("Degrees around Z, overrides the view's (0 = front, 90 = right side, 45 = iso)"),
         "pitch": number("Degrees of elevation, overrides the view's (0 = level, 90 = from above)"),
+        "roll": number("Degrees the picture turns anticlockwise around the view direction (default 0 = upright)"),
         "focus": bodies,
         "zoom": number("1 = fit (default); 2 = twice as close"),
         "target": vec3("[x, y, z] to centre the view on (a close-up of one spot: give `size` too)"),
@@ -370,7 +371,7 @@ struct FilletTools {
             }
             let visible = model.bodies.filter { !options.hidden.contains($0.ref) }.count
             let span = 2 * camera.halfHeight(atDepth: camera.distance) * min(Double(width) / Double(height), 1)
-            return ToolResult([.image(png), .text("\(visible) visible bodies; view yaw \(Int((camera.yaw * 180 / .pi).rounded()))°, pitch \(Int((camera.pitch * 180 / .pi).rounded()))°, centred on [\(Self.mm(camera.target.x)), \(Self.mm(camera.target.y)), \(Self.mm(camera.target.z))], about \(Self.mm(span)) mm across there"
+            return ToolResult([.image(png), .text("\(visible) visible bodies; view yaw \(Int((camera.yaw * 180 / .pi).rounded()))°, pitch \(Int((camera.pitch * 180 / .pi).rounded()))°\(camera.roll == 0 ? "" : ", roll \(Int((camera.roll * 180 / .pi).rounded()))°"), centred on [\(Self.mm(camera.target.x)), \(Self.mm(camera.target.y)), \(Self.mm(camera.target.z))], about \(Self.mm(span)) mm across there"
                 + notes.map { "; \($0)" }.joined())])
         }
     }
@@ -423,6 +424,7 @@ struct FilletTools {
         }
         if let yaw = a.double("yaw") { camera.yaw = yaw * .pi / 180 }
         if let pitch = a.double("pitch") { camera.pitch = max(-90, min(90, pitch)) * .pi / 180 }
+        if let roll = a.double("roll") { camera.roll = remainder(roll, 360) * .pi / 180 }
         var bounds: Bounds3?
         func add(_ lo: Vec3, _ hi: Vec3) {
             let b = Bounds3(min: lo, max: hi)
