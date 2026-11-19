@@ -320,3 +320,31 @@ public struct Camera: Codable, Hashable, Sendable {
         return x
     }
 }
+
+// MARK: View cube
+
+extension Camera {
+    /// The yaw and pitch that look at the target from direction `d` (each component -1, 0 or 1,
+    /// not all zero: 6 faces, 12 edges, 8 corners of the view cube).
+    /// Straight up or down (d.x == 0 && d.y == 0) leaves yaw free: it is `currentYaw` rounded to the
+    /// nearest 90°, so the view turns the shortest way.
+    public static func viewAngles(lookingFrom d: Vec3, currentYaw: Double) -> (yaw: Double, pitch: Double) {
+        let quarter = Double.pi / 2
+        if d.x == 0, d.y == 0 {
+            // `+ 0` turns a -0.0 into 0.0.
+            let yaw = wrapAngle((currentYaw / quarter).rounded() * quarter) + 0
+            return (yaw, d.z >= 0 ? quarter : -quarter)
+        }
+        // Exact values for the four sides (atan2 may be an ulp off, or give -π for a -0.0).
+        let yaw: Double
+        if d.x == 0 {
+            yaw = d.y < 0 ? 0 : .pi
+        } else if d.y == 0 {
+            yaw = d.x > 0 ? quarter : -quarter
+        } else {
+            yaw = atan2(d.x, -d.y)
+        }
+        let pitch = d.z == 0 ? 0 : asin(min(max(d.normalized.z, -1), 1))
+        return (yaw, pitch)
+    }
+}

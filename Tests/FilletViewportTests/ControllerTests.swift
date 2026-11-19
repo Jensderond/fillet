@@ -248,4 +248,110 @@ struct ControllerTests {
         }
         #expect(box.camera == c.liveCamera)
     }
+
+    // MARK: View cube navigation
+
+    @Test(arguments: [Camera.StandardView.front, .back, .left, .right, .top, .bottom])
+    func standardViewLandsExactlyOnItsAngles(view: Camera.StandardView) {
+        let (c, _, box) = make()
+        c.animate(to: box.camera.viewing(.iso), animated: false)
+        c.show(view, animated: false)
+        #expect(c.liveCamera.yaw == view.angles.yaw)
+        #expect(c.liveCamera.pitch == view.angles.pitch)
+        #expect(box.camera.yaw == view.angles.yaw && box.camera.pitch == view.angles.pitch)
+    }
+
+    /// With animation on, the camera still ends exactly on the target and the binding gets it.
+    /// The renderer animates on the wall clock, so the test runs it with a short duration, waits it
+    /// out and lets `advanceAnimationWithoutDrawing()` (what the view's fallback timer calls) land it.
+    @Test(arguments: [Camera.StandardView.front, .back, .left, .right, .top, .bottom])
+    func animatedStandardViewEndsExactlyOnTheTarget(view: Camera.StandardView) async throws {
+        let (c, r, box) = make()
+        c.animate(to: box.camera.viewing(.iso), animated: false)
+        c.options = ViewportOptions(animatesCameraChanges: true, cameraAnimationDuration: 0.05)
+        let renderer = try #require(c.renderer)
+        let startCamera = c.liveCamera
+        c.show(view, animated: true)
+        #expect(renderer.isAnimating)
+        #expect(c.liveCamera == startCamera, "nothing moves until the animation steps")
+        try await Task.sleep(for: .milliseconds(150))
+        renderer.advanceAnimationWithoutDrawing()
+        #expect(!renderer.isAnimating)
+        #expect(c.liveCamera.yaw == view.angles.yaw)
+        #expect(c.liveCamera.pitch == view.angles.pitch)
+        #expect(box.camera == c.liveCamera)
+        #expect(r.cameras.last == c.liveCamera)
+    }
+
+    @Test func showLookingFromAFaceAnEdgeAndACorner() {
+        let (c, _, box) = make()
+        c.animate(to: box.camera.viewing(.iso), animated: false)
+        let distance = c.liveCamera.distance
+        // Face: from +X, like .right.
+        c.show(lookingFrom: .unitX, animated: false)
+        #expect(c.liveCamera.yaw == .pi / 2 && c.liveCamera.pitch == 0)
+        // Edge: from the front and above.
+        c.show(lookingFrom: Vec3(0, -1, 1), animated: false)
+        #expect(c.liveCamera.yaw == 0)
+        #expect(abs(c.liveCamera.pitch - .pi / 4) < 1e-12)
+        // Corner: from +X, -Y, +Z is the isometric direction.
+        c.show(lookingFrom: Vec3(1, -1, 1), animated: false)
+        #expect(abs(c.liveCamera.yaw - .pi / 4) < 1e-12)
+        #expect(abs(c.liveCamera.pitch - Camera.StandardView.iso.angles.pitch) < 1e-12)
+        // Straight up keeps the yaw to the nearest quarter turn (here from the +X side: π/2).
+        c.show(lookingFrom: .unitX, animated: false)
+        c.show(lookingFrom: .unitZ, animated: false)
+        #expect(c.liveCamera.yaw == .pi / 2 && c.liveCamera.pitch == .pi / 2)
+        #expect(c.liveCamera.target == .zero && c.liveCamera.distance == distance)
+        #expect(box.camera == c.liveCamera)
+    }
+
+    @Test func showHomeIsIsometricAndFramesTheScene() throws {
+        let (c, _, box) = make()
+        c.animate(to: box.camera.viewing(.top), animated: false)
+        c.showHome(animated: false)
+        #expect(c.liveCamera.yaw == Camera.StandardView.iso.angles.yaw)
+        #expect(c.liveCamera.pitch == Camera.StandardView.iso.angles.pitch)
+        for p in [Vec3(-10, -10, -10), Vec3(10, 10, 10), Vec3(10, -10, 10), Vec3(-10, 10, -10)] {
+            let s = try #require(c.liveCamera.project(p, viewSize: size))
+            #expect(s.x >= 0 && s.x <= size.width && s.y >= 0 && s.y <= size.height)
+        }
+        #expect(box.camera == c.liveCamera)
+    }
+
+    @Test func showHomeWithoutContentJustTurnsToIso() {
+        let (c, r, box) = make()
+        c.update(scene: ViewportScene(), camera: box.camera, filter: .default, options: ViewportOptions(animatesCameraChanges: false),
+                 delegate: r, appearance: .light)
+        c.showHome(animated: false)
+        #expect(c.liveCamera.yaw == Camera.StandardView.iso.angles.yaw)
+        #expect(c.liveCamera.pitch == Camera.StandardView.iso.angles.pitch)
+    }
+
+    @Test func orbitAroundTargetKeepsTargetAndWritesBackOnEnd() {
+        let (c, r, box) = make()
+        let before = box.camera
+        c.beginOrbitAroundTarget()
+        c.orbit(deltaYaw: 0.25, deltaPitch: 0.1)
+        c.orbit(deltaYaw: 0.25, deltaPitch: 0.1)
+        #expect(c.liveCamera.target == before.target)
+        #expect(c.liveCamera.distance == before.distance)
+        #expect(abs(c.liveCamera.yaw - (before.yaw + 0.5)) < 1e-12)
+        #expect(abs(c.liveCamera.pitch - (before.pitch + 0.2)) < 1e-12)
+        #expect(box.camera == before, "binding untouched mid-drag")
+        c.endNavigation()
+        #expect(box.camera == c.liveCamera)
+        #expect(r.cameras.last == c.liveCamera)
+    }
+
+    @Test func beginningAnOrbitAroundTheTargetStopsAnAnimation() throws {
+        let (c, _, box) = make()
+        c.options = ViewportOptions(animatesCameraChanges: true, cameraAnimationDuration: 5)
+        let renderer = try #require(c.renderer)
+        c.show(.top, animated: true)
+        #expect(renderer.isAnimating)
+        c.beginOrbitAroundTarget()
+        #expect(!renderer.isAnimating)
+        #expect(c.liveCamera.target == box.camera.target)
+    }
 }

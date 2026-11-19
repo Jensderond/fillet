@@ -155,6 +155,18 @@ public final class ViewportController {
         moveCamera { $0.zoom(factor: factor, at: p, viewSize: size, anchor: anchor) }
     }
 
+    /// Starts an orbit around the camera target (no pivot under a viewport point), e.g. from the
+    /// view cube. Cancels a running camera animation.
+    func beginOrbitAroundTarget() {
+        renderer?.cancelAnimation()
+        orbitPivot = nil
+    }
+
+    /// Orbits by angles in radians around the target, for a drag that began with `beginOrbitAroundTarget()`.
+    func orbit(deltaYaw: Double, deltaPitch: Double) {
+        moveCamera { $0.orbit(deltaYaw: deltaYaw, deltaPitch: deltaPitch, pivot: nil) }
+    }
+
     func endNavigation() {
         orbitPivot = nil
         zoomAnchor = nil
@@ -179,6 +191,22 @@ public final class ViewportController {
         c.yaw = yaw
         c.pitch = pitch
         animate(to: c, animated: animated)
+    }
+
+    /// Looks from cube direction `d` (see `Camera.viewAngles(lookingFrom:currentYaw:)`), animated.
+    public func show(lookingFrom d: Vec3, animated: Bool = true) {
+        let a = Camera.viewAngles(lookingFrom: d, currentYaw: liveCamera.yaw)
+        show(yaw: a.yaw, pitch: a.pitch, animated: animated)
+    }
+
+    /// The home view: isometric, framed on everything like `fitAll()`. Animated.
+    public func showHome(animated: Bool = true) {
+        let iso = liveCamera.viewing(.iso)
+        if let b = scene.fitBounds {
+            animate(to: iso.framing(b, viewSize: viewSize, insets: options.contentInsets, margin: 1.35), animated: animated)
+        } else {
+            animate(to: iso, animated: animated)
+        }
     }
 
     /// Toggles perspective / orthographic.

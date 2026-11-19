@@ -168,4 +168,64 @@ struct CameraTests {
         let data = try JSONEncoder().encode(c)
         #expect(try JSONDecoder().decode(Camera.self, from: data) == c)
     }
+
+    /// Every direction of the view cube: 6 faces, 12 edges, 8 corners.
+    static let cubeDirections: [Vec3] = {
+        var out: [Vec3] = []
+        for x in [-1.0, 0, 1] { for y in [-1.0, 0, 1] { for z in [-1.0, 0, 1] where !(x == 0 && y == 0 && z == 0) { out.append(Vec3(x, y, z)) } } }
+        return out
+    }()
+
+    @Test func cubeHas26Directions() {
+        #expect(Self.cubeDirections.count == 26)
+    }
+
+    @Test(arguments: cubeDirections)
+    func viewAnglesLookFromTheDirection(d: Vec3) {
+        let a = Camera.viewAngles(lookingFrom: d, currentYaw: 0.3)
+        let c = Camera(yaw: a.yaw, pitch: a.pitch)
+        #expect(c.back.dot(d.normalized) > 1 - 1e-9)
+    }
+
+    @Test func viewAnglesOfTheFacesAreTheStandardViews() {
+        let faces: [(Vec3, Camera.StandardView)] = [
+            (Vec3(0, -1, 0), .front), (Vec3(0, 1, 0), .back), (Vec3(1, 0, 0), .right),
+            (Vec3(-1, 0, 0), .left), (Vec3(0, 0, 1), .top), (Vec3(0, 0, -1), .bottom),
+        ]
+        for (d, view) in faces {
+            let a = Camera.viewAngles(lookingFrom: d, currentYaw: 0)
+            #expect(a.yaw == view.angles.yaw, "yaw of \(view)")
+            #expect(a.pitch == view.angles.pitch, "pitch of \(view)")
+        }
+        // A face is the same wherever the camera is looking from now (but up / down).
+        for yaw in [-2.0, 0.7, 3.0] {
+            for (d, view) in faces where d.z == 0 {
+                let a = Camera.viewAngles(lookingFrom: d, currentYaw: yaw)
+                #expect(a.yaw == view.angles.yaw && a.pitch == 0)
+            }
+        }
+    }
+
+    @Test func viewAnglesOfTheCornerIsTheIsoView() {
+        let a = Camera.viewAngles(lookingFrom: Vec3(1, -1, 1), currentYaw: 0)
+        #expect(abs(a.yaw - Camera.StandardView.iso.angles.yaw) < 1e-12)
+        #expect(abs(a.pitch - Camera.StandardView.iso.angles.pitch) < 1e-12)
+    }
+
+    @Test func viewAnglesStraightUpOrDownKeepTheNearestQuarterTurn() {
+        let cases: [(current: Double, yaw: Double)] = [
+            (0.2, 0), (1.4, .pi / 2), (-1.4, -.pi / 2), (3.0, .pi), (-3.0, -.pi), (-2.9, -.pi), (2.9, .pi),
+        ]
+        for (current, yaw) in cases {
+            for (z, pitch) in [(1.0, Double.pi / 2), (-1.0, -Double.pi / 2)] {
+                let a = Camera.viewAngles(lookingFrom: Vec3(0, 0, z), currentYaw: current)
+                #expect(a.yaw == yaw, "yaw from \(current)")
+                #expect(a.pitch == pitch)
+                // The animation takes the short way there.
+                let from = Camera(yaw: current, pitch: 0.3)
+                let to = Camera(yaw: a.yaw, pitch: a.pitch)
+                #expect(abs(Camera.wrapAngle(to.yaw - from.yaw)) <= .pi / 4 + 0.2)
+            }
+        }
+    }
 }
