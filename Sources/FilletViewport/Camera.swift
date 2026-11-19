@@ -7,7 +7,8 @@ import FilletKernel
 ///
 /// The eye sits on a sphere around `target`: `yaw` rotates around +Z (0 = looking
 /// from the front, i.e. from -Y towards +Y), `pitch` is the elevation above the XY
-/// plane (+90° = looking straight down). There is no roll.
+/// plane (+90° = looking straight down). `roll` turns the picture around the view axis
+/// (positive = anticlockwise on screen); it is 0 except after the view cube's roll arrows.
 public struct Camera: Codable, Hashable, Sendable {
     /// Perspective or parallel projection.
     public enum Projection: String, Codable, Sendable, CaseIterable {
@@ -40,19 +41,39 @@ public struct Camera: Codable, Hashable, Sendable {
     public var yaw: Double
     /// Elevation in radians, clamped to [-π/2, π/2].
     public var pitch: Double
+    /// Turn of the picture around the view axis in radians, anticlockwise on screen.
+    /// Orbiting keeps it; picking a new view direction (`setView`, `looking(at:)`) resets it.
+    public var roll: Double
     public var projection: Projection
     /// Vertical field of view in degrees (orthographic uses it to derive the view height at `distance`).
     public var fovDegrees: Double
 
     public init(target: Vec3 = .zero, distance: Double = 300, yaw: Double = StandardView.iso.angles.yaw,
-                pitch: Double = StandardView.iso.angles.pitch, projection: Projection = .perspective,
+                pitch: Double = StandardView.iso.angles.pitch, roll: Double = 0, projection: Projection = .perspective,
                 fovDegrees: Double = 30) {
         self.target = target
         self.distance = distance
         self.yaw = yaw
         self.pitch = pitch
+        self.roll = roll
         self.projection = projection
         self.fovDegrees = fovDegrees
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case target, distance, yaw, pitch, roll, projection, fovDegrees
+    }
+
+    /// Documents saved before roll existed have no `roll`: they decode upright.
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        target = try c.decode(Vec3.self, forKey: .target)
+        distance = try c.decode(Double.self, forKey: .distance)
+        yaw = try c.decode(Double.self, forKey: .yaw)
+        pitch = try c.decode(Double.self, forKey: .pitch)
+        roll = try c.decodeIfPresent(Double.self, forKey: .roll) ?? 0
+        projection = try c.decode(Projection.self, forKey: .projection)
+        fovDegrees = try c.decode(Double.self, forKey: .fovDegrees)
     }
 
     /// Isometric view of the origin from 300 mm.
@@ -79,11 +100,18 @@ public struct Camera: Codable, Hashable, Sendable {
 
     /// Screen-up direction in world space.
     public var up: Vec3 {
-        Vec3(-sin(yaw) * sin(pitch), cos(yaw) * sin(pitch), cos(pitch))
+        let u = uprightUp
+        guard roll != 0 else { return u }
+        return u.cross(back) * sin(roll) + u * cos(roll)
     }
 
     /// Screen-right direction in world space.
     public var right: Vec3 { up.cross(back) }
+
+    /// Screen-up without the roll: towards +Z (or, looking straight down, +Y turned by yaw).
+    var uprightUp: Vec3 {
+        Vec3(-sin(yaw) * sin(pitch), cos(yaw) * sin(pitch), cos(pitch))
+    }
 
     /// Eye position in world space.
     public var eye: Vec3 { target + back * distance }
@@ -203,10 +231,43 @@ public struct Camera: Codable, Hashable, Sendable {
         target = newEye - back * distance
     }
 
-    /// Orbits by a drag of `translation` points (0.3° per point).
+    /// Orbits by a drag of `translation` points (0.3° per point). With a roll the drag is read
+    /// in screen directions, so the model still follows the finger.
     public mutating func orbit(drag translation: CGSize, pivot: Vec3? = nil) {
         let k = 0.3 * Double.pi / 180
-        orbit(deltaYaw: -Double(translation.width) * k, deltaPitch: Double(translation.height) * k, pivot: pivot)
+        let t = unrolled(translation)
+        orbit(deltaYaw: -Double(t.width) * k, deltaPitch: Double(t.height) * k, pivot: pivot)
+    }
+
+    /// A screen-space vector (points, y down) turned back by the roll, into the upright frame
+    /// that yaw and pitch work in.
+    public func unrolled(_ v: CGSize) -> CGSize {
+        guard roll != 0 else { return v }
+        let c = cos(roll), s = sin(roll)
+        let dx = Double(v.width), dy = Double(v.height)
+        return CGSize(width: dx * c - dy * s, height: dx * s + dy * c)
+    }
+
+    /// Copy turned a quarter turn around the view axis, clockwise or anticlockwise on screen.
+    /// Looking straight up or down, a turn of the picture is a change of yaw, so it becomes one:
+    /// orbiting away from there then starts upright.
+    public func rolled(clockwise: Bool) -> Camera {
+        var c = self
+        let turn = clockwise ? -Double.pi / 2 : .pi / 2
+        if abs(abs(pitch) - .pi / 2) < 1e-9 {
+            // Straight down, yaw turns the picture clockwise; straight up, anticlockwise.
+            c.yaw = Self.snapped(Self.wrapAngle(pitch > 0 ? yaw - turn : yaw + turn))
+        } else {
+            c.roll = Self.snapped(Self.wrapAngle(roll + turn))
+        }
+        return c
+    }
+
+    /// `a` rounded to a multiple of 90° when within rounding error of one (so a quarter turn
+    /// of an exact view stays exact).
+    static func snapped(_ a: Double) -> Double {
+        let q = (a / (.pi / 2)).rounded() * (.pi / 2)
+        return abs(a - q) < 1e-9 ? wrapAngle(q) + 0 : a
     }
 
     /// Moves the camera parallel to the view plane so that content follows a drag of
@@ -239,9 +300,10 @@ public struct Camera: Codable, Hashable, Sendable {
 
     // MARK: Views
 
-    /// Sets yaw/pitch to a standard view (target and distance unchanged).
+    /// Sets yaw/pitch to a standard view, upright (target and distance unchanged).
     public mutating func setView(_ view: StandardView) {
         (yaw, pitch) = view.angles
+        roll = 0
     }
 
     /// Copy looking from a standard view.
@@ -287,17 +349,19 @@ public struct Camera: Codable, Hashable, Sendable {
         }
         c.yaw = Self.wrapAngle(yaw)
         c.pitch = pitch
+        c.roll = 0
         c.target = center ?? plane.origin
         if let d = distance { c.distance = d }
         return c
     }
 
-    /// Interpolates two cameras (shortest yaw path, log-scaled distance).
+    /// Interpolates two cameras (shortest yaw and roll paths, log-scaled distance).
     public static func interpolate(_ a: Camera, _ b: Camera, t: Double) -> Camera {
         var c = b
         let dy = wrapAngle(b.yaw - a.yaw)
         c.yaw = wrapAngle(a.yaw + dy * t)
         c.pitch = lerp(a.pitch, b.pitch, t)
+        c.roll = wrapAngle(a.roll + wrapAngle(b.roll - a.roll) * t)
         c.distance = exp(lerp(log(a.distance), log(b.distance), t))
         c.target = a.target + (b.target - a.target) * t
         c.fovDegrees = lerp(a.fovDegrees, b.fovDegrees, t)
@@ -308,6 +372,7 @@ public struct Camera: Codable, Hashable, Sendable {
     /// Whether two cameras are visually the same.
     public func isApproximatelyEqual(to o: Camera, tolerance: Double = 1e-6) -> Bool {
         abs(Self.wrapAngle(yaw - o.yaw)) < tolerance && abs(pitch - o.pitch) < tolerance
+            && abs(Self.wrapAngle(roll - o.roll)) < tolerance
             && abs(distance - o.distance) < tolerance * max(distance, 1)
             && target.distance(to: o.target) < tolerance * max(distance, 1)
             && projection == o.projection && abs(fovDegrees - o.fovDegrees) < tolerance

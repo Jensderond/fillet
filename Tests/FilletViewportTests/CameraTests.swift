@@ -21,6 +21,8 @@ struct CameraTests {
         Camera(target: .zero, distance: 80, yaw: -2.1, pitch: -0.3, projection: .orthographic),
         Camera(target: Vec3(10, 10, 10), distance: 40, yaw: 0, pitch: .pi / 2),
         Camera(target: .zero, distance: 300, yaw: .pi, pitch: -.pi / 2, projection: .orthographic, fovDegrees: 45),
+        Camera(target: Vec3(3, 1, -2), distance: 120, yaw: 1.2, pitch: 0.5, roll: 0.9),
+        Camera(target: .zero, distance: 90, yaw: 0, pitch: 0, roll: -.pi / 2, projection: .orthographic),
     ]
 
     @Test(arguments: cameras)
@@ -227,5 +229,136 @@ struct CameraTests {
                 #expect(abs(Camera.wrapAngle(to.yaw - from.yaw)) <= .pi / 4 + 0.2)
             }
         }
+    }
+}
+
+// MARK: Roll
+
+@Suite("Camera roll")
+struct CameraRollTests {
+    private static let quarter = Double.pi / 2
+
+    /// Screen position of `p` relative to the view centre, y up.
+    private func screen(_ p: Vec3, _ c: Camera) throws -> (x: Double, y: Double) {
+        let s = try #require(c.project(p, viewSize: viewSize))
+        return (Double(s.x) - 400, 300 - Double(s.y))
+    }
+
+    @Test(arguments: [0.4, quarter, -quarter, .pi, -2.5])
+    func rollTurnsThePictureAnticlockwise(roll: Double) throws {
+        for projection in Camera.Projection.allCases {
+            let upright = Camera(target: Vec3(2, -1, 4), distance: 150, yaw: 0.6, pitch: 0.35, projection: projection)
+            var rolled = upright
+            rolled.roll = roll
+            // Still an orthonormal, right-handed frame with the same view direction.
+            #expect(approx(rolled.back, upright.back))
+            #expect(abs(rolled.up.length - 1) < 1e-12 && abs(rolled.right.length - 1) < 1e-12)
+            #expect(abs(rolled.up.dot(rolled.back)) < 1e-12 && approx(rolled.right.cross(rolled.up), rolled.back))
+            for p in [Vec3(10, 3, -2), Vec3(-6, 12, 9), Vec3(2, -1, 4)] {
+                let a = try screen(p, upright), b = try screen(p, rolled)
+                let x = a.x * cos(roll) - a.y * sin(roll), y = a.x * sin(roll) + a.y * cos(roll)
+                #expect(abs(b.x - x) < 1e-6 && abs(b.y - y) < 1e-6)
+            }
+            // The view matrix agrees with the basis.
+            let v = rolled.viewMatrixD
+            #expect(abs(v.columns.0.y - rolled.up.x) < 1e-12 && abs(v.columns.2.y - rolled.up.z) < 1e-12)
+        }
+    }
+
+    @Test func rollingFrontClockwiseTurnsUpToTheRight() {
+        let front = Camera().viewing(.front)
+        let cw = front.rolled(clockwise: true)
+        #expect(cw.roll == -Self.quarter)
+        #expect(approx(cw.right, .unitZ) && approx(cw.up, -Vec3.unitX) && approx(cw.back, front.back))
+        let ccw = front.rolled(clockwise: false)
+        #expect(ccw.roll == Self.quarter)
+        #expect(approx(ccw.right, -Vec3.unitZ) && approx(ccw.up, .unitX))
+    }
+
+    @Test(arguments: [Camera.StandardView.front, .back, .left, .right, .top, .bottom])
+    func quarterTurnsAreExactAndComeRoundAgain(view: Camera.StandardView) {
+        let start = Camera(distance: 200).viewing(view)
+        var c = start
+        for _ in 0..<4 {
+            let next = c.rolled(clockwise: true)
+            // A quarter turn clockwise: old screen-up becomes screen-right, old right becomes down.
+            #expect(approx(next.right, c.up, 1e-12) && approx(next.up, -c.right, 1e-12))
+            #expect(approx(next.back, c.back, 1e-12) && next.target == c.target && next.distance == c.distance)
+            // Exact multiples of 90°, so the views stay exactly square.
+            for a in [next.yaw, next.roll] { #expect(a == Camera.snapped(a)) }
+            c = next
+        }
+        #expect(c.isApproximatelyEqual(to: start, tolerance: 1e-12))
+        #expect(start.rolled(clockwise: true).rolled(clockwise: false).isApproximatelyEqual(to: start, tolerance: 1e-12))
+    }
+
+    /// Looking straight down or up a turn of the picture is a turn of yaw: the roll stays 0, so an
+    /// orbit from there starts upright.
+    @Test func topAndBottomRollByYaw() {
+        for view in [Camera.StandardView.top, .bottom] {
+            let c = Camera().viewing(view)
+            for clockwise in [true, false] {
+                let r = c.rolled(clockwise: clockwise)
+                #expect(r.roll == 0 && r.pitch == c.pitch)
+                #expect(approx(r.up, clockwise ? -c.right : c.right, 1e-12))
+            }
+        }
+    }
+
+    @Test func interpolationTakesTheShortWayRound() {
+        let a = Camera(yaw: 0, pitch: 0, roll: .pi)
+        let b = Camera(yaw: 0, pitch: 0, roll: -Self.quarter)
+        for i in 0...10 {
+            let c = Camera.interpolate(a, b, t: Double(i) / 10)
+            // Never further than the 90° between them (no 270° spin the other way).
+            #expect(abs(Camera.wrapAngle(c.roll - a.roll)) <= Self.quarter + 1e-12)
+            #expect(abs(Camera.wrapAngle(c.roll - b.roll)) <= Self.quarter + 1e-12)
+        }
+        #expect(Camera.interpolate(a, b, t: 1).isApproximatelyEqual(to: b))
+        let mid = Camera.interpolate(Camera(roll: 3.0), Camera(roll: -3.0), t: 0.5)
+        #expect(abs(abs(mid.roll) - .pi) < 1e-9)
+        #expect(!Camera(roll: 0.1).isApproximatelyEqual(to: Camera()))
+    }
+
+    @Test func codableKeepsRollAndOldDocumentsDecodeUpright() throws {
+        let c = Camera(target: Vec3(1, 2, 3), distance: 42, yaw: 0.25, pitch: -0.5, roll: -Self.quarter,
+                       projection: .orthographic, fovDegrees: 40)
+        let data = try JSONEncoder().encode(c)
+        #expect(try JSONDecoder().decode(Camera.self, from: data) == c)
+        // A camera saved before roll existed has no "roll" key.
+        var json = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(json["roll"] != nil)
+        json["roll"] = nil
+        let old = try JSONDecoder().decode(Camera.self, from: JSONSerialization.data(withJSONObject: json))
+        var expected = c
+        expected.roll = 0
+        #expect(old == expected)
+    }
+
+    /// Orbiting keeps the roll and reads the drag in screen directions: the near side of the model
+    /// follows the pointer whichever way the picture is turned.
+    @Test(arguments: [0, quarter, .pi, -quarter, 0.7])
+    func orbitFollowsTheDragOnScreen(roll: Double) throws {
+        let start = Camera(target: .zero, distance: 200, yaw: 0.3, pitch: 0.2, roll: roll)
+        let near = start.target + start.back * 40
+        let p0 = try #require(start.project(near, viewSize: viewSize))
+        for (dx, dy) in [(3.0, 0.0), (-3.0, 0.0), (0.0, 3.0), (0.0, -3.0)] {
+            var c = start
+            c.orbit(drag: CGSize(width: dx, height: dy))
+            #expect(c.roll == roll)
+            let p1 = try #require(c.project(near, viewSize: viewSize))
+            let mx = Double(p1.x - p0.x), my = Double(p1.y - p0.y)
+            let cosine = (mx * dx + my * dy) / (hypot(mx, my) * 3)
+            #expect(cosine > 0.95, "drag (\(dx), \(dy)) at roll \(roll) moved (\(mx), \(my))")
+        }
+    }
+
+    @Test func newViewDirectionsAreUpright() {
+        let rolled = Camera(yaw: 0, pitch: 0, roll: Self.quarter)
+        #expect(rolled.viewing(.right).roll == 0)
+        #expect(rolled.looking(at: Plane.xy).roll == 0)
+        var turned = rolled
+        turned.orbit(deltaYaw: 0.2, deltaPitch: 0.1, pivot: Vec3(5, 0, 0))
+        #expect(turned.roll == Self.quarter)
     }
 }
