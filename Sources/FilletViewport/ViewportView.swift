@@ -436,6 +436,8 @@ struct ViewCubeOverlay: View {
     #else
     static let homeSide: CGFloat = 24
     #endif
+    /// How far Home reaches past the cube's frame (up and left); its other 8 pt overlap the frame's empty corner.
+    static let homeInset: CGFloat = homeSide - 8
 
     /// On the Mac Home shows while the pointer is over the cube; touch has no hover, so it stays.
     private var showsHome: Bool {
@@ -457,14 +459,17 @@ struct ViewCubeOverlay: View {
                      onOrbitBegan: { controller.beginOrbitAroundTarget() },
                      onOrbit: { controller.orbit(deltaYaw: $0, deltaPitch: $1) },
                      onOrbitEnded: { controller.endNavigation() })
-                // Over the cube's top-left corner, outside the layout, so appearing moves nothing.
+                // Room above the cube for Home, always, so it appearing moves nothing.
+                .padding(.top, Self.homeInset)
+                // Top left of the cube, clear of it at every angle: the cube's outline stays
+                // within 0.52 × size of its centre, which leaves the frame's corners free.
                 .overlay(alignment: .topLeading) {
                     if showsHome {
                         CubeButton(systemName: "house", help: "Home view", appearance: appearance, size: Self.homeSide) {
                             controller.showHome()
                         }
                         .onHover { hoveringHome = $0 }
-                        .offset(x: -Self.homeSide / 2, y: -Self.homeSide / 4)
+                        .offset(x: -Self.homeInset)
                         .transition(.opacity)
                     }
                 }
