@@ -456,6 +456,7 @@ struct ViewCubeOverlay: View {
                      isAnimating: controller.renderer?.isAnimating ?? false,
                      onRegion: { controller.show(lookingFrom: $0) },
                      onHome: { controller.showHome() },
+                     onRoll: { controller.roll(clockwise: $0) },
                      onOrbitBegan: { controller.beginOrbitAroundTarget() },
                      onOrbit: { controller.orbit(deltaYaw: $0, deltaPitch: $1) },
                      onOrbitEnded: { controller.endNavigation() })
@@ -535,7 +536,8 @@ struct CubeButton: View {
 }
 
 /// A small orientation cube, like Fusion's ViewCube: click a face, edge or corner to look
-/// from there, drag to orbit, and when square on a face, click an arrow for the next side.
+/// from there, drag to orbit, and when square on a face, click an arrow for the next side or
+/// a curved arrow to turn the view a quarter turn.
 /// Drawn with SwiftUI from the camera orientation, exactly as the camera is.
 public struct ViewCube: View {
     let camera: Camera
@@ -545,6 +547,8 @@ public struct ViewCube: View {
     /// A click on an area: the direction to look from (components -1, 0 or 1).
     let onRegion: (Vec3) -> Void
     let onHome: () -> Void
+    /// A click on a curved arrow: `true` turns the view clockwise.
+    let onRoll: (Bool) -> Void
     let onOrbitBegan: () -> Void
     /// Yaw and pitch deltas in radians.
     let onOrbit: (Double, Double) -> Void
@@ -570,6 +574,7 @@ public struct ViewCube: View {
 
     public init(camera: Camera, appearance: ViewportAppearance, isAnimating: Bool = false,
                 onRegion: @escaping (Vec3) -> Void, onHome: @escaping () -> Void = {},
+                onRoll: @escaping (Bool) -> Void = { _ in },
                 onOrbitBegan: @escaping () -> Void = {}, onOrbit: @escaping (Double, Double) -> Void = { _, _ in },
                 onOrbitEnded: @escaping () -> Void = {}) {
         self.camera = camera
@@ -577,6 +582,7 @@ public struct ViewCube: View {
         self.isAnimating = isAnimating
         self.onRegion = onRegion
         self.onHome = onHome
+        self.onRoll = onRoll
         self.onOrbitBegan = onOrbitBegan
         self.onOrbit = onOrbit
         self.onOrbitEnded = onOrbitEnded
@@ -710,17 +716,78 @@ public struct ViewCube: View {
         return arrows
     }
 
-    /// The area under the pointer, against the camera as it is now (it may move under a still pointer).
-    private var hoveredRegion: Vec3? {
+    /// A curved arrow in the frame's top-right corner, beside the square face, that turns the view
+    /// a quarter turn. Clockwise is the lower one, its head pointing down; anticlockwise the upper.
+    struct RollArrow: Sendable {
+        let clockwise: Bool
+        let outline: [CGPoint]
+    }
+
+    /// The arrows lie along an arc around the centre; angles in degrees from screen-right
+    /// towards screen-up. Each one: tail, neck (where the head starts), tip.
+    nonisolated private static let rollAngles: [(clockwise: Bool, tail: Double, neck: Double, tip: Double)] = [
+        (true, 41, 30, 21), (false, 49, 60, 69),
+    ]
+    /// Their hit band: radius (× size) and angles (degrees). Beyond the square's corners
+    /// (0.42 × size) and clear of the up and right triangles' hit areas.
+    nonisolated static let rollHitRadius: ClosedRange<Double> = 0.44...0.7
+    nonisolated static let rollHitAngles: ClosedRange<Double> = 21...69
+
+    /// The two curved arrows when the camera is square on a face, else none. They don't depend on
+    /// the roll: they turn the picture, whichever way it is turned already.
+    nonisolated static func rollArrows(camera: Camera, size: CGFloat) -> [RollArrow] {
+        guard squareFace(camera) != nil else { return [] }
+        let s = Double(size), c = s / 2
+        let mid = 0.5 * s, half = 0.026 * s, head = 0.065 * s
+        func at(_ r: Double, _ degrees: Double) -> CGPoint {
+            let a = degrees * .pi / 180
+            return CGPoint(x: c + r * cos(a), y: c - r * sin(a))
+        }
+        return rollAngles.map { arrow in
+            let steps = 8
+            let arc = (0...steps).map { arrow.tail + (arrow.neck - arrow.tail) * Double($0) / Double(steps) }
+            var outline = arc.map { at(mid + half, $0) }
+            outline += [at(mid + head, arrow.neck), at(mid, arrow.tip), at(mid - head, arrow.neck)]
+            outline += arc.reversed().map { at(mid - half, $0) }
+            return RollArrow(clockwise: arrow.clockwise, outline: outline)
+        }
+    }
+
+    /// The curved arrow under a canvas point (`true` = clockwise), or nil. Only when square on a face.
+    nonisolated static func rollArrow(at point: CGPoint, camera: Camera, size: CGFloat) -> Bool? {
+        guard squareFace(camera) != nil else { return nil }
+        let s = Double(size)
+        let dx = Double(point.x) - s / 2, dy = s / 2 - Double(point.y)
+        let r = hypot(dx, dy) / s, degrees = atan2(dy, dx) * 180 / .pi
+        guard rollHitRadius.contains(r), rollHitAngles.contains(degrees) else { return nil }
+        return degrees < 45
+    }
+
+    /// What a click at a canvas point does: a cube area or triangle first, else a curved arrow.
+    enum Target: Equatable {
+        case look(Vec3)
+        case roll(clockwise: Bool)
+    }
+
+    nonisolated static func target(at point: CGPoint, camera: Camera, size: CGFloat, showsArrows: Bool) -> Target? {
+        if let d = region(at: point, camera: camera, size: size, showsArrows: showsArrows) { return .look(d) }
+        guard showsArrows, let clockwise = rollArrow(at: point, camera: camera, size: size) else { return nil }
+        return .roll(clockwise: clockwise)
+    }
+
+    /// What's under the pointer, against the camera as it is now (it may move under a still pointer).
+    private var hoveredTarget: Target? {
         guard !orbiting, let p = hoverPoint else { return nil }
-        return Self.region(at: p, camera: camera, size: size, showsArrows: !isAnimating)
+        return Self.target(at: p, camera: camera, size: size, showsArrows: !isAnimating)
     }
 
     public var body: some View {
         let cam = camera
         let look = appearance
-        let hovered = hoveredRegion
+        let hoveredTarget = hoveredTarget
+        let hovered: Vec3? = if case .look(let d) = hoveredTarget { d } else { nil }
         let arrows = isAnimating ? [] : Self.arrows(camera: cam, size: size)
+        let rollArrows = isAnimating ? [] : Self.rollArrows(camera: cam, size: size)
         let size = size
         // A corner pointing straight up or sideways reaches 0.52 × size from the centre, past the
         // frame: the canvas overhangs it by `bleed` so the corner isn't cut flat. Layout, hover and
@@ -740,11 +807,14 @@ public struct ViewCube: View {
                 ctx.stroke(outline, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
                 if facing > 0.3 {
                     let c = Self.project(face.normal, camera: cam, size: size)
-                    ctx.opacity = min(1, (facing - 0.3) * 2.5)
-                    ctx.draw(Text(face.label).font(.system(size: 10, weight: .semibold).width(.condensed))
+                    // Labels turn with a roll, so the cube shows it (canvas angles run clockwise).
+                    var label = ctx
+                    label.translateBy(x: c.x, y: c.y)
+                    label.rotate(by: .radians(-cam.roll))
+                    label.opacity = min(1, (facing - 0.3) * 2.5)
+                    label.draw(Text(face.label).font(.system(size: 10, weight: .semibold).width(.condensed))
                                 .foregroundStyle(look.chipInk),
-                             at: c)
-                    ctx.opacity = 1
+                               at: .zero)
                 }
             }
             for arrow in arrows {
@@ -753,6 +823,14 @@ public struct ViewCube: View {
                 p.closeSubpath()
                 ctx.fill(p, with: .color(look.cubeFace(facing: 1)))
                 if arrow.direction == hovered { ctx.fill(p, with: .color(look.cubeHover)) }
+                ctx.stroke(p, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
+            }
+            for arrow in rollArrows {
+                var p = Path()
+                p.addLines(arrow.outline)
+                p.closeSubpath()
+                ctx.fill(p, with: .color(look.cubeFace(facing: 1)))
+                if hoveredTarget == .roll(clockwise: arrow.clockwise) { ctx.fill(p, with: .color(look.cubeHover)) }
                 ctx.stroke(p, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
             }
             // Axis triad in the bottom-left corner.
@@ -787,13 +865,30 @@ public struct ViewCube: View {
         }
         .accessibilityElement()
         .accessibilityLabel("View cube")
-        .accessibilityValue(Self.faces.first { $0.normal.dot(camera.back) > 0.9 }.map { "Looking from \($0.view.rawValue)" } ?? "Angled view")
+        .accessibilityValue(Self.accessibilityValue(camera))
         .accessibilityActions {
             ForEach(Self.faces.sorted { Self.order($0.view) < Self.order($1.view) }, id: \.label) { face in
                 Button(face.view.rawValue.capitalized) { onRegion(face.normal) }
             }
+            if Self.squareFace(camera) != nil {
+                Button("Roll clockwise") { onRoll(true) }
+                Button("Roll anticlockwise") { onRoll(false) }
+            }
             Button("Home view") { onHome() }
         }
+    }
+
+    /// Where the view looks from, and how far it's rolled: "Looking from front, turned 90° clockwise".
+    nonisolated static func accessibilityValue(_ camera: Camera) -> String {
+        guard let face = faces.first(where: { $0.normal.dot(camera.back) > 0.9 }) else { return "Angled view" }
+        let degrees = Int((Camera.wrapAngle(camera.roll) * 180 / .pi).rounded())
+        let turn = switch degrees {
+        case 0: ""
+        case 180, -180: ", upside down"
+        case ..<0: ", turned \(-degrees)° clockwise"
+        default: ", turned \(degrees)° anticlockwise"
+        }
+        return "Looking from \(face.view.rawValue)\(turn)"
     }
 
     /// Front, back, left, right, top, bottom: the order of `Camera.StandardView`.
@@ -814,9 +909,11 @@ public struct ViewCube: View {
             onOrbitBegan()
         }
         lastTranslation = t
-        // Like the viewport: a cube's width of drag turns about three radians.
+        // Like the viewport: a cube's width of drag turns about three radians, read in screen
+        // directions when the view is rolled.
         let scale = Double(size) * 0.3
-        onOrbit(-Double(t.width - last.width) / scale, Double(t.height - last.height) / scale)
+        let d = camera.unrolled(CGSize(width: t.width - last.width, height: t.height - last.height))
+        onOrbit(-Double(d.width) / scale, Double(d.height) / scale)
     }
 
     private func dragEnded(_ value: DragGesture.Value) {
@@ -824,8 +921,11 @@ public struct ViewCube: View {
         if orbiting {
             endOrbit()
         } else if !orbitedThisPress, hypot(t.width, t.height) < Self.clickSlop,
-                  let region = Self.region(at: value.startLocation, camera: camera, size: size, showsArrows: !isAnimating) {
-            onRegion(region)
+                  let target = Self.target(at: value.startLocation, camera: camera, size: size, showsArrows: !isAnimating) {
+            switch target {
+            case .look(let d): onRegion(d)
+            case .roll(let clockwise): onRoll(clockwise)
+            }
         }
         orbitedThisPress = false
     }
