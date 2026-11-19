@@ -355,6 +355,48 @@ struct ControllerTests {
         #expect(c.liveCamera.target == box.camera.target)
     }
 
+    @Test func rollTurnsAQuarterAndEverythingElseStandsItUp() {
+        let (c, _, box) = make()
+        c.show(.front, animated: false)
+        c.roll(clockwise: true, animated: false)
+        #expect(c.liveCamera.roll == -.pi / 2 && c.liveCamera.yaw == 0 && c.liveCamera.pitch == 0)
+        #expect(box.camera == c.liveCamera)
+        c.roll(clockwise: true, animated: false)
+        #expect(c.liveCamera.roll == .pi || c.liveCamera.roll == -.pi)
+        c.roll(clockwise: false, animated: false)
+        c.roll(clockwise: false, animated: false)
+        #expect(c.liveCamera.roll == 0)
+        // An orbit keeps the roll; a new direction, Home and the views drop it.
+        c.roll(clockwise: false, animated: false)
+        c.beginOrbitAroundTarget()
+        c.orbit(deltaYaw: 0.2, deltaPitch: 0.1)
+        c.endNavigation()
+        #expect(c.liveCamera.roll == .pi / 2)
+        c.show(lookingFrom: Vec3(1, -1, 1), animated: false)
+        #expect(c.liveCamera.roll == 0)
+        for reset in [{ c.show(.right, animated: false) }, { c.showHome(animated: false) },
+                      { c.show(yaw: 0.3, pitch: 0.2, animated: false) }] {
+            c.show(.front, animated: false)
+            c.roll(clockwise: true, animated: false)
+            reset()
+            #expect(c.liveCamera.roll == 0)
+        }
+    }
+
+    @Test func animatedRollEndsExactlyOnTheQuarterTurn() async throws {
+        let (c, _, box) = make()
+        c.show(.left, animated: false)
+        c.options = ViewportOptions(animatesCameraChanges: true, cameraAnimationDuration: 0.05)
+        let renderer = try #require(c.renderer)
+        c.roll(clockwise: false, animated: true)
+        #expect(renderer.isAnimating)
+        try await Task.sleep(for: .milliseconds(150))
+        renderer.advanceAnimationWithoutDrawing()
+        #expect(!renderer.isAnimating)
+        #expect(c.liveCamera.roll == .pi / 2 && c.liveCamera.yaw == -.pi / 2)
+        #expect(box.camera == c.liveCamera)
+    }
+
     /// The iPad's flick momentum stops when the view cube, Home or Fit All takes over the camera;
     /// otherwise its next frame would cancel their animation or fight the cube drag.
     @Test func cubeNavigationInterruptsThePlatformViewsOwn() {
@@ -371,9 +413,11 @@ struct ControllerTests {
         #expect(interrupts == 4)
         c.fitAll(animated: false)
         #expect(interrupts == 5)
+        c.roll(clockwise: true, animated: false)
+        #expect(interrupts == 6)
         // Orbiting itself (the coast's own steps) must not interrupt.
         c.orbit(by: CGSize(width: 5, height: 0))
         c.orbit(deltaYaw: 0.1, deltaPitch: 0)
-        #expect(interrupts == 5)
+        #expect(interrupts == 6)
     }
 }

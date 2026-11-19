@@ -240,7 +240,8 @@ final class ViewportNSView: MTKView {
     override func rotate(with e: NSEvent) {
         guard let c = controller else { return }
         if e.phase == .began { c.beginOrbit(at: point(e)) }
-        c.orbit(by: CGSize(width: -Double(e.rotation) / 0.3, height: 0))
+        // Turns around Z like a horizontal drag would upright, whatever the roll.
+        c.orbit(deltaYaw: Double(e.rotation) * .pi / 180, deltaPitch: 0)
         if e.phase == .ended || e.phase == .cancelled { c.endNavigation() }
     }
 

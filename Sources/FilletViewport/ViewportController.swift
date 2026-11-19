@@ -167,9 +167,11 @@ public final class ViewportController {
         orbitPivot = nil
     }
 
-    /// Orbits by angles in radians around the target, for a drag that began with `beginOrbitAroundTarget()`.
+    /// Orbits by angles in radians: around the target after `beginOrbitAroundTarget()`, around
+    /// the point under the pointer after `beginOrbit(at:)`.
     func orbit(deltaYaw: Double, deltaPitch: Double) {
-        moveCamera { $0.orbit(deltaYaw: deltaYaw, deltaPitch: deltaPitch, pivot: nil) }
+        let pivot = orbitPivot
+        moveCamera { $0.orbit(deltaYaw: deltaYaw, deltaPitch: deltaPitch, pivot: pivot) }
     }
 
     func endNavigation() {
@@ -190,12 +192,18 @@ public final class ViewportController {
         animate(to: liveCamera.viewing(view), animated: animated)
     }
 
-    /// Looks from a direction given by yaw/pitch (view cube corners).
+    /// Looks from a direction given by yaw/pitch (view cube corners), upright.
     public func show(yaw: Double, pitch: Double, animated: Bool = true) {
         var c = liveCamera
         c.yaw = yaw
         c.pitch = pitch
+        c.roll = 0
         animate(to: c, animated: animated)
+    }
+
+    /// Turns the view a quarter turn around the view axis (the view cube's roll arrows), animated.
+    public func roll(clockwise: Bool, animated: Bool = true) {
+        animate(to: liveCamera.rolled(clockwise: clockwise), animated: animated)
     }
 
     /// Looks from cube direction `d` (see `Camera.viewAngles(lookingFrom:currentYaw:)`), animated.
