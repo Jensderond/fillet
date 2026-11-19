@@ -73,6 +73,7 @@ public struct ViewportView: View {
                         Button("Top view") { controller.show(.top) }
                         Button("Front view") { controller.show(.front) }
                         Button("Isometric view") { controller.show(.iso) }
+                        Button("Home view") { controller.showHome() }
                     }
             } else {
                 Rectangle().fill(.gray.opacity(0.2))
@@ -426,12 +427,47 @@ struct ViewCubeOverlay: View {
     let controller: ViewportController
     let appearance: ViewportAppearance
     var visualStyle: Binding<VisualStyle>?
+    @State private var hoveringOverlay = false
+    @State private var hoveringHome = false
+
+    /// Smaller than the buttons below: a quiet corner control, as in Fusion.
+    #if os(iOS) || os(visionOS)
+    static let homeSide: CGFloat = 32
+    #else
+    static let homeSide: CGFloat = 24
+    #endif
+
+    /// On the Mac Home shows while the pointer is over the cube; touch has no hover, so it stays.
+    private var showsHome: Bool {
+        #if os(macOS)
+        return hoveringOverlay || hoveringHome
+        #else
+        return true
+        #endif
+    }
 
     var body: some View {
         VStack(spacing: 8) {
+            // `liveCamera` changes every animation frame, so this re-renders with the final
+            // camera too, by when the renderer no longer reports an animation.
             ViewCube(camera: controller.liveCamera, appearance: appearance,
-                     onFace: { controller.show($0) },
-                     onCorner: { controller.show(yaw: $0, pitch: $1) })
+                     isAnimating: controller.renderer?.isAnimating ?? false,
+                     onRegion: { controller.show(lookingFrom: $0) },
+                     onHome: { controller.showHome() },
+                     onOrbitBegan: { controller.beginOrbitAroundTarget() },
+                     onOrbit: { controller.orbit(deltaYaw: $0, deltaPitch: $1) },
+                     onOrbitEnded: { controller.endNavigation() })
+                // Over the cube's top-left corner, outside the layout, so appearing moves nothing.
+                .overlay(alignment: .topLeading) {
+                    if showsHome {
+                        CubeButton(systemName: "house", help: "Home view", appearance: appearance, size: Self.homeSide) {
+                            controller.showHome()
+                        }
+                        .onHover { hoveringHome = $0 }
+                        .offset(x: -Self.homeSide / 2, y: -Self.homeSide / 4)
+                        .transition(.opacity)
+                    }
+                }
             HStack(spacing: 6) {
                 CubeButton(systemName: "arrow.up.left.and.arrow.down.right", help: "Fit all", appearance: appearance) { controller.fitAll() }
                 // Labelled by what it does; the glyph shows the projection you'd switch to.
@@ -447,6 +483,8 @@ struct ViewCubeOverlay: View {
                 VisualStyleChip(style: visualStyle, appearance: appearance, width: CubeButton.side * 2 + 6, height: CubeButton.side)
             }
         }
+        .onHover { hoveringOverlay = $0 }
+        .animation(.easeOut(duration: 0.12), value: showsHome)
     }
 }
 
@@ -454,33 +492,36 @@ struct CubeButton: View {
     let systemName: String
     let help: String
     let appearance: ViewportAppearance
+    var size: CGFloat = CubeButton.side
     let action: () -> Void
     @State private var hovering = false
 
     /// 44 pt touch targets on iPad.
     #if os(iOS) || os(visionOS)
-    static let side: CGFloat = 44
+    nonisolated static let side: CGFloat = 44
     #else
-    static let side: CGFloat = 32
+    nonisolated static let side: CGFloat = 32
     #endif
 
     var body: some View {
+        // Smaller buttons get a smaller glyph and corner, so they keep the same proportions.
+        let radius = min(8, size / 4)
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 13, weight: .medium))
-                .frame(width: Self.side, height: Self.side)
+                .font(.system(size: size < 30 ? 11 : 13, weight: .medium))
+                .frame(width: size, height: size)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .foregroundStyle(appearance.chipInk)
-        .background(appearance.chipFill, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .background(appearance.chipFill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous)
             .fill(appearance.chipInk.opacity(hovering ? 0.08 : 0)).allowsHitTesting(false))
         .onHover { hovering = $0 }
         .animation(.easeOut(duration: 0.12), value: hovering)
-        .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).strokeBorder(appearance.chipEdge))
+        .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(appearance.chipEdge))
         #if os(iOS) || os(visionOS)
-        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .contentShape(.hoverEffect, RoundedRectangle(cornerRadius: radius, style: .continuous))
         .hoverEffect(.highlight)
         #endif
         .help(help)
@@ -488,83 +529,204 @@ struct CubeButton: View {
     }
 }
 
-/// A small orientation cube: tap a face for a standard view, a corner for an
-/// isometric view from that corner. Drawn with SwiftUI from the camera orientation.
+/// A small orientation cube, like Fusion's ViewCube: click a face, edge or corner to look
+/// from there, drag to orbit, and when square on a face, click an arrow for the next side.
+/// Drawn with SwiftUI from the camera orientation, exactly as the camera is.
 public struct ViewCube: View {
     let camera: Camera
     let appearance: ViewportAppearance
-    let onFace: (Camera.StandardView) -> Void
-    let onCorner: (Double, Double) -> Void
-    var size: CGFloat = 84
-    @State private var hoveredFace: Camera.StandardView?
+    /// The arrows hide while the camera animates: they would point from where it's passing.
+    let isAnimating: Bool
+    /// A click on an area: the direction to look from (components -1, 0 or 1).
+    let onRegion: (Vec3) -> Void
+    let onHome: () -> Void
+    let onOrbitBegan: () -> Void
+    /// Yaw and pitch deltas in radians.
+    let onOrbit: (Double, Double) -> Void
+    let onOrbitEnded: () -> Void
+    var size: CGFloat = ViewCube.defaultSize
+    /// Where the pointer is; the area under it is worked out against the current camera.
+    @State private var hoverPoint: CGPoint?
+    @State private var orbiting = false
+    /// Set when this press became an orbit, so its release is never taken for a click.
+    @State private var orbitedThisPress = false
+    @State private var lastTranslation: CGSize = .zero
+    @GestureState private var pressing = false
 
-    public init(camera: Camera, appearance: ViewportAppearance, onFace: @escaping (Camera.StandardView) -> Void,
-                onCorner: @escaping (Double, Double) -> Void) {
+    /// Fingers get a bigger cube rather than wider hit areas, so the areas stay where they're drawn.
+    #if os(iOS) || os(visionOS)
+    nonisolated static let defaultSize: CGFloat = 110
+    #else
+    nonisolated static let defaultSize: CGFloat = 84
+    #endif
+
+    /// Movement under this many points is a click; beyond it, a drag that orbits.
+    static let clickSlop: CGFloat = 4
+
+    public init(camera: Camera, appearance: ViewportAppearance, isAnimating: Bool = false,
+                onRegion: @escaping (Vec3) -> Void, onHome: @escaping () -> Void = {},
+                onOrbitBegan: @escaping () -> Void = {}, onOrbit: @escaping (Double, Double) -> Void = { _, _ in },
+                onOrbitEnded: @escaping () -> Void = {}) {
         self.camera = camera
         self.appearance = appearance
-        self.onFace = onFace
-        self.onCorner = onCorner
+        self.isAnimating = isAnimating
+        self.onRegion = onRegion
+        self.onHome = onHome
+        self.onOrbitBegan = onOrbitBegan
+        self.onOrbit = onOrbit
+        self.onOrbitEnded = onOrbitEnded
     }
 
-    struct Face {
+    struct Face: Sendable {
         let normal: Vec3
-        let corners: [Vec3]
+        /// The face's own axes: `normal + u * axisU + v * axisV` for (u, v) in [-1, 1]² spans it.
+        let axisU: Vec3
+        let axisV: Vec3
         let label: String
         let view: Camera.StandardView
+
+        var corners: [Vec3] { [normal - axisU - axisV, normal + axisU - axisV, normal + axisU + axisV, normal - axisU + axisV] }
     }
 
-    static let faces: [Face] = {
-        func f(_ n: Vec3, _ u: Vec3, _ v: Vec3, _ label: String, _ view: Camera.StandardView) -> Face {
-            Face(normal: n, corners: [n - u - v, n + u - v, n + u + v, n - u + v], label: label, view: view)
-        }
-        return [
-            f(.unitZ, .unitX, .unitY, "TOP", .top),
-            f(-Vec3.unitZ, .unitX, -Vec3.unitY, "BOTTOM", .bottom),
-            f(-Vec3.unitY, .unitX, .unitZ, "FRONT", .front),
-            f(.unitY, -Vec3.unitX, .unitZ, "BACK", .back),
-            f(.unitX, .unitY, .unitZ, "RIGHT", .right),
-            f(-Vec3.unitX, -Vec3.unitY, .unitZ, "LEFT", .left),
-        ]
-    }()
+    nonisolated static let faces: [Face] = [
+        Face(normal: .unitZ, axisU: .unitX, axisV: .unitY, label: "TOP", view: .top),
+        Face(normal: -Vec3.unitZ, axisU: .unitX, axisV: -Vec3.unitY, label: "BOTTOM", view: .bottom),
+        Face(normal: -Vec3.unitY, axisU: .unitX, axisV: .unitZ, label: "FRONT", view: .front),
+        Face(normal: .unitY, axisU: -Vec3.unitX, axisV: .unitZ, label: "BACK", view: .back),
+        Face(normal: .unitX, axisU: .unitY, axisV: .unitZ, label: "RIGHT", view: .right),
+        Face(normal: -Vec3.unitX, axisU: -Vec3.unitY, axisV: .unitZ, label: "LEFT", view: .left),
+    ]
 
-    static let cornerDirs: [Vec3] = (0..<8).map { i in
-        Vec3(i & 1 == 0 ? -1 : 1, i & 2 == 0 ? -1 : 1, i & 4 == 0 ? -1 : 1)
-    }
+    /// Beyond this in a face's u or v, the point is on an edge or corner area rather than the centre.
+    nonisolated static let edgeSplit = 0.6
 
     /// Cube-space point → canvas point (orthographic, camera orientation only).
-    static func project(_ p: Vec3, camera: Camera, size: CGFloat) -> CGPoint {
-        let s = size * 0.3
-        return CGPoint(x: size / 2 + p.dot(camera.right) * s, y: size / 2 - p.dot(camera.up) * s)
+    nonisolated static func project(_ p: Vec3, camera: Camera, size: CGFloat) -> CGPoint {
+        let s = Double(size) * 0.3
+        return CGPoint(x: Double(size) / 2 + p.dot(camera.right) * s, y: Double(size) / 2 - p.dot(camera.up) * s)
     }
 
-    /// The camera the cube is drawn from. Looking straight at a face, a flat square with a label
-    /// wouldn't read as a cube you can tap, so it turns 15° to show two more faces.
-    var displayCamera: Camera {
+    nonisolated static func path(_ points: [Vec3], camera: Camera, size: CGFloat) -> Path {
+        var path = Path()
+        path.addLines(points.map { project($0, camera: camera, size: size) })
+        path.closeSubpath()
+        return path
+    }
+
+    /// Faces turned towards the viewer, front-most first.
+    nonisolated static func visibleFaces(_ camera: Camera) -> [Face] {
         let back = camera.back
-        guard Self.faces.contains(where: { $0.normal.dot(back) > 0.985 }) else { return camera }
-        var c = camera
-        let tilt = 15 * Double.pi / 180
-        c.yaw += tilt
-        c.pitch = c.pitch > 0.5 ? c.pitch - tilt : c.pitch < -0.5 ? c.pitch + tilt : c.pitch + tilt
-        return c
+        return faces.filter { $0.normal.dot(back) > 0.02 }.sorted { $0.normal.dot(back) > $1.normal.dot(back) }
+    }
+
+    /// The face the camera looks straight at, if any.
+    nonisolated static func squareFace(_ camera: Camera) -> Face? {
+        faces.first { $0.normal.dot(camera.back) > 0.999 }
+    }
+
+    /// A canvas point in `face`'s own (u, v), each in [-1, 1], or nil when it misses the face.
+    nonisolated static func faceCoordinates(of point: CGPoint, on face: Face, camera: Camera, size: CGFloat) -> (u: Double, v: Double)? {
+        let s = Double(size) * 0.3
+        let right = camera.right, up = camera.up
+        // Canvas offsets of one unit along each face axis (canvas y grows downwards).
+        let ax = face.axisU.dot(right) * s, ay = -face.axisU.dot(up) * s
+        let bx = face.axisV.dot(right) * s, by = -face.axisV.dot(up) * s
+        let det = ax * by - ay * bx
+        // Edge-on, the face has no area to hit.
+        guard abs(det) > 1e-6 * s * s else { return nil }
+        let c = project(face.normal, camera: camera, size: size)
+        let dx = Double(point.x - c.x), dy = Double(point.y - c.y)
+        let u = (dx * by - dy * bx) / det
+        let v = (ax * dy - ay * dx) / det
+        guard abs(u) <= 1, abs(v) <= 1 else { return nil }
+        return (u, v)
+    }
+
+    /// The area under a canvas point, as the direction to look from (6 face centres, 12 edges,
+    /// 8 corners, components -1, 0 or 1), an arrow's face when `showsArrows`, or nil outside.
+    nonisolated static func region(at point: CGPoint, camera: Camera, size: CGFloat, showsArrows: Bool) -> Vec3? {
+        for face in visibleFaces(camera) {
+            guard let c = faceCoordinates(of: point, on: face, camera: camera, size: size) else { continue }
+            var d = face.normal
+            if abs(c.u) > edgeSplit { d = d + face.axisU * (c.u > 0 ? 1 : -1) }
+            if abs(c.v) > edgeSplit { d = d + face.axisV * (c.v > 0 ? 1 : -1) }
+            return d
+        }
+        if showsArrows, let arrow = arrows(camera: camera, size: size).first(where: { $0.hitArea.contains(point) }) {
+            return arrow.direction
+        }
+        return nil
+    }
+
+    /// The part of `face` that belongs to `region`, as cube-space corners, or nil when the region
+    /// doesn't touch the face. A corner touches three faces, an edge two, a centre one.
+    nonisolated static func patch(_ region: Vec3, on face: Face) -> [Vec3]? {
+        guard region.dot(face.normal) > 0.5 else { return nil }
+        func span(_ k: Double) -> (Double, Double) {
+            k > 0.5 ? (edgeSplit, 1) : k < -0.5 ? (-1, -edgeSplit) : (-edgeSplit, edgeSplit)
+        }
+        let (u0, u1) = span(region.dot(face.axisU)), (v0, v1) = span(region.dot(face.axisV))
+        func point(_ u: Double, _ v: Double) -> Vec3 { face.normal + face.axisU * u + face.axisV * v }
+        return [point(u0, v0), point(u1, v0), point(u1, v1), point(u0, v1)]
+    }
+
+    /// A triangle beside the square face that turns the view to the neighbouring side.
+    struct Arrow: Sendable {
+        /// The face it turns to (its normal).
+        let direction: Vec3
+        let triangle: [CGPoint]
+        /// Wider than the triangle, so it's easy to hit.
+        let hitArea: CGRect
+    }
+
+    /// Left, right, up and down arrows when the camera is square on a face, else none. The square
+    /// reaches 0.3 × size from the centre; the arrows sit in the band beyond it.
+    nonisolated static func arrows(camera: Camera, size: CGFloat) -> [Arrow] {
+        guard squareFace(camera) != nil else { return [] }
+        let c = size / 2
+        let base = size * 0.33, tip = size * 0.42, half = size * 0.07, reach = size * 0.15
+        // Screen direction (canvas y down) and the world direction it shows.
+        let sides: [(x: CGFloat, y: CGFloat, world: Vec3)] = [
+            (-1, 0, -camera.right), (1, 0, camera.right), (0, -1, camera.up), (0, 1, -camera.up),
+        ]
+        var arrows: [Arrow] = []
+        for side in sides {
+            // `along` points out from the centre, `across` at right angles to it.
+            func at(_ along: CGFloat, _ across: CGFloat) -> CGPoint {
+                CGPoint(x: c + side.x * along - side.y * across, y: c + side.y * along + side.x * across)
+            }
+            var best = faces[0]
+            for face in faces where face.normal.dot(side.world) > best.normal.dot(side.world) { best = face }
+            let a = at(size * 0.3, -reach), b = at(size * 0.5, reach)
+            arrows.append(Arrow(direction: best.normal,
+                                triangle: [at(tip, 0), at(base, -half), at(base, half)],
+                                hitArea: CGRect(x: min(a.x, b.x), y: min(a.y, b.y), width: abs(a.x - b.x), height: abs(a.y - b.y))))
+        }
+        return arrows
+    }
+
+    /// The area under the pointer, against the camera as it is now (it may move under a still pointer).
+    private var hoveredRegion: Vec3? {
+        guard !orbiting, let p = hoverPoint else { return nil }
+        return Self.region(at: p, camera: camera, size: size, showsArrows: !isAnimating)
     }
 
     public var body: some View {
-        let cam = displayCamera
+        let cam = camera
         let look = appearance
-        let hovered = hoveredFace
+        let hovered = hoveredRegion
+        let arrows = isAnimating ? [] : Self.arrows(camera: cam, size: size)
         Canvas { ctx, sz in
             let back = cam.back
-            let visible = Self.faces.filter { $0.normal.dot(back) > 0.02 }.sorted { $0.normal.dot(back) < $1.normal.dot(back) }
-            for face in visible {
-                let pts = face.corners.map { Self.project($0, camera: cam, size: sz.width) }
-                var path = Path()
-                path.addLines(pts)
-                path.closeSubpath()
+            // Back to front, so nearer faces paint over the ones behind.
+            for face in Self.visibleFaces(cam).reversed() {
+                let outline = Self.path(face.corners, camera: cam, size: sz.width)
                 let facing = face.normal.dot(back)
-                ctx.fill(path, with: .color(look.cubeFace(facing: facing)))
-                if face.view == hovered { ctx.fill(path, with: .color(look.cubeHover)) }
-                ctx.stroke(path, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
+                ctx.fill(outline, with: .color(look.cubeFace(facing: facing)))
+                if let hovered, let patch = Self.patch(hovered, on: face) {
+                    ctx.fill(Self.path(patch, camera: cam, size: sz.width), with: .color(look.cubeHover))
+                }
+                ctx.stroke(outline, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
                 if facing > 0.3 {
                     let c = Self.project(face.normal, camera: cam, size: sz.width)
                     ctx.opacity = min(1, (facing - 0.3) * 2.5)
@@ -574,9 +736,17 @@ public struct ViewCube: View {
                     ctx.opacity = 1
                 }
             }
+            for arrow in arrows {
+                var p = Path()
+                p.addLines(arrow.triangle)
+                p.closeSubpath()
+                ctx.fill(p, with: .color(look.cubeFace(facing: 1)))
+                if arrow.direction == hovered { ctx.fill(p, with: .color(look.cubeHover)) }
+                ctx.stroke(p, with: .color(look.cubeEdge), style: StrokeStyle(lineWidth: 1, lineJoin: .round))
+            }
             // Axis triad in the bottom-left corner.
             let o = CGPoint(x: 10, y: sz.height - 10)
-            let pal = appearance.palette
+            let pal = look.palette
             for (axis, color) in [(Vec3.unitX, pal.axisX.color), (Vec3.unitY, pal.axisY.color), (Vec3.unitZ, pal.axisZ.color)] {
                 var p = Path()
                 p.move(to: o)
@@ -585,70 +755,72 @@ public struct ViewCube: View {
             }
         }
         .frame(width: size, height: size)
+        // The whole frame, arrows included: a drag here never reaches the viewport underneath.
         .contentShape(Rectangle())
-        .onTapGesture(coordinateSpace: .local) { loc in tap(loc) }
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                .updating($pressing) { _, state, _ in state = true }
+                .onChanged { value in dragChanged(value) }
+                .onEnded { value in dragEnded(value) }
+        )
+        .onChange(of: pressing) { _, now in
+            // A drag the system cancels never reaches `onEnded`; still end its orbit.
+            if now { orbitedThisPress = false } else if orbiting { endOrbit() }
+        }
         .onContinuousHover(coordinateSpace: .local) { phase in
             switch phase {
-            case .active(let p): hoveredFace = face(at: p)
-            case .ended: hoveredFace = nil
+            case .active(let p): hoverPoint = p
+            case .ended: hoverPoint = nil
             }
         }
         .accessibilityElement()
         .accessibilityLabel("View cube")
         .accessibilityValue(Self.faces.first { $0.normal.dot(camera.back) > 0.9 }.map { "Looking from \($0.view.rawValue)" } ?? "Angled view")
         .accessibilityActions {
-            ForEach(Camera.StandardView.allCases, id: \.self) { v in
-                Button(v.rawValue.capitalized) { onFace(v) }
+            ForEach(Self.faces.sorted { Self.order($0.view) < Self.order($1.view) }, id: \.label) { face in
+                Button(face.view.rawValue.capitalized) { onRegion(face.normal) }
             }
+            Button("Home view") { onHome() }
         }
     }
 
-    /// Corners are small; a fingertip needs a wider catch than the pointer.
-    #if os(iOS) || os(visionOS)
-    static let cornerHitRadius: CGFloat = 18
-    #else
-    static let cornerHitRadius: CGFloat = 10
-    #endif
-
-    /// The visible face under a point (corners excluded), for hover.
-    private func face(at loc: CGPoint) -> Camera.StandardView? {
-        let camera = displayCamera
-        let back = camera.back
-        for d in Self.cornerDirs where d.dot(back) > 0.2 {
-            let p = Self.project(d, camera: camera, size: size)
-            if hypot(p.x - loc.x, p.y - loc.y) < Self.cornerHitRadius { return nil }
-        }
-        let visible = Self.faces.filter { $0.normal.dot(back) > 0.02 }.sorted { $0.normal.dot(back) > $1.normal.dot(back) }
-        for face in visible {
-            var path = Path()
-            path.addLines(face.corners.map { Self.project($0, camera: camera, size: size) })
-            path.closeSubpath()
-            if path.contains(loc) { return face.view }
-        }
-        return nil
+    /// Front, back, left, right, top, bottom: the order of `Camera.StandardView`.
+    private static func order(_ view: Camera.StandardView) -> Int {
+        Camera.StandardView.allCases.firstIndex(of: view) ?? 0
     }
 
-    private func tap(_ loc: CGPoint) {
-        let camera = displayCamera
-        let back = camera.back
-        // Corners first (iso views from that corner).
-        for d in Self.cornerDirs where d.dot(back) > 0.2 {
-            let p = Self.project(d, camera: camera, size: size)
-            if hypot(p.x - loc.x, p.y - loc.y) < Self.cornerHitRadius {
-                let n = d.normalized
-                onCorner(atan2(n.x, -n.y), asin(n.z))
-                return
-            }
+    private func dragChanged(_ value: DragGesture.Value) {
+        let t = value.translation
+        var last = lastTranslation
+        if !orbiting {
+            // Until it moves past the slop it may still be a click (and mustn't stop an animation).
+            guard hypot(t.width, t.height) >= Self.clickSlop else { return }
+            orbiting = true
+            orbitedThisPress = true
+            hoverPoint = nil
+            last = .zero
+            onOrbitBegan()
         }
-        let visible = Self.faces.filter { $0.normal.dot(back) > 0.02 }.sorted { $0.normal.dot(back) > $1.normal.dot(back) }
-        for face in visible {
-            var path = Path()
-            path.addLines(face.corners.map { Self.project($0, camera: camera, size: size) })
-            path.closeSubpath()
-            if path.contains(loc) {
-                onFace(face.view)
-                return
-            }
+        lastTranslation = t
+        // Like the viewport: a cube's width of drag turns about three radians.
+        let scale = Double(size) * 0.3
+        onOrbit(-Double(t.width - last.width) / scale, Double(t.height - last.height) / scale)
+    }
+
+    private func dragEnded(_ value: DragGesture.Value) {
+        let t = value.translation
+        if orbiting {
+            endOrbit()
+        } else if !orbitedThisPress, hypot(t.width, t.height) < Self.clickSlop,
+                  let region = Self.region(at: value.startLocation, camera: camera, size: size, showsArrows: !isAnimating) {
+            onRegion(region)
         }
+        orbitedThisPress = false
+    }
+
+    private func endOrbit() {
+        orbiting = false
+        lastTranslation = .zero
+        onOrbitEnded()
     }
 }
