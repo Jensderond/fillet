@@ -38,6 +38,10 @@ public final class ViewportController {
     /// drawn over every scene that comes in until the drag ends, so one rebuilt mid-drag for
     /// something else can't put the cut back where it was.
     @ObservationIgnored private var sectionDrag: SectionDragStep?
+    /// Set by the platform view to stop its own navigation (the iPad's flick momentum) when the
+    /// camera is driven from elsewhere: a view cube click or drag, Home, Fit All. Otherwise the
+    /// coast's next frame would cancel the animation, or fight the drag.
+    @ObservationIgnored var onInterruptNavigation: (() -> Void)?
 
     public init() {
         renderer = try? ViewportRenderer()
@@ -158,6 +162,7 @@ public final class ViewportController {
     /// Starts an orbit around the camera target (no pivot under a viewport point), e.g. from the
     /// view cube. Cancels a running camera animation.
     func beginOrbitAroundTarget() {
+        onInterruptNavigation?()
         renderer?.cancelAnimation()
         orbitPivot = nil
     }
@@ -220,6 +225,7 @@ public final class ViewportController {
 
     /// Animates the live camera and writes the result to the binding when done.
     public func animate(to camera: Camera, animated: Bool = true) {
+        onInterruptNavigation?()
         // `animatesCameraChanges` off (Reduce Motion) cuts straight to the new view.
         if animated, options.animatesCameraChanges, let r = renderer {
             r.camera = liveCamera

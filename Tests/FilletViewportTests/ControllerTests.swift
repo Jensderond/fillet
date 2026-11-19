@@ -354,4 +354,26 @@ struct ControllerTests {
         #expect(!renderer.isAnimating)
         #expect(c.liveCamera.target == box.camera.target)
     }
+
+    /// The iPad's flick momentum stops when the view cube, Home or Fit All takes over the camera;
+    /// otherwise its next frame would cancel their animation or fight the cube drag.
+    @Test func cubeNavigationInterruptsThePlatformViewsOwn() {
+        let (c, _, _) = make()
+        var interrupts = 0
+        c.onInterruptNavigation = { interrupts += 1 }
+        c.beginOrbitAroundTarget()
+        #expect(interrupts == 1)
+        c.show(lookingFrom: Vec3(1, -1, 1), animated: false)
+        #expect(interrupts == 2)
+        c.showHome(animated: false)
+        #expect(interrupts == 3)
+        c.show(.top, animated: false)
+        #expect(interrupts == 4)
+        c.fitAll(animated: false)
+        #expect(interrupts == 5)
+        // Orbiting itself (the coast's own steps) must not interrupt.
+        c.orbit(by: CGSize(width: 5, height: 0))
+        c.orbit(deltaYaw: 0.1, deltaPitch: 0)
+        #expect(interrupts == 5)
+    }
 }

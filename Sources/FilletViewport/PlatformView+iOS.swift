@@ -39,6 +39,8 @@ final class ViewportUIView: MTKView, UIGestureRecognizerDelegate {
         super.init(frame: .zero, device: controller.renderer?.device)
         isMultipleTouchEnabled = true
         controller.renderer?.configure(self)
+        // The view cube, Home and Fit All catch a coasting model, like a new touch does.
+        controller.onInterruptNavigation = { [weak self] in self?.stopCoasting() }
         installGestures()
         let pencil = UIPencilInteraction()
         pencil.delegate = self
