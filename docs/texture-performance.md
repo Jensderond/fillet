@@ -96,6 +96,25 @@ Flagstone (laid out in space): subdivision (with its budget trial, a second subd
 detail) is half the viewport time; then contour snapping, height sampling and rims. Per face
 (knit, dots): subdivision and the crease flips, and rims for dots.
 
+## Grain (2026-11-19)
+
+Layouts in space now subdivide with a grain (`SolidTexture.grain(at:normal:)`, see
+[adding-a-texture.md](adding-a-texture.md)): triangles twice as long along a stone's edge as
+across it, and no contour snap for them. This changes the flagstone meshes and their digests (knit
+and dots are bit-identical to the baseline above). Same machine, `bench --runs 3`:
+
+| fixture | mode | median ms before / after | triangles before / after | digest |
+|---|---|---:|---:|---|
+| flagstone-vase | display | 347 / 321 | 376 802 / 371 498 | `77fc8ff159f3dc73` |
+| flagstone-vase | export | 2 056 / 2 321 | 1 670 312 / 1 870 170 | `e471190f3b760e25` |
+| flagstone-box | display | – | 309 924 / 336 602 | `653947dc4f7bf50e` |
+| flagstone-box | export | – | 1 427 640 / 1 307 572 | `4cba7a6a19367822` |
+
+(The "before" times are from the same day, well under the baseline table's: later optimisations
+are listed in [performance.md](performance.md).) The contour snap stage is 0 ms for flagstone now;
+subdivision and its budget trial take about 45 ms more at display detail (the grain's second step
+and its flips), and an export has 12% more triangles on the vase.
+
 ## Profiling
 
 ```sh

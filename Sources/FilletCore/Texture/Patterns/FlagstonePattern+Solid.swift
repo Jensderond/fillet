@@ -94,6 +94,12 @@ struct SolidFlagstones: SolidTexture {
 
     /// The stone at `p`: its seed and the distance from `p` to its outline in the tangent plane.
     func stone(at point: SIMD3<Double>, normal n: SIMD3<Double>) -> (seed: Int, edgeDistance: Double) {
+        let s = outline(at: point, normal: n)
+        return (s.seed, s.edgeDistance)
+    }
+
+    /// The stone at `p` and how its outline runs there (``Outline``).
+    func outline(at point: SIMD3<Double>, normal n: SIMD3<Double>) -> Outline {
         let size = pattern.size
         // Joints wander a little instead of running dead straight (along the surface only).
         var p = point
@@ -104,20 +110,25 @@ struct SolidFlagstones: SolidTexture {
         }
         let key = int32x3(floor3(point / cell))
         guard let candidates = index[key] else {
-            return Array(Int32(0)..<Int32(seeds.count)).withUnsafeBufferPointer { stone(at: p, normal: n, among: $0) }
+            return Array(Int32(0)..<Int32(seeds.count)).withUnsafeBufferPointer { outline(at: p, normal: n, among: $0) }
         }
-        return candidates.withUnsafeBufferPointer { stone(at: p, normal: n, among: $0) }
+        return candidates.withUnsafeBufferPointer { outline(at: p, normal: n, among: $0) }
     }
+
+    /// A point's place in its stone: the stone's seed, the distance from the point to the
+    /// stone's outline in the tangent plane, the unit direction (in that plane) in which that
+    /// distance grows, and the radius of the line of equal distance through the point (infinite
+    /// along a straight side, the distance to the corner's centre round a rounded corner).
+    typealias Outline = (seed: Int, edgeDistance: Double, inward: SIMD3<Double>, radius: Double)
 
     /// One side of a stone's outline near a point: the distance `d` to it and the direction `up`
     /// in which that grows (see ``stone(at:normal:among:)``).
     typealias Side = (d: Double, up: SIMD3<Double>)
 
-    /// ``stone(at:normal:)`` at the wandered point `p`, among the seeds `candidates`. Its
+    /// ``outline(at:normal:)`` at the wandered point `p`, among the seeds `candidates`. Its
     /// scratch lives on the stack: it runs several times for every point of the mesh.
-    private func stone(at p: SIMD3<Double>, normal n: SIMD3<Double>,
-                       among candidates: UnsafeBufferPointer<Int32>) -> (seed: Int, edgeDistance: Double) {
-        guard !candidates.isEmpty else { return (0, .infinity) }
+    private func outline(at p: SIMD3<Double>, normal n: SIMD3<Double>, among candidates: UnsafeBufferPointer<Int32>) -> Outline {
+        guard !candidates.isEmpty else { return (0, .infinity, .zero, .infinity) }
         let size = pattern.size
         // Distance squared to each seed, plus a penalty for seeds facing away (the far side of
         // a thin wall), growing smoothly from zero (so stones never end in a cut) once the
@@ -145,7 +156,7 @@ struct SolidFlagstones: SolidTexture {
                 // near `p` as a polygon in the tangent plane.
                 return withUnsafeTemporaryAllocation(of: Side.self, capacity: count) { buffer in
                     var sides = 0
-                    var nearest = Double.infinity
+                    var nearest = Double.infinity, nearestUp = SIMD3<Double>.zero
                     for k in 0..<count where k != owner {
                         let ab = flat[k] - a
                         let length = simd_length(ab)
@@ -153,11 +164,17 @@ struct SolidFlagstones: SolidTexture {
                         let d = (dist[k] - dist[owner]) / (2 * length)
                         buffer[sides] = (d, -ab / length)
                         sides += 1
-                        nearest = min(nearest, d)
+                        if d < nearest { nearest = d; nearestUp = -ab / length }
                     }
-                    guard nearest.isFinite else { return (Int(candidates[owner]), .infinity) }
+                    guard nearest.isFinite else { return (Int(candidates[owner]), .infinity, .zero, .infinity) }
                     let outline = UnsafeBufferPointer(rebasing: buffer[0..<sides])
-                    return (Int(candidates[owner]), max(Self.rounded(outline, nearest: nearest, radius: cornerRadius), 0))
+                    let radius = cornerRadius
+                    guard let inner = Self.shrunk(outline, nearest: nearest, radius: radius) else {
+                        return (Int(candidates[owner]), max(nearest, 0), nearestUp, .infinity)
+                    }
+                    let length = simd_length(inner.offset)
+                    return (Int(candidates[owner]), max(radius - length, 0), length > 1e-9 ? inner.offset / length : nearestUp,
+                            inner.corner ? length : .infinity)
                 }
             }
         }
@@ -188,7 +205,17 @@ struct SolidFlagstones: SolidTexture {
 
     /// The same, on sides in a buffer (as ``stone(at:normal:)`` keeps them, on the stack).
     static func rounded(_ sides: UnsafeBufferPointer<Side>, nearest: Double, radius: Double) -> Double {
-        guard nearest < radius, radius > 0 else { return nearest }
+        guard let inner = shrunk(sides, nearest: nearest, radius: radius) else { return nearest }
+        return radius - simd_length(inner.offset)
+    }
+
+    /// Where the nearest point of the stone shrunk by `radius` lies from a point outside it (see
+    /// ``rounded(_:nearest:radius:)``), and whether that is one of its corners (the lines of
+    /// equal distance turn round it) rather than a point on a side; nil for a point inside it,
+    /// or when the stone is too small to hold the round.
+    static func shrunk(_ sides: UnsafeBufferPointer<Side>, nearest: Double,
+                       radius: Double) -> (offset: SIMD3<Double>, corner: Bool)? {
+        guard nearest < radius, radius > 0 else { return nil }
         // The nearest point of the shrunk stone {x : d + up·x ≥ radius for every side}: the foot on
         // one side's line, or a corner where two lines meet, whichever is nearest and inside.
         func inside(_ x: SIMD3<Double>) -> Bool {
@@ -198,13 +225,13 @@ struct SolidFlagstones: SolidTexture {
         // Every foot and corner; the nearest inside is the one. Kept as the least length so far
         // (lengths are never NaN), rather than all collected and sorted: the same answer, as ties
         // share their length, without the sort that was half this function's time.
-        var best = Double.infinity
+        var best = Double.infinity, offset = SIMD3<Double>.zero, corner = false
         for i in sides.indices where sides[i].d < radius {
             let u = sides[i].up, uu = simd_length_squared(u)
             guard uu > 1e-12 else { continue }
             let x = (radius - sides[i].d) / uu * u
             let length = simd_length(x)
-            if length < best, inside(x) { best = length }
+            if length < best, inside(x) { best = length; offset = x; corner = false }
             // A corner has at least one of its two sides with `p` outside.
             for j in sides.indices where j != i && (sides[j].d >= radius || j > i) {
                 let v = sides[j].up
@@ -215,12 +242,12 @@ struct SolidFlagstones: SolidTexture {
                 let alpha = (ri * vv - rj * uv) / det, beta = (rj * uu - ri * uv) / det
                 let x = alpha * u + beta * v
                 let length = simd_length(x)
-                if length < best, inside(x) { best = length }
+                if length < best, inside(x) { best = length; offset = x; corner = true }
             }
         }
         // A stone too small to hold the round anywhere keeps its plain outline.
-        guard best.isFinite else { return nearest }
-        return radius - best
+        guard best.isFinite else { return nil }
+        return (offset, corner)
     }
 
     func height(at p: SIMD3<Double>, normal n: SIMD3<Double>) -> Double {
@@ -231,6 +258,16 @@ struct SolidFlagstones: SolidTexture {
     func detail(at p: SIMD3<Double>, normal n: SIMD3<Double>) -> Double {
         pattern.detail(edgeDistance: stone(at: p, normal: n).edgeDistance)
     }
+
+    /// Short across the stone's rounded edge, longer along it (``FlagstonePattern/grain(edgeDistance:radius:)``).
+    func grain(at p: SIMD3<Double>, normal n: SIMD3<Double>) -> SurfaceGrain {
+        let s = outline(at: p, normal: n)
+        let lengths = pattern.grain(edgeDistance: s.edgeDistance)
+        return SurfaceGrain(along: lengths.along, across: lengths.across, longest: FlagstonePattern.grainTurn * s.radius, direction: s.inward)
+    }
+
+    /// The grain runs along the lines of equal distance into the stone.
+    var grainFollowsContours: Bool { true }
 
     /// The distance into the stone, across its rounded edge.
     func contour(at p: SIMD3<Double>, normal n: SIMD3<Double>) -> Double? {

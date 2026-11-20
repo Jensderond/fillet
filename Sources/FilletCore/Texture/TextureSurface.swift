@@ -261,6 +261,18 @@ public protocol SolidTexture: Sendable {
     func height(at p: SIMD3<Double>, normal: SIMD3<Double>) -> Double
     /// Edge length wanted around `p`, mm (as ``TexturePattern/detail(at:)``).
     func detail(at p: SIMD3<Double>, normal: SIMD3<Double>) -> Double
+    /// The edge lengths wanted around `p` where the relief bends much more one way than the
+    /// other (across a stone's rounded edge, not along it): `across` along the unit vector
+    /// `direction` (along the surface), `along` (no shorter) at right angles to it. Triangles
+    /// longer along the bend than across it follow it with fewer, more even facets. `longest`
+    /// is the most `along` may come to on a coarser mesh (the viewport's lengths are these
+    /// times a factor): where the bend itself turns (round a stone's corner), a triangle must
+    /// not span more of the turn however coarse the rest is. By default
+    /// ``detail(at:normal:)`` every way (a zero `direction`).
+    func grain(at p: SIMD3<Double>, normal: SIMD3<Double>) -> SurfaceGrain
+    /// Whether ``grain(at:normal:)`` already lays the triangles in rows along the level lines of
+    /// ``contour(at:normal:)``, so the points need no lining up on them afterwards.
+    var grainFollowsContours: Bool { get }
     /// A smooth measure along the surface (mm per mm) whose level lines ``contourLevels`` the
     /// relief bends along, such as the distance into a stone across its rounded edge; nil where
     /// there is none. The mesh lines its points up along those lines (see
@@ -272,10 +284,27 @@ public protocol SolidTexture: Sendable {
 }
 
 extension SolidTexture {
+    public func grain(at p: SIMD3<Double>, normal: SIMD3<Double>) -> SurfaceGrain {
+        let detail = detail(at: p, normal: normal)
+        return SurfaceGrain(along: detail, across: detail, longest: .infinity, direction: .zero)
+    }
+    public var grainFollowsContours: Bool { false }
     public func contour(at p: SIMD3<Double>, normal: SIMD3<Double>) -> Double? { nil }
     public var contourLevels: [Double] { [] }
 }
 
+
+/// The edge lengths a ``SolidTexture`` wants at a point (``SolidTexture/grain(at:normal:)``).
+public struct SurfaceGrain: Sendable {
+    public var along: Double
+    public var across: Double
+    public var longest: Double
+    public var direction: SIMD3<Double>
+
+    public init(along: Double, across: Double, longest: Double, direction: SIMD3<Double>) {
+        self.along = along; self.across = across; self.longest = longest; self.direction = direction
+    }
+}
 
 /// Each component rounded down.
 @inline(__always) func floor3(_ v: SIMD3<Double>) -> SIMD3<Double> { v.rounded(.down) }

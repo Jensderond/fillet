@@ -174,19 +174,41 @@ the viewport's stone edges no finer than their tops, and they frayed. The crease
 (`alignCreases`) skip solid patterns' faces: their relief has no creases, and the flips chained
 into fans of needle triangles that shaded as spikes along the stone edges.
 
+Optionally, `grain(at:normal:)` gives two edge lengths instead of one where the relief bends much
+more one way than the other: `across` along a unit `direction` (flagstone: into the stone, across
+its edge round) and a longer `along` at right angles to it. The engine then subdivides in two
+steps: first as for any pattern down to `along`, then with every length measured as if the
+surface were stretched along `direction` by `along / across`, splitting the longest edge so
+measured and flipping edges by the same measure. The triangles come out longer along the bend
+than across it, in rows that follow it: at the same count there are more of them across the
+bend, where the facets and the shading noise come from. Triangles the same size every way spent
+most of the budget on resolution along a stone's edge that nothing needed. `longest` caps `along`
+in millimetres on a coarser mesh (round a stone's corner, where the bend itself turns), and
+near the textured area's edges (as far as the relief is held back, three times its depth) the
+engine shortens `along` to `across`: the relief is held back to nothing there, which bends the joints up to the edge whichever way they run. The
+subdivision starts without the grain on purpose: splitting by the stretched measure from a coarse
+tessellation carried the needles of a fillet's long strips down into the mesh. The default asks
+for `detail(at:normal:)` every way.
+
 Optionally, `contour(at:normal:)` returns a smooth measure along the surface whose level lines
 `contourLevels` the relief bends along (flagstone: the distance into a stone across its edge
 round). Before displacing, the engine slides points within about a third of an edge of a level
 line onto it, so the triangles run along the bend instead of zigzagging across it (which shades
 as a saw-toothed fringe, worst on the viewport's coarser mesh). The default (nil) leaves the mesh
-as subdivided.
+as subdivided. A pattern whose grain already runs along those lines says so
+(`grainFollowsContours`) and is left alone: sliding the points of its rows squashed their short
+triangles into slivers and left the round rougher (flagstone-vase: shading noise on the stone
+edges 31% below the mesh without a grain with the points left alone, 22% with them moved).
 
 Points of a solid pattern are cut along their surface normals averaged over about the pattern's
 `amplitude` in space (a kernel blend's normals jitter by a degree between points microns apart),
 and a cut is kept within `cutSlope` times its straight distance from a sharp or untextured edge
 (`cutLimit(at:amplitude:)`): the limit rises from the edge along a smootherstep, level at both
-ends, and the cut is rounded into it, so a joint running into the bed or a rim ramps out
-smoothly instead of ending in a saw-toothed line.
+ends, over three times the pattern's depth (`cutEase`), and every cut is scaled by the share of
+the full depth it allows (`heldBack(_:at:amplitude:)`). So a joint running into the bed or a rim
+keeps its section and comes up gently, no steeper or tighter than a stone's own edge, instead
+of ending in a steep scoop a few triangles long that shaded toothed (cut off at the limit, the
+stone's edge also met the limit's floor in a crease).
 
 ## Worked example: knit (`KnitPattern.swift`)
 
@@ -267,9 +289,16 @@ Flagstone lays irregular stones over everything, fillets and corner blends inclu
   the highlight along the crest still traced every stone with a hard bright line. The round
   is widened by two triangles (`softeningSteps`), at export and at the viewport's coarser detail
   (`detailScale`) alike.
+- **`grain(at:normal:)`** makes the triangles of the edge round twice as long along the stone's
+  outline as across it (`grainStretch`: √2 shorter across and √2 longer along than `detail(at:)`
+  asks for, so as many of them), never longer round a rounded corner than a fifth of the radius
+  of the corner's line there (`grainTurn`). The direction and that radius come with the distance
+  to the outline (`outline(at:normal:)`). Three times as long shaded a little smoother still but
+  left 0.5% slivers and a rougher outline.
 - **`contour(at:normal:)`** is the distance into the stone, with level lines where the round
   leaves the floor, where the foot bends most, where it turns into the shoulder, in quarters
-  across the shoulder, and where it meets the top.
+  across the shoulder, and where it meets the top. The engine no longer moves points onto them
+  (`grainFollowsContours`).
 - **`detail`** is the coarse size for the stone tops, and **`detail(at:)`** /
   `detail(at:normal:)` is fine (a ninth of the joint or edge, whichever is smaller) across the
   edge round and grows quickly away from it.

@@ -64,8 +64,8 @@ public struct FlagstonePattern: TexturePattern {
     var softening: Double
     /// ``softening`` in triangles of ``rimDetail`` (times the mesh's coarseness): for export, and
     /// for a coarser mesh (the viewport), where the triangles meet the round at fewer angles (the
-    /// viewport's budget has no room for finer ones there). With the points lined up along the
-    /// round (``SolidTexture/contourLevels``) and the gentler shoulder (``shoulder(_:)``), two
+    /// viewport's budget has no room for finer ones there). With the triangles in rows along
+    /// the round (``grain(edgeDistance:)``) and the gentler shoulder (``shoulder(_:)``), two
     /// are enough there too; three made the stones look melted.
     static let softeningSteps = (export: 2.0, coarse: 2.0)
 
@@ -114,6 +114,33 @@ public struct FlagstonePattern: TexturePattern {
         let round = edgeRound
         let away = max(round.start - e, e - round.start - round.width, 0)
         return away <= fine ? fine : min(top, fine + (away - fine))
+    }
+
+    /// How many times longer along a stone's edge than across it the triangles of its round are
+    /// (see ``grain(edgeDistance:radius:)``).
+    static let grainStretch = 2.0
+    /// The longest a triangle along a rounded corner may be, as a share of the radius of the
+    /// corner's line there: a fifth of a radian of its turn per triangle.
+    static let grainTurn = 0.2
+
+    /// Edge lengths wanted at a point `e` mm inside a stone's outline, across the outline and
+    /// along it: for a layout in space, whose mesh can tell the two apart
+    /// (``SolidTexture/grain(at:normal:)``).
+    ///
+    /// The edge round bends across the outline only, so its triangles are ``grainStretch``
+    /// times as long along the outline as across it: as many as ``detail(edgeDistance:)`` asks
+    /// for (√stretch shorter across, √stretch longer along), but more of them across the bend.
+    /// Out on the top and down the joint's floor the two grow into one length, the same every
+    /// way, as ``detail(edgeDistance:)``.
+    func grain(edgeDistance e: Double) -> (along: Double, across: Double) {
+        let fine = rimDetail, top = detail
+        guard top > fine else { return (fine, fine) }
+        let stretch = Self.grainStretch.squareRoot()
+        let round = edgeRound
+        let away = max(round.start - e, e - round.start - round.width, 0)
+        let across = min(top, max(fine / stretch, away))
+        let along = min(top, max(across, fine * stretch))
+        return (along, across)
     }
 
     public func fitted(to extent: SIMD2<Double>?, wraps: Bool) -> any TexturePattern {

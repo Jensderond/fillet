@@ -36,6 +36,12 @@ let usage = """
           triangles and a bit-exact mesh digest per fixture and mode (markdown; progress on
           stderr). --stages adds the engine's time per stage; --loop re-runs one fixture and
           mode for that long (to attach a profiler). See docs/texture-performance.md.
+      texture-lab smoothness <design.fillet> ... [--mode display|export] [--jitter mm] [--flatten f]
+          How rough each textured body's mesh looks, as JSON, at display and export quality:
+          shading noise (shaded normals against their neighbours', dihedral angles), roughness
+          against a smooth fit at a fixed size, how jagged the relief's outlines are, triangle
+          quality, and guards that drop when the relief is flattened (depth, joint width, edge
+          slope, grain). --jitter and --flatten disturb the mesh first, to test the measure.
     """
 
 var arguments = Array(CommandLine.arguments.dropFirst())
@@ -234,6 +240,17 @@ do {
         let dir = option("--dir").map(url) ?? TextureBench.defaultDirectory()
         if let extra = arguments.first { fail("bench: unexpected argument \(extra)") }
         try await TextureBench.main(directory: dir, names: names, modes: modes, runs: runs, stages: stages, loop: loop)
+
+    case "smoothness":
+        var o = Smoothness.Options()
+        if let m = option("--mode") {
+            guard let mode = Smoothness.Mode(rawValue: m) else { fail("--mode must be display or export") }
+            o.modes = [mode]
+        }
+        o.jitter = number("--jitter") ?? 0
+        o.flatten = number("--flatten") ?? 1
+        guard !arguments.isEmpty else { fail("smoothness needs a .fillet file") }
+        try await Smoothness.main(files: arguments.map(url), options: o)
 
     default:
         fail("unknown command \(command)\n\n\(usage)")

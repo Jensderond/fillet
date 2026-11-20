@@ -44,8 +44,9 @@ public struct TextureQuality: Hashable, Sendable {
 /// 3. Gives each point surface coordinates following its face (``SurfaceMapping``) and moves it
 ///    along the normal by the pattern's height. A point shared by several textured faces gets the
 ///    average, so shared points move once. The displacement fades to zero towards untextured
-///    faces and sharp edges between textured ones (over the `fade` parameter), a cut never goes
-///    deeper than ``cutSlope`` times its distance from them, and nothing pushes below the lowest
+///    faces and sharp edges between textured ones (over the `fade` parameter), a cut comes up
+///    to them gently (``heldBack(_:at:amplitude:)``), never deeper than ``cutSlope`` times its
+///    distance from them, and nothing pushes below the lowest
 ///    point (the bed).
 /// 4. Shortens any displacement that would reach through a thin wall or across a narrow gap
 ///    (``WorkMesh/limitThroughWalls(_:ramp:where:)``), and walks back any that would fold a triangle over.
@@ -119,8 +120,9 @@ public enum TextureEngine {
     /// relatively more triangles in its transitions).
     static let trialScale = 1.6
     /// The share of the triangle budget the trial subdivision aims the mesh at (see
-    /// ``displace(_:faces:quality:)``), leaving room for its error.
-    static let budgetAim = 0.92
+    /// ``displace(_:faces:quality:)``), leaving room for its error. With a grain the trial
+    /// counts a little over (the real mesh came out 2% under this on the review designs).
+    static let budgetAim = 0.95
     /// Radius in mm over which the curvature of the surface under a layout in space is evened out
     /// (``WorkMesh/fairing(along:where:radius:)``).
     static let fairingRadius = 2.5
@@ -185,6 +187,29 @@ public enum TextureEngine {
             guard let (mapping, pattern) = coarseByFace[Int(f)] else { return .infinity }
             return max(pattern.detail(at: mapping.uv(p)) * localScale * budgetScale, 1e-3)
         }
+        // The same with the direction a layout in space wants its triangles short in (see
+        // ``SolidTexture/grain(at:normal:)``). Not near the textured area's outer edges (and
+        // sharp edges inside it): there the relief is held back (``heldBack(_:at:amplitude:)``),
+        // which bends a joint's floor up to the edge whichever way the joint runs, not along the
+        // grain. Long triangles across that bend shaded as ragged patches where the joints end.
+        // So towards an edge, over the distance the relief is held back, the longer length
+        // shortens to the other.
+        let grainBorder = Self.cutLimitRange(amplitude: specs.values.map(\.pattern.amplitude).max() ?? 0)
+        let edges = solids.isEmpty || grainBorder <= 0 ? nil : WorkMesh.EdgeField(borders, reach: grainBorder)
+        func grained(_ p: SIMD3<Double>, _ normal: SIMD3<Double>, _ f: Int32) -> WorkMesh.Grain {
+            guard f >= 0, Int(f) < solidByFace.count, let solid = solidByFace[Int(f)] else {
+                return WorkMesh.Grain(along: wanted(p, normal, f), across: .infinity, direction: .zero)
+            }
+            let g = solid.grain(at: p, normal: normal)
+            let scale = localScale * budgetScale
+            let across = max(g.across * scale, 1e-3)
+            var along = max(min(g.along * scale, g.longest), across)
+            if along > across, let edges, let d = edges.distance(to: p) {
+                let t = d / edges.reach
+                along = across * pow(along / across, t * t * (3 - 2 * t))
+            }
+            return WorkMesh.Grain(along: along, across: across, direction: g.direction)
+        }
         if !solids.isEmpty {
             // A layout in space asks for fine triangles only along its features (a stone's
             // rounded edge) and coarse ones elsewhere. Capping every triangle at the length a
@@ -203,7 +228,7 @@ public enum TextureEngine {
                 let trial = Self.trialScale
                 budgetScale = trial
                 var probe = m
-                probe.subdivide(maxEdge: edge * trial, where: textured, maxTriangles: .max, local: wanted, polish: false)
+                probe.subdivide(maxEdge: edge * trial, where: textured, maxTriangles: .max, local: wanted, grain: grained, polish: false)
                 let needed = Double(probe.triangles.count - m.triangles.count) * trial * trial
                 // Aimed a little under: the estimate comes within a few percent either way, and a
                 // mesh that runs into the cap ends on a partial pass, uneven along the stone edges.
@@ -213,16 +238,21 @@ public enum TextureEngine {
             }
             stages?.mark("budget trial")
         }
-        m.subdivide(maxEdge: edge, where: textured, maxTriangles: quality.maxTriangles, local: wanted)
+        m.subdivide(maxEdge: edge, where: textured, maxTriangles: quality.maxTriangles, local: wanted,
+                    grain: solids.isEmpty ? nil : grained)
         stages?.mark("subdivide")
         // Sharp round outlines (a disc's edge) meshed along their own curves (``TextureRim``).
         let rimMappings = m.followRims(specs, borders: borders, scale: quality.edgeScale)
         stages?.mark("rims")
-        // Points in rows along the level lines of a pattern laid out in space (a stone's round).
-        // Without one there is nothing to snap, nor any need for the mesh's open edges.
-        if !solids.isEmpty {
+        // Points in rows along the level lines of a pattern laid out in space (a stone's round),
+        // unless its grain laid the triangles along them already: sliding those rows' points
+        // onto the lines squashed their short triangles into slivers and left the round rougher
+        // than it found it. Without one there is nothing to snap, nor any need for the mesh's
+        // open edges.
+        let snapped = solids.filter { !$0.value.grainFollowsContours }
+        if !snapped.isEmpty {
             let open = m.openEdgeVertices()
-            m.snapToContours(solids) { !open[$0] }
+            m.snapToContours(snapped) { !open[$0] }
         }
         stages?.mark("contour snap")
         m.dissolveSlivers(where: textured)
@@ -333,15 +363,7 @@ public enum TextureEngine {
                     weight = t * t * (3 - 2 * t)
                 }
                 var offset = height / count * weight
-                if offset < 0, let d = distance?[v] {
-                    // Rounded into the limit rather than clipped by it, so where the limit takes
-                    // over the cut doesn't break into a crease.
-                    let limit = Self.cutLimit(at: d, amplitude: amplitudeLimit)
-                    if limit.isFinite {
-                        let width = min(0.3 * amplitudeLimit, limit)
-                        offset = width > 0 ? min(Self.smoothMax(offset, -limit, width: width), 0) : 0
-                    }
-                }
+                if offset < 0, let d = distance?[v] { offset = Self.heldBack(offset, at: d, amplitude: amplitudeLimit) }
                 return (simd_normalize(direction), offset)
             }
             for v in 0..<n {
@@ -398,31 +420,40 @@ public enum TextureEngine {
     /// than that straight line: it leaves the edge level and runs into the full depth level, with
     /// no bend for the triangles to cut across. A straight ramp met the joint floor in a bend
     /// a few tenths of a millimetre wide, finer than the joint floor's triangles, and the joints
-    /// ran into a rim or the bed in a saw-toothed line. It tops out a little over `amplitude`, so
-    /// the full depth meets it (and the rounding into it) before it ends.
+    /// ran into a rim or the bed in a saw-toothed line.
     static func cutLimit(at d: Double, amplitude: Double) -> Double {
         let range = cutLimitRange(amplitude: amplitude)
         guard d < range else { return .infinity }
         let t = max(d, 0) / range
-        return cutLimitTop * amplitude * t * t * t * (t * (t * 6 - 15) + 10)
+        return amplitude * t * t * t * (t * (t * 6 - 15) + 10)
     }
 
-    /// How far from an edge ``cutLimit(at:amplitude:)`` holds: where its smootherstep, whose
-    /// steepest secant from the edge is 1.2 (just over, to be safe) times its average slope, stays
-    /// within ``cutSlope``.
+    /// How far from an edge ``cutLimit(at:amplitude:)`` holds: ``cutEase`` times the depth, and
+    /// never so near that its smootherstep, whose steepest secant from the edge is 1.2 (just
+    /// over, to be safe) times its average slope, would leave ``cutSlope``.
     static func cutLimitRange(amplitude: Double) -> Double {
-        1.21 * cutLimitTop * amplitude / cutSlope
+        amplitude * max(cutEase, 1.21 / cutSlope)
     }
 
-    /// ``cutLimit(at:amplitude:)`` tops out this many times the amplitude: room for the rounding
-    /// into it (0.3 of the amplitude) before it ends.
-    static let cutLimitTop = 1.3
+    /// The distance from an edge over which a cut reaches its full depth, in depths. At the
+    /// 1.6 that ``cutSlope`` allows, a joint 1 mm deep came up to a rim within a millimetre, at
+    /// up to 49° and bending at a radius of 0.6 mm: steeper and far tighter than the stones'
+    /// own rounded edges, in a few rows of the viewport's triangles, and every joint ended at
+    /// the rim in a dark toothed scoop (a bright ragged patch at the bed). Over 3 depths the
+    /// ramp is at most 32° steep and bends at a radius of 1.5 mm, like a stone's edge.
+    static let cutEase = 3.0
 
-    /// The larger of `a` and `b`, rounded over `width` where they are close (never smaller than
-    /// either).
-    static func smoothMax(_ a: Double, _ b: Double, width: Double) -> Double {
-        let h = max(width - abs(a - b), 0) / width
-        return max(a, b) + h * h * width / 4
+    /// The cut `offset` (negative) of a pattern at most `amplitude` deep, as deep as it may go
+    /// `d` mm from a sharp or untextured edge: scaled by the share of the full depth that
+    /// ``cutLimit(at:amplitude:)`` allows there, so it is never deeper than the limit.
+    ///
+    /// Scaled, not cut off at the limit: the whole relief then comes up to the edge together,
+    /// a joint keeping its section while it gets shallower. Cut off (even rounded into the
+    /// limit), a stone's edge met the limit's level floor in a bend that sharpened to a crease
+    /// as the limit ran out towards the edge, at an angle to every row of triangles.
+    static func heldBack(_ offset: Double, at d: Double, amplitude: Double) -> Double {
+        let limit = cutLimit(at: d, amplitude: amplitude)
+        return limit.isFinite ? offset * limit / amplitude : offset
     }
 
     /// The repeat a face's u is fitted to: the pattern's cell, or (for a pattern that spaces
@@ -447,6 +478,20 @@ struct WorkMesh {
     var surfaceNormals: [SIMD3<Double>] = []
     /// Each face's own normal at the points on edges between faces, by point and face.
     var edgeNormals = PointFaceNormals()
+    /// While ``subdivide(maxEdge:where:maxTriangles:local:grain:polish:)`` runs with a `grain`:
+    /// per point, the direction its triangles are wanted shorter in, scaled so that an edge `d`
+    /// there counts as long as one of length √(|d|² + (d · stretch)²) across the other way (zero:
+    /// the same every way). Empty otherwise.
+    var stretch: [SIMD3<Double>] = []
+
+    /// The edge lengths wanted at a point: `across` along `direction` (a unit vector along the
+    /// surface) and `along` (at least as long) at right angles to it. A zero `direction` asks
+    /// for `along` every way.
+    struct Grain {
+        var along: Double
+        var across: Double
+        var direction: SIMD3<Double>
+    }
 
     init(points: [SIMD3<Double>], triangles: [SIMD3<Int32>], faces: [Int32]) {
         self.points = points; self.triangles = triangles; self.faces = faces
@@ -520,6 +565,45 @@ struct WorkMesh {
     static func unit(_ v: SIMD3<Double>) -> SIMD3<Double> {
         let l = simd_length(v)
         return l > 1e-12 ? v / l : .zero
+    }
+
+    /// How far a point is from the outer edges of the faces a texture covers (and the sharp
+    /// edges between them), up to `reach`: the edges as points every eighth of `reach` along
+    /// them, each listed in the cubes of side `reach` it can be within reach of a point of.
+    struct EdgeField: Sendable {
+        let reach: Double
+        private var near: [SIMD3<Int32>: [SIMD3<Double>]] = [:]
+
+        /// From each face's edges (``faceBorders(where:)``), leaving out the seams.
+        init(_ borders: [Int32: [FaceEdge]], reach: Double) {
+            self.reach = reach
+            let step = reach / 8
+            // Every edge's points, whichever order the edges come in (and an edge between two
+            // textured faces from both): only the nearest of them is ever asked for.
+            for edges in borders.values {
+                for edge in edges where !edge.seam {
+                    let length = simd_distance(edge.a, edge.b)
+                    let count = max(1, Int((length / step).rounded(.up)))
+                    for i in 0...count {
+                        let p = edge.a + (edge.b - edge.a) * (Double(i) / Double(count))
+                        let key = PointGrid.cell(p, reach)
+                        for dz in Int32(-1)...1 {
+                            for dy in Int32(-1)...1 {
+                                for dx in Int32(-1)...1 { near[key &+ SIMD3(dx, dy, dz), default: []].append(p) }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        /// The distance from `p` to the nearest edge, nil when none is within `reach`.
+        func distance(to p: SIMD3<Double>) -> Double? {
+            guard let points = near[PointGrid.cell(p, reach)] else { return nil }
+            var best = reach * reach
+            for q in points { best = min(best, simd_distance_squared(p, q)) }
+            return best < reach * reach ? best.squareRoot() : nil
+        }
     }
 
     /// One edge of a face's outline (see ``faceBorders(where:)``).
@@ -630,19 +714,61 @@ struct WorkMesh {
     /// length wanted at its corners. `polish` false leaves out the last passes of edge flips,
     /// which change only the triangles' shapes, not how many there are (for a trial that only
     /// counts them).
+    ///
+    /// `grain`, when given, replaces `local` with lengths that differ by direction (``Grain``):
+    /// across a stone's rounded edge the relief bends within a millimetre or two, along it
+    /// hardly at all. Triangles the same size every way had to be fine enough for the bend in
+    /// both directions, so most of the triangle budget went into resolution along the edge that
+    /// nothing needed, and the round itself came out in few, uneven facets that shaded as a
+    /// frayed fringe (worst in the viewport). With a grain every length is measured as if the
+    /// surface were stretched along `direction` by `along` / `across` (``stretch``): the longest
+    /// edge so measured is split while it is longer than `along`, and the flips keep the
+    /// triangles round in the same measure (``flipCorner(_:_:_:across:points:stretch:)``), so
+    /// they come out longer along the edge than across it, in rows that follow it.
     mutating func subdivide(maxEdge: Double, where include: (Int32) -> Bool, maxTriangles: Int,
-                            local: ((SIMD3<Double>, SIMD3<Double>, Int32) -> Double)? = nil, polish: Bool = true) {
+                            local: ((SIMD3<Double>, SIMD3<Double>, Int32) -> Double)? = nil,
+                            grain: ((SIMD3<Double>, SIMD3<Double>, Int32) -> Grain)? = nil, polish: Bool = true) {
         let limit = maxEdge * maxEdge
+        // The squared length wanted at a point of a face and its ``stretch`` there.
+        func sized(_ mesh: WorkMesh, _ v: Int32, _ f: Int32) -> (wanted: Double, stretch: SIMD3<Double>) {
+            let p = mesh.points[Int(v)], normal = mesh.surfaceNormal(v, face: f)
+            guard let grain else {
+                let e = min(local!(p, normal, f), maxEdge)
+                return (e * e, .zero)
+            }
+            let g = grain(p, normal, f)
+            let along = min(g.along, maxEdge), across = min(g.across, along)
+            guard across < along, g.direction != .zero else { return (along * along, .zero) }
+            let ratio = along / across
+            return (along * along, g.direction * (ratio * ratio - 1).squareRoot())
+        }
+        // First without the grain, down to the longer of each point's two lengths: splitting by
+        // the stretched measure from the start, on triangles many times longer than the grain
+        // turns in, carried the needles of a coarse tessellation (a fillet's long strips, each
+        // ending in a point) down into the mesh, where the flips no longer undid them. Then
+        // with it, which from triangles already that small takes a split or two across the
+        // grain. `grains` is the points' stretch until then, ``stretch`` from then on.
+        var grains: [SIMD3<Double>] = []
+        var stretching = false
+        stretch = []
+        defer { stretch = [] }
         // The squared length wanted at each point (-1: not yet known), on the face of the first
         // triangle (in order) that needed it.
         var wanted: [Double] = []
         // The points whose edges ``improve(where:passes:dirty:)`` must look at again (nil: all).
         var dirty: [Bool]? = nil
         for _ in 0..<64 {
-            if let local {
+            if local != nil || grain != nil {
                 // The points this pass looks at for the first time, on that face, looked up
                 // across the cores first (each is a pattern sample, often the most of a pass).
                 if wanted.count < points.count { wanted.append(contentsOf: repeatElement(-1, count: points.count - wanted.count)) }
+                if grain != nil {
+                    if stretching {
+                        stretch.append(contentsOf: repeatElement(.zero, count: points.count - stretch.count))
+                    } else {
+                        grains.append(contentsOf: repeatElement(.zero, count: points.count - grains.count))
+                    }
+                }
                 var todo: [Int32] = [], todoFaces: [Int32] = []
                 // The corners not yet known, block by block across the cores, then each taken
                 // once in triangle order, on the face of the first triangle with it.
@@ -667,12 +793,13 @@ struct WorkMesh {
                     }
                 }
                 let mesh = self
-                let found = concurrentMap(todo.count) { i in
-                    let v = todo[i], f = todoFaces[i]
-                    let e = min(local(mesh.points[Int(v)], mesh.surfaceNormal(v, face: f), f), maxEdge)
-                    return e * e
+                let found = concurrentMap(todo.count) { i in sized(mesh, todo[i], todoFaces[i]) }
+                for (i, v) in todo.enumerated() {
+                    wanted[Int(v)] = found[i].wanted
+                    if grain != nil {
+                        if stretching { stretch[Int(v)] = found[i].stretch } else { grains[Int(v)] = found[i].stretch }
+                    }
                 }
-                for (i, v) in todo.enumerated() { wanted[Int(v)] = found[i] }
             }
             // Edges to split this pass, in triangle order, with how far each is over its length.
             var wantedSplits: [(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)] = []
@@ -681,7 +808,8 @@ struct WorkMesh {
             // triangle order, each kept as the first triangle asking for it found it.
             let found: [[(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)]]
             do {
-                let triangles = triangles, faces = faces, points = points, wanted = wanted, local = local != nil
+                let triangles = triangles, faces = faces, points = points, wanted = wanted, stretch = stretch
+                let local = local != nil || grain != nil
                 let blockSize = 16384
                 found = concurrentMap((triangles.count + blockSize - 1) / blockSize, chunk: 1) { block in
                     var out: [(key: UInt64, a: Int32, b: Int32, face: Int32, excess: Double)] = []
@@ -689,7 +817,9 @@ struct WorkMesh {
                         let tri = triangles[t]
                         var best = -1.0, bestK = 0
                         for k in 0..<3 {
-                            let d = simd_distance_squared(points[Int(tri[k])], points[Int(tri[(k + 1) % 3])])
+                            let d = stretch.isEmpty
+                                ? simd_distance_squared(points[Int(tri[k])], points[Int(tri[(k + 1) % 3])])
+                                : Self.stretchedLengthSquared(tri[k], tri[(k + 1) % 3], points: points, stretch: stretch)
                             if d > best { best = d; bestK = k }
                         }
                         let wantedHere = !local ? limit : min(wanted[Int(tri.x)], wanted[Int(tri.y)], wanted[Int(tri.z)])
@@ -703,7 +833,16 @@ struct WorkMesh {
             for block in found {
                 for split in block where !seen.findOrInsert(split.key).found { wantedSplits.append(split) }
             }
-            if wantedSplits.isEmpty { break }
+            if wantedSplits.isEmpty {
+                guard grain != nil, !stretching else { break }
+                stretching = true
+                stretch = grains
+                grains = []
+                // Every edge is measured anew.
+                dirty = nil
+                improve(where: include, dirty: &dirty)
+                continue
+            }
             // Over the budget: only the edges furthest over their length, as many as fit (each
             // split adds about two triangles), and this is the last pass.
             let room = (maxTriangles - triangles.count) / 2
@@ -727,6 +866,17 @@ struct WorkMesh {
                 points.append(curvedMidpoint(split.a, split.b, face: split.face))
                 if surfaceNormals.count == points.count - 1 {
                     surfaceNormals.append(Self.unit(surfaceNormal(split.a, face: split.face) + surfaceNormal(split.b, face: split.face)))
+                }
+            }
+            if grain != nil {
+                // The new points' lengths and stretch now rather than at the next pass: the
+                // flips below measure by them.
+                let first = points.count - wantedSplits.count
+                let mesh = self, splits = wantedSplits
+                let found = concurrentMap(splits.count) { i in sized(mesh, Int32(first + i), splits[i].face) }
+                for size in found {
+                    wanted.append(size.wanted)
+                    if stretching { stretch.append(size.stretch) } else { grains.append(size.stretch) }
                 }
             }
             for s in wantedSplits { splitEnd[Int(s.a)] = true; splitEnd[Int(s.b)] = true }
@@ -785,7 +935,11 @@ struct WorkMesh {
                             let mab = e(r)!, mbc = e((r + 1) % 3)!
                             add(mab, b, mbc)
                             let points = mesh.points
-                            if simd_distance_squared(points[Int(a)], points[Int(mbc)]) < simd_distance_squared(points[Int(mab)], points[Int(c)]) {
+                            let shorter = mesh.stretch.isEmpty
+                                ? simd_distance_squared(points[Int(a)], points[Int(mbc)]) < simd_distance_squared(points[Int(mab)], points[Int(c)])
+                                : Self.stretchedLengthSquared(a, mbc, points: points, stretch: mesh.stretch)
+                                    < Self.stretchedLengthSquared(mab, c, points: points, stretch: mesh.stretch)
+                            if shorter {
                                 add(a, mab, mbc)
                                 add(a, mbc, c)
                             } else {
@@ -830,6 +984,16 @@ struct WorkMesh {
         var made: [Int32] = []
         /// The face normals at the new points on edges between faces, in the order found.
         var normals: [(point: Int32, face: Int32, normal: SIMD3<Double>)] = []
+    }
+
+    /// The squared length of edge (`a`, `b`) as ``subdivide(maxEdge:where:maxTriangles:local:grain:polish:)``
+    /// measures it with a grain: its own, plus that of its part along each end's ``stretch``
+    /// (the two ends' averaged).
+    @inline(__always)
+    static func stretchedLengthSquared(_ a: Int32, _ b: Int32, points: [SIMD3<Double>], stretch: [SIMD3<Double>]) -> Double {
+        let d = points[Int(b)] - points[Int(a)]
+        let sa = simd_dot(d, stretch[Int(a)]), sb = simd_dot(d, stretch[Int(b)])
+        return simd_length_squared(d) + (sa * sa + sb * sb) / 2
     }
 
     /// The point halfway along edge (`a`, `b`) on the face's curved surface rather than on the
@@ -919,7 +1083,7 @@ struct WorkMesh {
                         let u = Int(owner.values[slot])
                         guard !touched[t], !touched[u], faces[u] == faces[t] else { continue }
                         let c = tri[(k + 2) % 3]
-                        let d = Self.flipCorner(a, b, c, across: triangles[u], points: points)
+                        let d = Self.flipCorner(a, b, c, across: triangles[u], points: points, stretch: stretch)
                         guard d >= 0 else { continue }
                         triangles[t] = SIMD3(c, a, d)
                         triangles[u] = SIMD3(c, d, b)
@@ -957,7 +1121,7 @@ struct WorkMesh {
     /// by the caller's `touched` check where the serial loop stops or skips it.
     func improveCandidates(_ visit: [Int], dirty: [Bool]?) -> [(edge: Int32, other: Int32, d: Int32)]? {
         let shards = 16
-        let triangles = triangles, faces = faces, points = points
+        let triangles = triangles, faces = faces, points = points, stretch = stretch
         let found = concurrentMap(shards, chunk: 1) { shard -> [(edge: Int32, other: Int32, d: Int32)]? in
             // Each key's first triangle, then -2 once a second has come.
             var owner = EdgeMap<Int32>(capacity: visit.count * 3 / 2 / shards + 64, filler: -1)
@@ -976,7 +1140,7 @@ struct WorkMesh {
                     guard u >= 0 else { return nil }
                     owner.set(slot: slot, -2)
                     guard faces[u] == faces[t] else { continue }
-                    let d = Self.flipCorner(a, b, tri[(k + 2) % 3], across: triangles[u], points: points)
+                    let d = Self.flipCorner(a, b, tri[(k + 2) % 3], across: triangles[u], points: points, stretch: stretch)
                     if d >= 0 { out.append((Int32(3 * i + k), Int32(u), d)) }
                 }
             }
@@ -994,23 +1158,47 @@ struct WorkMesh {
     /// The far corner d of triangle `o` across edge (`a`, `b`) of triangle (`a`, `b`, `c`) when
     /// ``improve(where:passes:dirty:)`` swaps the edge for (c, d), else -1: when the angles
     /// opposite it add up to more than 180°, the two triangles are nearly coplanar and the
-    /// triangles made face the same way as these.
+    /// triangles made face the same way as these. With a `stretch` (see ``stretch``; empty:
+    /// none) the angles are those of the four points stretched by their corners' average, so
+    /// the flips keep triangles round as the splitting measures them, long along a grain.
     @inline(__always)
-    static func flipCorner(_ a: Int32, _ b: Int32, _ c: Int32, across o: SIMD3<Int32>, points: [SIMD3<Double>]) -> Int32 {
+    static func flipCorner(_ a: Int32, _ b: Int32, _ c: Int32, across o: SIMD3<Int32>, points: [SIMD3<Double>],
+                           stretch: [SIMD3<Double>] = []) -> Int32 {
         // The other triangle runs b → a; its third corner is d.
         var d: Int32 = -1
         for j in 0..<3 where o[j] == b && o[(j + 1) % 3] == a { d = o[(j + 2) % 3] }
         guard d >= 0, d != c else { return -1 }
         let pa = points[Int(a)], pb = points[Int(b)], pc = points[Int(c)], pd = points[Int(d)]
+        // The same points as the angles see them: stretched along the grain.
+        var qa = pa, qb = pb, qc = pc, qd = pd
+        if !stretch.isEmpty {
+            // The corners' stretch averaged, each turned to the first's side (a stretch and
+            // its opposite measure the same).
+            var w = stretch[Int(a)]
+            for v in [b, c, d] {
+                let s = stretch[Int(v)]
+                w += simd_dot(s, w) < 0 ? -s : s
+            }
+            w /= 4
+            let l2 = simd_length_squared(w)
+            if l2 > 1e-12 {
+                // Lengths along w grow by √(1 + |w|²), those across it stay.
+                let k = ((1 + l2).squareRoot() - 1) / l2
+                qb = pa + (pb - pa) + k * simd_dot(pb - pa, w) * w
+                qc = pa + (pc - pa) + k * simd_dot(pc - pa, w) * w
+                qd = pa + (pd - pa) + k * simd_dot(pd - pa, w) * w
+                qa = pa
+            }
+        }
         // Both opposite angles acute: each atan2 below comes out at most π/2 (to an
         // ulp), their sum nowhere near the 1e-9 over π the flip needs. Most edges
         // are, and this spares them the two atan2.
-        if simd_dot(pa - pc, pb - pc) > 0, simd_dot(pb - pd, pa - pd) > 0 { return -1 }
+        if simd_dot(qa - qc, qb - qc) > 0, simd_dot(qb - qd, qa - qd) > 0 { return -1 }
         func angle(_ at: SIMD3<Double>, _ p: SIMD3<Double>, _ q: SIMD3<Double>) -> Double {
             let x = p - at, y = q - at
             return atan2(simd_length(simd_cross(x, y)), simd_dot(x, y))
         }
-        guard angle(pc, pa, pb) + angle(pd, pb, pa) > .pi + 1e-9 else { return -1 }
+        guard angle(qc, qa, qb) + angle(qd, qb, qa) > .pi + 1e-9 else { return -1 }
         let n1 = simd_cross(pb - pa, pc - pa), n2 = simd_cross(pa - pb, pd - pb)
         let l1 = simd_length(n1), l2 = simd_length(n2)
         let coplanar = cos(25.0 * .pi / 180)

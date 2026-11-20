@@ -551,7 +551,7 @@ struct TextureEngineTests {
     }
 
     /// The deepest cut allowed near a sharp or untextured edge stays within `cutSlope` of it,
-    /// leaves the edge level, rises without a bend and runs level into the full depth before the
+    /// leaves the edge level, rises without a bend and runs level into the full depth where the
     /// limit ends: a straight ramp met the joint floor in a bend finer than the floor's
     /// triangles, and joints ran into the bed and the rim in a saw-toothed line.
     @Test func cutLimitRisesSmoothlyWithinTheSlope() {
@@ -568,11 +568,29 @@ struct TextureEngineTests {
             #expect(abs(slope - previousSlope) < 0.01, "bend at \(d) mm")
             previous = limit; previousSlope = slope
         }
-        // Level at both ends, deeper than the deepest cut (and its rounding) before it ends.
+        // Level at both ends, as deep as the deepest cut where it ends.
         #expect(TextureEngine.cutLimit(at: h, amplitude: amplitude) < 1e-6)
         #expect(previousSlope < 0.01)
-        #expect(previous > 1.29 * amplitude)
+        #expect(abs(previous - amplitude) < 1e-3 * amplitude)
         #expect(TextureEngine.cutLimit(at: range, amplitude: amplitude) == .infinity)
+    }
+
+    /// A cut near a sharp or untextured edge is scaled to the share of the full depth allowed
+    /// there (not cut off at it): half as deep a cut stays half as deep all the way to the edge,
+    /// the deepest is never deeper than `cutSlope` times the distance, and from the range on
+    /// (and for anything raised) nothing changes.
+    @Test func cutsAreScaledTowardsAnEdge() {
+        let amplitude = 2.0
+        let range = TextureEngine.cutLimitRange(amplitude: amplitude)
+        for i in 0...100 {
+            let d = range * Double(i) / 100
+            let full = TextureEngine.heldBack(-amplitude, at: d, amplitude: amplitude)
+            #expect(full >= -TextureEngine.cutSlope * d - 1e-12)
+            #expect(abs(TextureEngine.heldBack(-amplitude / 2, at: d, amplitude: amplitude) - full / 2) < 1e-12)
+        }
+        #expect(TextureEngine.heldBack(-amplitude, at: 0, amplitude: amplitude) == 0)
+        #expect(TextureEngine.heldBack(-amplitude, at: range, amplitude: amplitude) == -amplitude)
+        #expect(abs(TextureEngine.heldBack(-amplitude, at: range * 0.999, amplitude: amplitude) + amplitude) < 1e-6)
     }
 
     /// Each grid cell lists every seed that can matter to its points: the stone found through
@@ -1038,6 +1056,38 @@ struct TextureEngineTests {
         for v in m.points.indices where abs(abs(before.points[v].x) - 15) < 1e-9 || abs(abs(before.points[v].y) - 15) < 1e-9 {
             #expect(m.points[v] == before.points[v])
         }
+    }
+
+    /// With a grain the triangles come out longer along it than across it, without slivers.
+    @Test func subdivisionFollowsAGrain() {
+        // A 12 mm square; edges 0.2 mm wanted along x, 0.4 mm along y.
+        var m = WorkMesh(points: [SIMD3(0, 0, 0), SIMD3(12, 0, 0), SIMD3(12, 12, 0), SIMD3(0, 12, 0)],
+                         triangles: [SIMD3(0, 1, 2), SIMD3(0, 2, 3)], faces: [0, 0])
+        m.surfaceNormals = [SIMD3<Double>](repeating: SIMD3(0, 0, 1), count: 4)
+        var plain = m
+        m.subdivide(maxEdge: 1, where: { $0 == 0 }, maxTriangles: 400_000,
+                    grain: { _, _, _ in WorkMesh.Grain(along: 0.4, across: 0.2, direction: SIMD3(1, 0, 0)) })
+        plain.subdivide(maxEdge: 1, where: { $0 == 0 }, maxTriangles: 400_000, local: { _, _, _ in 0.4 })
+        #expect(m.stretch.isEmpty)
+        // Each triangle's extent along x and y, and its smallest angle.
+        var across = 0.0, along = 0.0, sharpest = Double.infinity
+        for tri in m.triangles {
+            let p = [m.points[Int(tri.x)], m.points[Int(tri.y)], m.points[Int(tri.z)]]
+            across += max(p[0].x, p[1].x, p[2].x) - min(p[0].x, p[1].x, p[2].x)
+            along += max(p[0].y, p[1].y, p[2].y) - min(p[0].y, p[1].y, p[2].y)
+            for k in 0..<3 {
+                let x = p[(k + 1) % 3] - p[k], y = p[(k + 2) % 3] - p[k]
+                sharpest = min(sharpest, atan2(simd_length(simd_cross(x, y)), simd_dot(x, y)))
+            }
+        }
+        across /= Double(m.triangles.count)
+        along /= Double(m.triangles.count)
+        #expect(across < 0.2)
+        #expect(along > 1.6 * across)
+        #expect(sharpest > 15 * .pi / 180)
+        // About twice the triangles of the same square at 0.4 mm every way, not four times.
+        let ratio = Double(m.triangles.count) / Double(plain.triangles.count)
+        #expect(ratio > 1.5 && ratio < 3)
     }
 
     @Test func subdivisionKeepsUntexturedNeighboursConforming() {
