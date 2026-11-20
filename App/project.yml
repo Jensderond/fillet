@@ -30,6 +30,7 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: Fillet
+        ITSAppUsesNonExemptEncryption: false
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.graphics-design
